@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>영상 파이프라인 관리자</title>
+    <link rel="stylesheet" href="/index.css" />
+    <script src="/index.js"></script>
+  </head>
+  <body>
+    <main>
+      <section class="processes" aria-labelledby="processes-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Supervisor</p>
+            <h2 id="processes-title">Processes</h2>
+          </div>
+          <button
+            class="text-button primary-button"
+            id="open-add-process"
+            type="button"
+          >
+            추가
+          </button>
+        </div>
+        <div class="process-list" id="process-list" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <dialog
+      class="process-dialog"
+      id="add-process-dialog"
+      aria-labelledby="dialog-title"
+    >
+      <form method="dialog" id="add-process-form">
+        <header class="dialog-header">
+          <div>
+            <h2 id="dialog-title">Add Process</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            id="close-add-process"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </header>
+
+        <div class="form-body">
+          <section class="form-section">
+            <h3>Process</h3>
+            <label
+              >ID<input
+                name="name"
+                type="text"
+                placeholder="camera-001"
+                required
+            /></label>
+            <div class="field-row field-row--three">
+              <label
+                >PIPE TYPE<select name="pipe_type">
+                  <option value="nvidia" selected>NVIDIA</option>
+                  <option value="bypass">Bypass</option>
+                </select></label
+              >
+              <label
+                >GPU ID<input name="gpuid" type="number" min="0" value="0"
+              /></label>
+              <label
+                >FPS<input name="fps" type="number" min="1" step="1" placeholder="30"
+              /></label>
+            </div>
+            <div class="field-after">
+              <label
+                >LOG LEVEL<select name="log_level">
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO" selected>INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select></label
+              >
+            </div>
+            <label class="toggle-field field-after">
+              <input name="auto_start" type="checkbox" />
+              <span>프로세스 종료 시 자동 복구</span>
+            </label>
+          </section>
+
+          <section class="form-section">
+            <h3>Input stream</h3>
+            <label
+              >RTSP URL<input
+                name="input_rtsp_url"
+                type="url"
+                placeholder="rtsp://"
+                required
+            /></label>
+            <div class="field-after">
+              <label
+                >TRANSPORT<select name="input_rtsp_transport">
+                  <option selected>tcp</option>
+                  <option>udp</option>
+                </select></label
+              >
+            </div>
+          </section>
+
+          <section class="form-section">
+            <h3>Output stream</h3>
+            <label
+              >RTSP URL<input
+                name="output_rtsp_url"
+                type="url"
+                placeholder="rtsp://"
+                required
+            /></label>
+            <div class="field-after">
+              <label
+                >TRANSPORT<select name="output_rtsp_transport">
+                  <option selected>tcp</option>
+                  <option>udp</option>
+                </select></label
+              >
+            </div>
+          </section>
+
+          <section class="form-section">
+            <h3>Metadata</h3>
+            <label class="toggle-field">
+              <input name="metadata_enabled" type="checkbox" />
+              <span>사용여부</span>
+            </label>
+            <div class="module-field">
+              <label for="metadata-module">PYTHON PATH</label
+              ><input id="metadata-module" name="metadata_path" type="text" />
+            </div>
+          </section>
+
+          <section class="form-section">
+            <h3>Inference</h3>
+            <label class="toggle-field">
+              <input name="inference_enabled" type="checkbox" />
+              <span>사용여부</span>
+            </label>
+            <div class="module-field">
+              <label for="inference-module">PYTHON PATH</label
+              ><input id="inference-module" name="inference_path" type="text" />
+            </div>
+            <div class="field-row">
+              <label
+                >INTERVAL FRAME<input
+                  name="inference_interval"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="3"
+              /></label>
+            <label
+              >FRAME TYPE<select name="inference_frame">
+                <option value="pytorch" selected>pytorch (torch.Tensor)</option>
+              </select></label
+            >
+            </div>
+          </section>
+
+          <section class="form-section">
+            <h3>Postprocess</h3>
+            <label class="toggle-field">
+              <input name="postprocess_enabled" type="checkbox" />
+              <span>사용여부</span>
+            </label>
+            <div class="module-field">
+              <label for="postprocess-module">PYTHON PATH</label
+              ><input
+                id="postprocess-module"
+                name="postprocess_path"
+                type="text"
+              />
+            </div>
+          </section>
+        </div>
+
+        <footer class="dialog-actions">
+          <p id="process-form-error" role="alert"></p>
+          <button
+            id="dialog-submit"
+            type="submit"
+            class="text-button primary-button"
+          >
+            확인
+          </button>
+          <button
+            type="button"
+            class="text-button secondary-button"
+            id="cancel-add-process"
+          >
+            취소
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog
+      class="process-dialog confirm-dialog"
+      id="action-confirm-dialog"
+      aria-labelledby="action-confirm-title"
+    >
+      <div class="confirm-content">
+        <h2 id="action-confirm-title"></h2>
+        <p>
+          <strong id="action-process-name"></strong> 프로세스를
+          <span id="action-confirm-message"></span>
+        </p>
+        <p class="dialog-error" id="action-process-error" role="alert"></p>
+      </div>
+      <footer class="dialog-actions">
+        <button
+          id="confirm-process-action"
+          type="button"
+          class="text-button primary-button"
+        ></button>
+        <button
+          id="cancel-process-action"
+          type="button"
+          class="text-button secondary-button"
+        >
+          취소
+        </button>
+      </footer>
+    </dialog>
+
+    <dialog
+      class="process-dialog confirm-dialog"
+      id="duplicate-confirm-dialog"
+      aria-labelledby="duplicate-confirm-title"
+    >
+      <div class="confirm-content">
+        <h2 id="duplicate-confirm-title">프로세스 복제</h2>
+        <p>
+          <strong id="duplicate-source-name"></strong> 프로세스 설정을 복제합니다.
+        </p>
+        <label id="duplicate-process-id-field">
+          복제할 Process ID
+          <input
+            id="duplicate-process-id"
+            type="text"
+            autocomplete="off"
+            placeholder="새 Process ID 입력"
+          />
+        </label>
+        <p class="dialog-error" id="duplicate-process-error" role="alert"></p>
+      </div>
+      <footer class="dialog-actions">
+        <button
+          id="confirm-process-duplicate"
+          type="button"
+          class="text-button primary-button"
+        >
+          복제
+        </button>
+        <button
+          id="cancel-process-duplicate"
+          type="button"
+          class="text-button secondary-button"
+        >
+          취소
+        </button>
+      </footer>
+    </dialog>
+
+    <dialog
+      class="process-dialog log-dialog"
+      id="process-log-dialog"
+      aria-labelledby="process-log-title"
+    >
+      <header class="dialog-header">
+        <div>
+          <h2 id="process-log-title">Logs</h2>
+          <p id="process-log-process-name"></p>
+        </div>
+        <button
+          class="icon-button"
+          type="button"
+          id="close-process-logs"
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </header>
+      <pre
+        class="process-log-output"
+        id="process-log-output"
+        aria-live="polite"
+      ></pre>
+    </dialog>
+  </body>
+</html>
