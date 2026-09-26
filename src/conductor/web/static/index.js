@@ -2,6 +2,49 @@ let displayedProcesses = [];
 const MAX_LOG_LINES = 500;
 const processes = [];
 const latestStatistics = new Map();
+let activeStatCount = null;
+
+function updateStatTooltip(countElement) {
+  let tooltip = document.querySelector("#stat-tooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.id = "stat-tooltip";
+    tooltip.className = "stat-tooltip";
+    tooltip.setAttribute("role", "tooltip");
+    tooltip.hidden = true;
+    document.body.append(tooltip);
+  }
+
+  tooltip.textContent = countElement.dataset.exactCount || "0";
+  tooltip.hidden = false;
+  const countRect = countElement.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const left = Math.max(
+    8,
+    Math.min(countRect.left, window.innerWidth - tooltipRect.width - 8),
+  );
+  const above = countRect.top - tooltipRect.height - 8;
+  const top = above >= 8
+    ? above
+    : Math.min(window.innerHeight - tooltipRect.height - 8, countRect.bottom + 8);
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${Math.max(8, top)}px`;
+}
+
+document.addEventListener("pointerover", (event) => {
+  const countElement = event.target.closest?.(".stat-count");
+  if (!countElement) return;
+  activeStatCount = countElement;
+  updateStatTooltip(countElement);
+});
+
+document.addEventListener("pointerout", (event) => {
+  const countElement = event.target.closest?.(".stat-count");
+  if (!countElement || countElement.contains(event.relatedTarget)) return;
+  activeStatCount = null;
+  const tooltip = document.querySelector("#stat-tooltip");
+  if (tooltip) tooltip.hidden = true;
+});
 
 function escapeHtml(value) {
   return String(value).replace(
@@ -19,6 +62,21 @@ function escapeHtml(value) {
 
 function toBoolean(value) {
   return value === true || value === 1 || value === "1";
+}
+
+function formatCount(value) {
+  const count = Number(value || 0);
+  if (count >= 1_000_000_000) {
+    return `${(count / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 })}M`;
+  }
+  if (count >= 1_000_000) {
+    return `${(count / 1_000).toLocaleString(undefined, { maximumFractionDigits: 3 })}K`;
+  }
+  return count.toLocaleString();
+}
+
+function formatExactCount(value) {
+  return Number(value || 0).toLocaleString();
 }
 
 function normalizeProcess(process) {
@@ -107,7 +165,7 @@ function renderProcesses(processes) {
       const deleteAction = `<button class="context-delete-button" type="button" role="menuitem" data-process-index="${index}">삭제</button>`;
       const actions = `<button class="start-button" type="button" data-process-index="${index}" title="Start ${name}">▶</button><button class="danger-button" type="button" data-process-index="${index}" title="Stop ${name}">■</button><div class="process-menu-container"><button class="more-button" type="button" data-process-index="${index}" aria-haspopup="menu" aria-expanded="false" title="${name} 메뉴">…</button><div class="process-context-menu" role="menu" hidden><button class="context-edit-button" type="button" role="menuitem" data-process-index="${index}">편집</button>${deleteAction}</div></div>`;
       const statistics = process.statistics || {};
-      const count = (field) => Number(statistics[field] || 0).toLocaleString();
+      const count = (field) => `<span class="stat-count" data-exact-count="${formatExactCount(statistics[field])}">${formatCount(statistics[field])}</span>`;
       return `<article class="process-card ${stateClass}" data-process-id="${name}"><div class="process-identity"><span class="process-icon" aria-hidden="true">${running ? "\u25b6" : "\u25a0"}</span><div><h3>${name}</h3><p><span class="pipe-type">${escapeHtml(details)}</span><span class="stage-icons">${stageIcons}</span></p></div></div><div class="process-route"><span class="endpoint ${process.inputState === "running" ? "is-running" : ""}">${escapeHtml(process.input)}</span><span aria-hidden="true">→</span><span class="endpoint ${process.outputState === "running" ? "is-running" : ""}">${escapeHtml(process.output)}</span></div><div class="process-actions">${actions}</div><dl class="process-statistics"><div><dt>수신</dt><dd data-stat="received">${count("received")}</dd></div><div><dt>송출</dt><dd data-stat="sent">${count("sent")}</dd></div><div class="warning"><dt>비정상</dt><dd data-stat="anomalous">${count("anomalous")}</dd></div><div class="failure"><dt>추론 실패</dt><dd data-stat="inferenceFailed">${count("inferenceFailed")}</dd></div><div class="failure"><dt>후처리 실패</dt><dd data-stat="postprocessFailed">${count("postprocessFailed")}</dd></div></dl></article>`;
     })
     .join("");
@@ -156,10 +214,18 @@ function updateProcessStatistics(process) {
   for (const [field, value] of Object.entries(process.statistics || {})) {
     const valueElement = card.querySelector(`[data-stat="${field}"]`);
     if (valueElement) {
-      valueElement.textContent =
-        field === "average_ms"
-          ? formatAverageMs(value)
-          : Number(value || 0).toLocaleString();
+      if (field === "average_ms") {
+        valueElement.textContent = formatAverageMs(value);
+      } else {
+        const countElement = valueElement.querySelector(".stat-count");
+        if (countElement) {
+          countElement.textContent = formatCount(value);
+          countElement.dataset.exactCount = formatExactCount(value);
+          if (activeStatCount === countElement) {
+            updateStatTooltip(countElement);
+          }
+        }
+      }
     }
   }
 }

@@ -390,11 +390,36 @@ button:not(:disabled):hover {
 }
 
 .process-statistics dd {
+  position: relative;
   margin: 4px 0 0;
   color: #dce8f8;
   font-size: 0.86rem;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+}
+
+.stat-count {
+  cursor: help;
+}
+
+.stat-tooltip {
+  position: fixed;
+  z-index: 20;
+  padding: 6px 8px;
+  border: 1px solid #456487;
+  border-radius: 6px;
+  background: #101d2d;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.35);
+  color: #e5efff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.stat-tooltip[hidden] {
+  display: none;
 }
 
 .process-statistics .warning dd {
