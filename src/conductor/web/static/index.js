@@ -170,14 +170,14 @@ function renderProcesses(processes) {
     })
     .join("");
 
-  container.querySelectorAll(".process-actions").forEach((actions, index) => {
+  container.querySelectorAll(".process-route").forEach((route, index) => {
     const average = document.createElement("span");
     average.className = "process-average";
     average.dataset.stat = "average_ms";
     average.textContent = formatAverageMs(
       displayedProcesses[index].statistics.average_ms,
     );
-    actions.prepend(average);
+    route.append(average);
   });
 
   container.querySelectorAll(".process-context-menu").forEach((menu, index) => {
