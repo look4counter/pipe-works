@@ -12,7 +12,7 @@ from websockets.sync.client import connect
 from pipeline.statistics import PIPELINE_STATISTICS
 
 logger = logging.getLogger(__name__)
-REPORT_INTERVAL_SECONDS = 1.0
+REPORT_INTERVAL_SECONDS = 0.25
 RECONNECT_INTERVAL_SECONDS = 2.0
 DEFAULT_STATS_WEBSOCKET_URL = "ws://127.0.0.1:{port}/ws/pipeline-stats"
 
