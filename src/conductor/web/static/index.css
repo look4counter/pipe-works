@@ -176,6 +176,15 @@ button:not(:disabled):hover {
   border-color: #4974a7;
 }
 
+.process-card.is-dragging {
+  opacity: 0.45;
+}
+
+.process-card.is-drop-target {
+  border-color: #82b7ff;
+  background: rgba(30, 63, 96, 0.62);
+}
+
 .process-identity {
   display: flex;
   align-items: center;
@@ -303,6 +312,21 @@ button:not(:disabled):hover {
   padding: 0;
   place-items: center;
   border-radius: 9px;
+}
+
+.process-actions .move-button {
+  color: #8495ab;
+  cursor: grab;
+}
+
+.process-actions .move-button:active {
+  cursor: grabbing;
+}
+
+.process-actions .move-button:hover {
+  border-color: #4581bd;
+  color: #c7e4ff;
+  background: #274a6c;
 }
 
 .process-actions .danger-button:hover {

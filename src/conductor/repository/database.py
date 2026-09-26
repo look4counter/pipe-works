@@ -23,6 +23,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS processes (
                     process_id TEXT PRIMARY KEY NOT NULL,
                     description TEXT NOT NULL DEFAULT '',
+                    display_order INTEGER NOT NULL DEFAULT 0,
                     auto_start INTEGER NOT NULL CHECK (auto_start IN (0, 1)),
                     input_rtsp_url TEXT NOT NULL, input_rtsp_transport TEXT NOT NULL,
                     output_rtsp_url TEXT NOT NULL, output_rtsp_transport TEXT NOT NULL,
@@ -47,6 +48,7 @@ class Database:
                 connection.execute("""CREATE TABLE processes (
                     process_id TEXT PRIMARY KEY NOT NULL,
                     description TEXT NOT NULL DEFAULT '',
+                    display_order INTEGER NOT NULL DEFAULT 0,
                     auto_start INTEGER NOT NULL CHECK (auto_start IN (0, 1)),
                     input_rtsp_url TEXT NOT NULL, input_rtsp_transport TEXT NOT NULL,
                     output_rtsp_url TEXT NOT NULL, output_rtsp_transport TEXT NOT NULL,
@@ -64,7 +66,7 @@ class Database:
                     ).fetchall()
                 }
                 new_columns = [
-                    "process_id", "description", "auto_start", "input_rtsp_url", "input_rtsp_transport",
+                    "process_id", "description", "display_order", "auto_start", "input_rtsp_url", "input_rtsp_transport",
                     "output_rtsp_url", "output_rtsp_transport", "pipe_type", "gpu_id", "fps",
                     "metadata_enabled", "metadata_path", "inference_enabled", "inference_path",
                     "inference_interval", "inference_frame", "postprocess_enabled", "postprocess_path",
@@ -98,6 +100,8 @@ class Database:
                     f"SELECT {select_sql} FROM processes_legacy"
                 )
                 connection.execute("DROP TABLE processes_legacy")
+                if "display_order" not in old_columns:
+                    self._initialize_display_order(connection)
                 legacy_columns = set(new_columns)
                 if "runtime_pid" in old_columns:
                     connection.execute(
@@ -110,6 +114,11 @@ class Database:
                 connection.execute(
                     "ALTER TABLE processes ADD COLUMN description TEXT NOT NULL DEFAULT ''"
                 )
+            if "display_order" not in legacy_columns:
+                connection.execute(
+                    "ALTER TABLE processes ADD COLUMN display_order INTEGER NOT NULL DEFAULT 0"
+                )
+                self._initialize_display_order(connection)
             if "fps" not in legacy_columns:
                 connection.execute(
                     "ALTER TABLE processes ADD COLUMN fps INTEGER NOT NULL DEFAULT 30"
@@ -150,6 +159,16 @@ class Database:
         if configured:
             return Path(configured)
         return Path(__file__).resolve().parents[3] / "pipe-works.db"
+
+    @staticmethod
+    def _initialize_display_order(connection: sqlite3.Connection) -> None:
+        process_ids = connection.execute(
+            "SELECT process_id FROM processes ORDER BY process_id"
+        ).fetchall()
+        connection.executemany(
+            "UPDATE processes SET display_order = ? WHERE process_id = ?",
+            ((order, row["process_id"]) for order, row in enumerate(process_ids)),
+        )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database_path)
@@ -201,11 +220,16 @@ class Database:
         columns = ", ".join(values)
         placeholders = ", ".join(f":{field}" for field in values)
         updates = ", ".join(
-            f"{field} = excluded.{field}" for field in values if field != "process_id"
+            f"{field} = excluded.{field}"
+            for field in values
+            if field != "process_id"
         )
         with self._connection() as connection:
             connection.execute(
-                f"INSERT INTO processes ({columns}) VALUES ({placeholders}) ON CONFLICT(process_id) DO UPDATE SET {updates}",
+                f"INSERT INTO processes ({columns}, display_order) "
+                f"VALUES ({placeholders}, "
+                "(SELECT COALESCE(MAX(display_order), -1) + 1 FROM processes)) "
+                f"ON CONFLICT(process_id) DO UPDATE SET {updates}",
                 values,
             )
 
@@ -219,9 +243,28 @@ class Database:
     def list_processes(self) -> list[dict[str, object]]:
         with self._connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM processes ORDER BY process_id"
+                "SELECT * FROM processes ORDER BY display_order, process_id"
             ).fetchall()
         return [self._to_record(row) for row in rows]
+
+    def reorder_processes(self, process_ids: list[str]) -> None:
+        if len(process_ids) != len(set(process_ids)):
+            raise ValueError("Process order contains duplicate IDs.")
+
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current_ids = {
+                row["process_id"]
+                for row in connection.execute(
+                    "SELECT process_id FROM processes"
+                ).fetchall()
+            }
+            if set(process_ids) != current_ids:
+                raise ValueError("Process order does not match the current process list.")
+            connection.executemany(
+                "UPDATE processes SET display_order = ? WHERE process_id = ?",
+                ((order, process_id) for order, process_id in enumerate(process_ids)),
+            )
 
     def delete_process(self, process_id: str) -> bool:
         with self._connection() as connection:

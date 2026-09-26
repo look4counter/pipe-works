@@ -67,6 +67,22 @@ class HttpServer:
         def list_processes() -> list[dict[str, object]]:
             return self.database.list_processes()
 
+        @self._app.put("/api/processes/order")
+        def reorder_processes(payload: dict[str, Any]) -> dict[str, list[str]]:
+            process_ids = payload.get("process_ids")
+            if not isinstance(process_ids, list) or any(
+                not isinstance(process_id, str) for process_id in process_ids
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="process_ids must be a list of process ID strings.",
+                )
+            try:
+                self.database.reorder_processes(process_ids)
+            except ValueError as error:
+                raise HTTPException(status_code=409, detail=str(error)) from error
+            return {"process_ids": process_ids}
+
         @self._app.get("/api/processes/status")
         async def get_process_status(
             process_id: str | None = None,

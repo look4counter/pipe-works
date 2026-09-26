@@ -168,7 +168,7 @@ function renderProcesses(processes) {
         stageIcon("PostProcess", "postprocess", process.postprocessEnabled, process.config.postprocessModule),
       ].join("");
       const deleteAction = `<button class="context-delete-button" type="button" role="menuitem" data-process-index="${index}">삭제</button>`;
-      const actions = `<button class="start-button" type="button" data-process-index="${index}" title="Start ${name}">▶</button><button class="danger-button" type="button" data-process-index="${index}" title="Stop ${name}">■</button><div class="process-menu-container"><button class="more-button" type="button" data-process-index="${index}" aria-haspopup="menu" aria-expanded="false" title="${name} 메뉴">…</button><div class="process-context-menu" role="menu" hidden><button class="context-edit-button" type="button" role="menuitem" data-process-index="${index}">편집</button>${deleteAction}</div></div>`;
+      const actions = `<button class="move-button" type="button" draggable="true" aria-label="Move ${name}" title="Drag to reorder ${name}">&#x283F;</button><button class="start-button" type="button" data-process-index="${index}" title="Start ${name}">▶</button><button class="danger-button" type="button" data-process-index="${index}" title="Stop ${name}">■</button><div class="process-menu-container"><button class="more-button" type="button" data-process-index="${index}" aria-haspopup="menu" aria-expanded="false" title="${name} 메뉴">…</button><div class="process-context-menu" role="menu" hidden><button class="context-edit-button" type="button" role="menuitem" data-process-index="${index}">편집</button>${deleteAction}</div></div>`;
       const statistics = process.statistics || {};
       const count = (field) => `<span class="stat-count" data-exact-count="${formatExactCount(statistics[field])}">${formatCount(statistics[field])}</span>`;
       return `<article class="process-card ${stateClass}" data-process-id="${name}"><div class="process-identity"><span class="process-icon" aria-hidden="true">${running ? "\u25b6" : "\u25a0"}</span><div><h3>${heading}</h3><p><span class="pipe-type">${escapeHtml(details)}</span><span class="stage-icons">${stageIcons}</span></p></div></div><div class="process-route"><span class="endpoint ${process.inputState === "running" ? "is-running" : ""}">${escapeHtml(process.input)}</span><span aria-hidden="true">→</span><span class="endpoint ${process.outputState === "running" ? "is-running" : ""}">${escapeHtml(process.output)}</span></div><div class="process-actions">${actions}</div><dl class="process-statistics"><div><dt>수신</dt><dd data-stat="received">${count("received")}</dd></div><div><dt>송출</dt><dd data-stat="sent">${count("sent")}</dd></div><div class="warning"><dt>비정상</dt><dd data-stat="anomalous">${count("anomalous")}</dd></div><div class="failure"><dt>추론 실패</dt><dd data-stat="inferenceFailed">${count("inferenceFailed")}</dd></div><div class="failure"><dt>후처리 실패</dt><dd data-stat="postprocessFailed">${count("postprocessFailed")}</dd></div></dl></article>`;
@@ -683,6 +683,87 @@ document.addEventListener("DOMContentLoaded", () => {
   closeButtons.forEach((button) => {
     button.addEventListener("click", () => dialog?.close());
   });
+
+  const processList = document.querySelector("#process-list");
+  let draggedCard = null;
+  let orderBeforeDrag = [];
+
+  function clearProcessDragState() {
+    draggedCard?.classList.remove("is-dragging");
+    processList?.querySelectorAll(".is-drop-target").forEach((card) => {
+      card.classList.remove("is-drop-target");
+    });
+    draggedCard = null;
+    orderBeforeDrag = [];
+  }
+
+  processList?.addEventListener("dragstart", (event) => {
+    const handle = event.target.closest(".move-button");
+    if (!handle) {
+      event.preventDefault();
+      return;
+    }
+
+    draggedCard = handle.closest(".process-card");
+    if (!draggedCard) return;
+    orderBeforeDrag = [...processList.querySelectorAll(".process-card")].map(
+      (card) => card.dataset.processId,
+    );
+    draggedCard.classList.add("is-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", draggedCard.dataset.processId);
+  });
+
+  processList?.addEventListener("dragover", (event) => {
+    if (!draggedCard) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const target = event.target.closest(".process-card");
+    if (!target || target === draggedCard) return;
+
+    processList.querySelectorAll(".is-drop-target").forEach((card) => {
+      card.classList.remove("is-drop-target");
+    });
+    target.classList.add("is-drop-target");
+
+    const bounds = target.getBoundingClientRect();
+    const insertAfter = event.clientX > bounds.left + bounds.width / 2;
+    const reference = insertAfter ? target.nextElementSibling : target;
+    if (reference !== draggedCard) {
+      processList.insertBefore(draggedCard, reference);
+    }
+  });
+
+  processList?.addEventListener("drop", async (event) => {
+    if (!draggedCard) return;
+    event.preventDefault();
+    const processIds = [...processList.querySelectorAll(".process-card")].map(
+      (card) => card.dataset.processId,
+    );
+    const orderChanged = processIds.some(
+      (processId, index) => processId !== orderBeforeDrag[index],
+    );
+    clearProcessDragState();
+    if (!orderChanged) return;
+
+    try {
+      const response = await fetch("/api/processes/order", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ process_ids: processIds }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || `Could not save process order (${response.status}).`);
+      }
+      await refreshProcesses();
+    } catch (error) {
+      await refreshProcesses();
+      window.alert(error.message);
+    }
+  });
+
+  processList?.addEventListener("dragend", clearProcessDragState);
 
   document
     .querySelector("#process-list")
