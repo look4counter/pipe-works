@@ -6,7 +6,6 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 from typing import Generator
 
 from pipeline.arguments import PipelineArguments
@@ -36,122 +35,6 @@ class Database:
                     log_level TEXT NOT NULL DEFAULT 'INFO' CHECK (log_level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'))
                 )
             """)
-            legacy_columns = {
-                row["name"]
-                for row in connection.execute("PRAGMA table_info(processes)").fetchall()
-            }
-            table_sql = connection.execute(
-                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'processes'"
-            ).fetchone()["sql"]
-            if "bypass" not in table_sql.lower():
-                connection.execute("ALTER TABLE processes RENAME TO processes_legacy")
-                connection.execute("""CREATE TABLE processes (
-                    process_id TEXT PRIMARY KEY NOT NULL,
-                    description TEXT NOT NULL DEFAULT '',
-                    display_order INTEGER NOT NULL DEFAULT 0,
-                    auto_start INTEGER NOT NULL CHECK (auto_start IN (0, 1)),
-                    input_rtsp_url TEXT NOT NULL, input_rtsp_transport TEXT NOT NULL,
-                    output_rtsp_url TEXT NOT NULL, output_rtsp_transport TEXT NOT NULL,
-                    pipe_type TEXT NOT NULL CHECK (pipe_type IN ('nvidia', 'bypass')),
-                    gpu_id INTEGER NOT NULL DEFAULT 0, fps INTEGER NOT NULL DEFAULT 30,
-                    metadata_enabled INTEGER NOT NULL CHECK (metadata_enabled IN (0, 1)), metadata_path TEXT,
-                    inference_enabled INTEGER NOT NULL CHECK (inference_enabled IN (0, 1)), inference_path TEXT,
-                    inference_interval INTEGER NOT NULL DEFAULT 3, inference_frame TEXT CHECK (inference_frame IN ('pytorch')),
-                    postprocess_enabled INTEGER NOT NULL CHECK (postprocess_enabled IN (0, 1)), postprocess_path TEXT,
-                    log_level TEXT NOT NULL DEFAULT 'INFO' CHECK (log_level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'))
-                )""")
-                old_columns = {
-                    row["name"] for row in connection.execute(
-                        "PRAGMA table_info(processes_legacy)"
-                    ).fetchall()
-                }
-                new_columns = [
-                    "process_id", "description", "display_order", "auto_start", "input_rtsp_url", "input_rtsp_transport",
-                    "output_rtsp_url", "output_rtsp_transport", "pipe_type", "gpu_id", "fps",
-                    "metadata_enabled", "metadata_path", "inference_enabled", "inference_path",
-                    "inference_interval", "inference_frame", "postprocess_enabled", "postprocess_path",
-                    "log_level",
-                ]
-                shared_columns = [name for name in new_columns if name in old_columns]
-                columns_sql = ", ".join(shared_columns)
-                legacy_expressions = {
-                    "pipe_type": (
-                        "CASE WHEN pipe_type IN ('nvidia', 'bypass') "
-                        "THEN pipe_type ELSE 'nvidia' END"
-                    ),
-                    "gpu_id": "COALESCE(gpu_id, 0)",
-                    "fps": "COALESCE(fps, 30)",
-                    "inference_interval": "COALESCE(inference_interval, 3)",
-                    "inference_frame": (
-                        "CASE WHEN inference_frame = 'onnx' "
-                        "THEN 'pytorch' ELSE inference_frame END"
-                    ),
-                    "log_level": (
-                        "CASE WHEN log_level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL') "
-                        "THEN log_level ELSE 'INFO' END"
-                    ),
-                }
-                select_sql = ", ".join(
-                    legacy_expressions.get(name, name)
-                    for name in shared_columns
-                )
-                connection.execute(
-                    f"INSERT INTO processes ({columns_sql}) "
-                    f"SELECT {select_sql} FROM processes_legacy"
-                )
-                connection.execute("DROP TABLE processes_legacy")
-                if "display_order" not in old_columns:
-                    self._initialize_display_order(connection)
-                legacy_columns = set(new_columns)
-                if "runtime_pid" in old_columns:
-                    connection.execute(
-                        "ALTER TABLE processes ADD COLUMN runtime_pid INTEGER"
-                    )
-                    legacy_columns.add("runtime_pid")
-            if "runtime_pid" in legacy_columns:
-                connection.execute("UPDATE processes SET runtime_pid = NULL")
-            if "description" not in legacy_columns:
-                connection.execute(
-                    "ALTER TABLE processes ADD COLUMN description TEXT NOT NULL DEFAULT ''"
-                )
-            if "display_order" not in legacy_columns:
-                connection.execute(
-                    "ALTER TABLE processes ADD COLUMN display_order INTEGER NOT NULL DEFAULT 0"
-                )
-                self._initialize_display_order(connection)
-            if "fps" not in legacy_columns:
-                connection.execute(
-                    "ALTER TABLE processes ADD COLUMN fps INTEGER NOT NULL DEFAULT 30"
-                )
-            if "log_level" not in legacy_columns:
-                connection.execute(
-                    "ALTER TABLE processes ADD COLUMN log_level TEXT NOT NULL DEFAULT 'INFO' "
-                    "CHECK (log_level IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'))"
-                )
-            connection.execute("UPDATE processes SET fps = 30 WHERE fps IS NULL")
-            connection.execute(
-                "UPDATE processes SET log_level = 'INFO' "
-                "WHERE log_level NOT IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL') "
-                "OR log_level IS NULL"
-            )
-            connection.execute(
-                "UPDATE processes SET inference_interval = 3 WHERE inference_interval IS NULL"
-            )
-            # Keep existing process configurations compatible with the NVIDIA default.
-            connection.execute(
-                "UPDATE processes SET gpu_id = COALESCE(gpu_id, 0)"
-            )
-            # Normalize historical unsupported pipe types to the NVIDIA default.
-            connection.execute(
-                "UPDATE processes SET pipe_type = 'nvidia' "
-                "WHERE pipe_type NOT IN ('nvidia', 'bypass')"
-            )
-            # ONNX inference is not supported; normalize saved selections to
-            # the only supported frame type.
-            connection.execute(
-                "UPDATE processes SET inference_frame = 'pytorch' "
-                "WHERE inference_frame = 'onnx'"
-            )
 
     @staticmethod
     def _default_path() -> Path:
@@ -159,16 +42,6 @@ class Database:
         if configured:
             return Path(configured)
         return Path(__file__).resolve().parents[3] / "pipe-works.db"
-
-    @staticmethod
-    def _initialize_display_order(connection: sqlite3.Connection) -> None:
-        process_ids = connection.execute(
-            "SELECT process_id FROM processes ORDER BY process_id"
-        ).fetchall()
-        connection.executemany(
-            "UPDATE processes SET display_order = ? WHERE process_id = ?",
-            ((order, row["process_id"]) for order, row in enumerate(process_ids)),
-        )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database_path)
