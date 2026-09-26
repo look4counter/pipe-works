@@ -385,6 +385,14 @@ button:not(:disabled):hover {
   background: #274a6c;
 }
 
+.process-context-menu button:disabled,
+.process-context-menu button:disabled:hover {
+  color: #637286;
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .process-context-menu .context-delete-button:hover {
   color: #ffdce2;
   background: #66313c;

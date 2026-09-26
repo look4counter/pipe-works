@@ -167,7 +167,7 @@ function renderProcesses(processes) {
         stageIcon("Inference", "inference", process.inferenceEnabled, process.config.inferenceModule),
         stageIcon("PostProcess", "postprocess", process.postprocessEnabled, process.config.postprocessModule),
       ].join("");
-      const deleteAction = `<button class="context-delete-button" type="button" role="menuitem" data-process-index="${index}">삭제</button>`;
+      const deleteAction = `<button class="context-delete-button" type="button" role="menuitem" data-process-index="${index}"${running ? " disabled" : ""}>삭제</button>`;
       const actions = `<button class="move-button" type="button" draggable="true" aria-label="Move ${name}" title="Drag to reorder ${name}">&#x283F;</button><button class="start-button" type="button" data-process-index="${index}" title="Start ${name}">▶</button><button class="danger-button" type="button" data-process-index="${index}" title="Stop ${name}">■</button><div class="process-menu-container"><button class="more-button" type="button" data-process-index="${index}" aria-haspopup="menu" aria-expanded="false" title="${name} 메뉴">…</button><div class="process-context-menu" role="menu" hidden><button class="context-edit-button" type="button" role="menuitem" data-process-index="${index}">편집</button>${deleteAction}</div></div>`;
       const statistics = process.statistics || {};
       const count = (field) => `<span class="stat-count" data-exact-count="${formatExactCount(statistics[field])}">${formatCount(statistics[field])}</span>`;
@@ -245,6 +245,11 @@ function updateProcessState(process) {
   const stopped = !running;
   card.classList.toggle("is-running", running);
   card.classList.toggle("is-stopped", stopped);
+  const deleteButton = card.querySelector(".context-delete-button");
+  if (deleteButton) {
+    deleteButton.disabled = running;
+    deleteButton.title = running ? "Stop the process before deleting it." : "";
+  }
   const icon = card.querySelector(".process-icon");
   if (icon) {
     icon.textContent = running ? "\u25b6" : "\u25a0";
@@ -838,6 +843,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const deleteButton = event.target.closest(".context-delete-button");
       if (deleteButton) {
+        if (deleteButton.disabled) return;
         const process =
           displayedProcesses[Number(deleteButton.dataset.processIndex)];
         closeProcessMenus();

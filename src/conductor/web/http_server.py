@@ -191,7 +191,28 @@ class HttpServer:
             return saved
 
         @self._app.delete("/api/processes", status_code=204)
-        def delete_process(process_id: str) -> None:
+        async def delete_process(process_id: str) -> None:
+            if self.database.get_process(process_id) is None:
+                raise HTTPException(status_code=404, detail="Process was not found.")
+            try:
+                is_running = await run_in_threadpool(
+                    self.supervisor.is_process_running, process_id
+                )
+            except SupervisorProcessLookupError as error:
+                logger.warning(
+                    "OS process state lookup failed before deleting %s: %s",
+                    process_id,
+                    error,
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="OS process state could not be inspected.",
+                ) from error
+            if is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Stop the process before deleting it.",
+                )
             if not self.database.delete_process(process_id):
                 raise HTTPException(status_code=404, detail="저장된 프로세스를 찾을 수 없습니다.")
             self._log_hub.remove_process(process_id)
