@@ -45,6 +45,7 @@ class HttpServer:
 
         @self._app.post("/api/processes", status_code=201)
         def create_process(payload: dict[str, Any]) -> dict[str, object]:
+            description = _parse_description(payload)
             process_id = payload.get("process_id")
             auto_start = payload.get("auto_start")
             if not isinstance(process_id, str) or not process_id.strip():
@@ -56,7 +57,7 @@ class HttpServer:
             except (SystemExit, ValueError) as error:
                 raise HTTPException(status_code=422, detail=str(error)) from error
 
-            self.database.save_process(process_id, auto_start, parameters)
+            self.database.save_process(process_id, auto_start, parameters, description)
             saved = self.database.get_process(process_id)
             if saved is None:
                 raise HTTPException(status_code=500, detail="프로세스 저장에 실패했습니다.")
@@ -152,6 +153,7 @@ class HttpServer:
         def update_process(
             process_id: str, payload: dict[str, Any]
         ) -> dict[str, object]:
+            description = _parse_description(payload)
             payload_process_id = payload.get("process_id")
             if payload_process_id != process_id:
                 raise HTTPException(status_code=422, detail="요청 경로와 process_id가 일치하지 않습니다.")
@@ -166,7 +168,7 @@ class HttpServer:
             except (SystemExit, ValueError) as error:
                 raise HTTPException(status_code=422, detail=str(error)) from error
 
-            self.database.save_process(process_id, auto_start, parameters)
+            self.database.save_process(process_id, auto_start, parameters, description)
             saved = self.database.get_process(process_id)
             if saved is None:
                 raise HTTPException(status_code=500, detail="프로세스 수정에 실패했습니다.")
@@ -375,3 +377,10 @@ def _argument_value(value: object) -> str:
     if isinstance(value, bool):
         return str(value).lower()
     return str(value)
+
+
+def _parse_description(payload: dict[str, Any]) -> str:
+    description = payload.get("description", "")
+    if not isinstance(description, str):
+        raise HTTPException(status_code=422, detail="description must be a string.")
+    return description

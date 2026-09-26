@@ -85,6 +85,7 @@ function normalizeProcess(process) {
   return {
     source: process,
     name: process.name || process.process_id || process.id,
+    description: process.description || "",
     pid: process.pid,
     gpu: process.gpu_id ?? process.gpuid ?? process.gpu ?? null,
     fps: process.fps ?? null,
@@ -154,6 +155,10 @@ function renderProcesses(processes) {
       const running = process.state === "running";
       const stateClass = running ? "is-running" : "is-stopped";
       const name = escapeHtml(process.name);
+      const description = process.description.trim();
+      const heading = description
+        ? `${name} (${escapeHtml(description)})`
+        : name;
       const details = process.pipeType.toUpperCase();
       const stageIcon = (label, stage, enabled, modulePath) =>
         `<button class="stage-icon${enabled ? " is-enabled" : ""}" type="button" data-module-stage="${stage}" data-process-id="${escapeHtml(process.source.process_id)}"${modulePath ? "" : " disabled"} title="${label}: ${enabled ? "enabled" : "disabled"}${modulePath ? " — click to open file" : " — no file configured"}" aria-label="${label}: ${enabled ? "enabled" : "disabled"}">${label}</button>`;
@@ -166,7 +171,7 @@ function renderProcesses(processes) {
       const actions = `<button class="start-button" type="button" data-process-index="${index}" title="Start ${name}">▶</button><button class="danger-button" type="button" data-process-index="${index}" title="Stop ${name}">■</button><div class="process-menu-container"><button class="more-button" type="button" data-process-index="${index}" aria-haspopup="menu" aria-expanded="false" title="${name} 메뉴">…</button><div class="process-context-menu" role="menu" hidden><button class="context-edit-button" type="button" role="menuitem" data-process-index="${index}">편집</button>${deleteAction}</div></div>`;
       const statistics = process.statistics || {};
       const count = (field) => `<span class="stat-count" data-exact-count="${formatExactCount(statistics[field])}">${formatCount(statistics[field])}</span>`;
-      return `<article class="process-card ${stateClass}" data-process-id="${name}"><div class="process-identity"><span class="process-icon" aria-hidden="true">${running ? "\u25b6" : "\u25a0"}</span><div><h3>${name}</h3><p><span class="pipe-type">${escapeHtml(details)}</span><span class="stage-icons">${stageIcons}</span></p></div></div><div class="process-route"><span class="endpoint ${process.inputState === "running" ? "is-running" : ""}">${escapeHtml(process.input)}</span><span aria-hidden="true">→</span><span class="endpoint ${process.outputState === "running" ? "is-running" : ""}">${escapeHtml(process.output)}</span></div><div class="process-actions">${actions}</div><dl class="process-statistics"><div><dt>수신</dt><dd data-stat="received">${count("received")}</dd></div><div><dt>송출</dt><dd data-stat="sent">${count("sent")}</dd></div><div class="warning"><dt>비정상</dt><dd data-stat="anomalous">${count("anomalous")}</dd></div><div class="failure"><dt>추론 실패</dt><dd data-stat="inferenceFailed">${count("inferenceFailed")}</dd></div><div class="failure"><dt>후처리 실패</dt><dd data-stat="postprocessFailed">${count("postprocessFailed")}</dd></div></dl></article>`;
+      return `<article class="process-card ${stateClass}" data-process-id="${name}"><div class="process-identity"><span class="process-icon" aria-hidden="true">${running ? "\u25b6" : "\u25a0"}</span><div><h3>${heading}</h3><p><span class="pipe-type">${escapeHtml(details)}</span><span class="stage-icons">${stageIcons}</span></p></div></div><div class="process-route"><span class="endpoint ${process.inputState === "running" ? "is-running" : ""}">${escapeHtml(process.input)}</span><span aria-hidden="true">→</span><span class="endpoint ${process.outputState === "running" ? "is-running" : ""}">${escapeHtml(process.output)}</span></div><div class="process-actions">${actions}</div><dl class="process-statistics"><div><dt>수신</dt><dd data-stat="received">${count("received")}</dd></div><div><dt>송출</dt><dd data-stat="sent">${count("sent")}</dd></div><div class="warning"><dt>비정상</dt><dd data-stat="anomalous">${count("anomalous")}</dd></div><div class="failure"><dt>추론 실패</dt><dd data-stat="inferenceFailed">${count("inferenceFailed")}</dd></div><div class="failure"><dt>후처리 실패</dt><dd data-stat="postprocessFailed">${count("postprocessFailed")}</dd></div></dl></article>`;
     })
     .join("");
 
@@ -357,6 +362,7 @@ document.addEventListener("DOMContentLoaded", () => {
     dialogTitle.textContent = "Edit Process";
     submitButton.textContent = "저장";
     setValue("name", process.name);
+    setValue("description", process.description);
     nameInput.readOnly = true;
     setChecked("auto_start", config.desiredState);
     setValue("input_rtsp_url", config.inputUrl || process.input);

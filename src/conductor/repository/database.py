@@ -22,6 +22,7 @@ class Database:
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS processes (
                     process_id TEXT PRIMARY KEY NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
                     auto_start INTEGER NOT NULL CHECK (auto_start IN (0, 1)),
                     input_rtsp_url TEXT NOT NULL, input_rtsp_transport TEXT NOT NULL,
                     output_rtsp_url TEXT NOT NULL, output_rtsp_transport TEXT NOT NULL,
@@ -45,6 +46,7 @@ class Database:
                 connection.execute("ALTER TABLE processes RENAME TO processes_legacy")
                 connection.execute("""CREATE TABLE processes (
                     process_id TEXT PRIMARY KEY NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
                     auto_start INTEGER NOT NULL CHECK (auto_start IN (0, 1)),
                     input_rtsp_url TEXT NOT NULL, input_rtsp_transport TEXT NOT NULL,
                     output_rtsp_url TEXT NOT NULL, output_rtsp_transport TEXT NOT NULL,
@@ -62,7 +64,7 @@ class Database:
                     ).fetchall()
                 }
                 new_columns = [
-                    "process_id", "auto_start", "input_rtsp_url", "input_rtsp_transport",
+                    "process_id", "description", "auto_start", "input_rtsp_url", "input_rtsp_transport",
                     "output_rtsp_url", "output_rtsp_transport", "pipe_type", "gpu_id", "fps",
                     "metadata_enabled", "metadata_path", "inference_enabled", "inference_path",
                     "inference_interval", "inference_frame", "postprocess_enabled", "postprocess_path",
@@ -104,6 +106,10 @@ class Database:
                     legacy_columns.add("runtime_pid")
             if "runtime_pid" in legacy_columns:
                 connection.execute("UPDATE processes SET runtime_pid = NULL")
+            if "description" not in legacy_columns:
+                connection.execute(
+                    "ALTER TABLE processes ADD COLUMN description TEXT NOT NULL DEFAULT ''"
+                )
             if "fps" not in legacy_columns:
                 connection.execute(
                     "ALTER TABLE processes ADD COLUMN fps INTEGER NOT NULL DEFAULT 30"
@@ -163,12 +169,17 @@ class Database:
             connection.close()
 
     def save_process(
-        self, process_id: str, auto_start: bool, parameters: PipelineArguments
+        self,
+        process_id: str,
+        auto_start: bool,
+        parameters: PipelineArguments,
+        description: str = "",
     ) -> None:
         if not process_id.strip():
             raise ValueError("process_id는 비어 있을 수 없습니다.")
         values = {
             "process_id": process_id,
+            "description": description,
             "auto_start": int(auto_start),
             "input_rtsp_url": parameters.input_rtsp_url,
             "input_rtsp_transport": parameters.input_rtsp_transport,
