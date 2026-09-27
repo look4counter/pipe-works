@@ -66,7 +66,6 @@ def nvidia_encode(
 
     for decoded_frame in decoded_frames:
         configuration = (
-            decoded_frame.video_stream,
             decoded_frame.codec,
             decoded_frame.width,
             decoded_frame.height,
@@ -109,6 +108,8 @@ def nvidia_encode(
                 **encoder_kwargs,
             )
             encoder_configuration = configuration
+        else:
+            encoder_metadata["video_stream"] = decoded_frame.video_stream
 
         # PyNvVideoCodec's GPU input needs the decoder frame's CUDA Array
         # Interface. data may be a DLPack capsule at this point, so encode the

@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+import logging
 from time import perf_counter_ns
 
 import torch
@@ -7,6 +8,8 @@ import ctypes
 from pipeline.arguments import PipelineArguments
 from pipeline.context import ReceivePacket, FrameContext
 from pipeline.statistics import PIPELINE_STATISTICS
+
+logger = logging.getLogger(__name__)
 
 
 def _decoded_frame_pts(frame: object) -> int | None:
@@ -21,13 +24,12 @@ def _decoded_frame_pts(frame: object) -> int | None:
 def _stream_configuration(received_packet: ReceivePacket) -> tuple[object, ...]:
     stream = received_packet.video_stream
     codec_context = stream.codec_context
-    extradata = getattr(codec_context, "extradata", None) or b""
+    # PyAV may rebuild the Stream wrapper and its extradata on RTSP reconnect.
+    # Neither requires a new decoder when codec and dimensions are unchanged.
     return (
-        stream,
         stream.codec.name.lower(),
         codec_context.width,
         codec_context.height,
-        bytes(extradata),
     )
 
 
@@ -50,6 +52,24 @@ def _frame_context(
     )
 
 
+def _flush_decoder(
+    decoder: object, metadata: dict[str, object]
+) -> Iterator[FrameContext]:
+    flush = getattr(decoder, "Flush", None)
+    if not callable(flush):
+        logger.warning(
+            "PyNvDecoder has no Flush(); skipping buffer drain, "
+            "so delayed frames may be dropped."
+        )
+        return
+
+    with torch.cuda.stream(metadata["cuda_stream"]):
+        decode_started_at_ns = perf_counter_ns()
+        flushed_frames = flush()
+    for decoded_frame in flushed_frames:
+        yield _frame_context(decoded_frame, metadata, decode_started_at_ns)
+
+
 def nvidia_decode(
     parameters: PipelineArguments, received_packets: Iterator[ReceivePacket]
 ) -> Iterator[FrameContext]:
@@ -63,13 +83,7 @@ def nvidia_decode(
         configuration = _stream_configuration(received_packet)
         if configuration != decoder_configuration:
             if decoder is not None and decoder_metadata is not None:
-                with torch.cuda.stream(decoder_metadata["cuda_stream"]):
-                    decode_started_at_ns = perf_counter_ns()
-                    flushed_frames = decoder.Flush()
-                for decoded_frame in flushed_frames:
-                    yield _frame_context(
-                        decoded_frame, decoder_metadata, decode_started_at_ns
-                    )
+                yield from _flush_decoder(decoder, decoder_metadata)
 
             PIPELINE_STATISTICS.reset_decode_order()
             codec_ids = {
@@ -78,7 +92,7 @@ def nvidia_decode(
                 "h265": nvc.cudaVideoCodec.HEVC,
             }
 
-            _, codec, width, height, _ = configuration
+            codec, width, height = configuration
 
             cuda_stream = torch.cuda.Stream(device=parameters.gpu_id)
 
@@ -103,6 +117,10 @@ def nvidia_decode(
                 "height": height,
             }
 
+        elif decoder_metadata["video_stream"] is not received_packet.video_stream:
+            decoder_metadata["video_stream"] = received_packet.video_stream
+            PIPELINE_STATISTICS.reset_decode_order()
+
         packet_data = nvc.PacketData()
         bitstream = ctypes.create_string_buffer(bytes(received_packet.data))
         packet_data.bsl_data = ctypes.addressof(bitstream)
@@ -117,13 +135,6 @@ def nvidia_decode(
             for frame in frames:
                 yield _frame_context(frame, decoder_metadata, decode_started_at_ns)
 
-    # The receive iterator ends normally when its stop event is set. Flush the
-    # decoder then so delayed B-frames continue through inference and encoding.
+    # Drain delayed frames at shutdown when this decoder binding supports Flush.
     if decoder is not None and decoder_metadata is not None:
-        with torch.cuda.stream(decoder_metadata["cuda_stream"]):
-            decode_started_at_ns = perf_counter_ns()
-            flushed_frames = decoder.Flush()
-        for decoded_frame in flushed_frames:
-            yield _frame_context(
-                decoded_frame, decoder_metadata, decode_started_at_ns
-            )
+        yield from _flush_decoder(decoder, decoder_metadata)
