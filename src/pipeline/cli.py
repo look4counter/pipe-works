@@ -20,6 +20,7 @@ from pipeline.context import FrameContext
 from pipeline.statistics import PIPELINE_STATISTICS
 from pipeline.stats_reporter import report_statistics
 from pipeline.log_reporter import start_log_reporting, stop_log_reporting
+from pipeline.metadata_control import start_metadata_control
 
 logger = logging.getLogger(__name__)
 MODULE_WATCH_INTERVAL_SECONDS = 1.0
@@ -53,14 +54,24 @@ def watch_module(
     module_state: dict[str, object],
     stop_event: Event,
     last_modified: int,
+    reload_event: Event | None = None,
 ) -> None:
     """Replace a stage's loaded value when its source file changes."""
     module_path = Path(path).resolve()
 
-    while not stop_event.wait(MODULE_WATCH_INTERVAL_SECONDS):
+    while not stop_event.is_set():
+        force_reload = (
+            reload_event.wait(MODULE_WATCH_INTERVAL_SECONDS)
+            if reload_event is not None
+            else stop_event.wait(MODULE_WATCH_INTERVAL_SECONDS)
+        )
+        if reload_event is not None and force_reload:
+            reload_event.clear()
+        if stop_event.is_set():
+            return
         try:
             modified = module_path.stat().st_mtime_ns
-            if modified == last_modified:
+            if modified == last_modified and not force_reload:
                 continue
 
             updated_module = load_stage_module(module_path, stage)
@@ -183,7 +194,8 @@ def _run_pipeline(
     module_stop = Event()
     statistics_stop = Event()
     module_threads: list[Thread] = []
-    active_stages: list[tuple[str, Path, int]] = []
+    active_stages: list[tuple[str, Path, int, Event | None]] = []
+    metadata_reload_event = Event() if parameters.metadata_enabled else None
 
     for stage, enabled, path in watched_stages:
         if not enabled:
@@ -202,12 +214,13 @@ def _run_pipeline(
             # let the watcher retry loading the module in the background.
             logger.exception("Metadata 초기 로드 실패. metadata 없이 파이프를 시작합니다.")
 
-        active_stages.append((stage, resolved_path, last_modified))
+        reload_event = metadata_reload_event if stage == "metadata" else None
+        active_stages.append((stage, resolved_path, last_modified, reload_event))
 
-    for stage, path, last_modified in active_stages:
+    for stage, path, last_modified, reload_event in active_stages:
         thread = Thread(
             target=watch_module,
-            args=(path, stage, module_state, module_stop, last_modified),
+            args=(path, stage, module_state, module_stop, last_modified, reload_event),
             name=f"{stage}-watcher",
             daemon=True,
         )
@@ -215,6 +228,8 @@ def _run_pipeline(
         module_threads.append(thread)
 
     statistics_thread = None
+    metadata_control_stop = None
+    metadata_control_thread = None
     if parameters.process_id:
         statistics_thread = Thread(
             target=report_statistics,
@@ -223,6 +238,10 @@ def _run_pipeline(
             daemon=True,
         )
         statistics_thread.start()
+        if metadata_reload_event is not None:
+            metadata_control_stop, metadata_control_thread = start_metadata_control(
+                parameters.process_id, metadata_reload_event
+            )
 
     try:
         received_packets = receive(parameters, stop_event)
@@ -253,10 +272,14 @@ def _run_pipeline(
     finally:
         module_stop.set()
         statistics_stop.set()
+        if metadata_control_stop is not None:
+            metadata_control_stop.set()
         for thread in module_threads:
             thread.join(timeout=MODULE_WATCH_INTERVAL_SECONDS + 1)
         if statistics_thread is not None:
             statistics_thread.join(timeout=0.2)
+        if metadata_control_thread is not None:
+            metadata_control_thread.join(timeout=1.5)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from conductor.repository.database import Database
 from pipeline.arguments import PipelineArguments, parse_arguments
 from conductor.web.statistics_hub import StatisticsHub
 from conductor.web.log_hub import LogHub
+from conductor.web.metadata_control_hub import MetadataControlHub
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class HttpServer:
         self.database = database
         self._statistics_hub = StatisticsHub()
         self._log_hub = LogHub()
+        self._metadata_control_hub = MetadataControlHub()
         self._web_root = Path(__file__).parent
         self._app = FastAPI()
 
@@ -269,6 +271,34 @@ class HttpServer:
                 ) from error
             return {"path": str(resolved_path)}
 
+        @self._app.post("/api/processes/metadata/reload", status_code=202)
+        async def reload_metadata(process_id: str) -> dict[str, str]:
+            process = await run_in_threadpool(self.database.get_process, process_id)
+            if process is None:
+                raise HTTPException(status_code=404, detail="Process was not found.")
+            try:
+                is_running = await run_in_threadpool(
+                    self.supervisor.is_process_running, process_id
+                )
+            except SupervisorProcessLookupError as error:
+                raise HTTPException(
+                    status_code=503,
+                    detail="OS process state could not be inspected.",
+                ) from error
+            if not is_running:
+                raise HTTPException(
+                    status_code=409, detail="Process is not running."
+                )
+            if not self._metadata_control_hub.request_metadata_reload(process_id):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Pipeline metadata control channel is not connected; "
+                        "metadata may be disabled or still starting."
+                    ),
+                )
+            return {"process_id": process_id, "state": "reload_requested"}
+
         @self._app.websocket("/ws/pipeline-stats")
         async def receive_pipeline_statistics(websocket: WebSocket) -> None:
             await websocket.accept()
@@ -360,6 +390,21 @@ class HttpServer:
                     await asyncio.sleep(1.0)
             except WebSocketDisconnect:
                 return
+
+        @self._app.websocket("/ws/pipeline-control")
+        async def stream_pipeline_control(websocket: WebSocket) -> None:
+            process_id = websocket.query_params.get("process_id")
+            if (
+                not process_id
+                or await run_in_threadpool(
+                    self.database.get_process, process_id
+                ) is None
+            ):
+                await websocket.close(code=1008)
+                return
+            await self._metadata_control_hub.stream_to_pipeline(
+                websocket, process_id
+            )
 
         self._app.mount(
             "/",

@@ -64,6 +64,8 @@ Runtime state is derived from the Windows process command line and `--process-id
 | `/ws/process-logs?process_id=...` | 해당 프로세스의 최근 로그와 새 로그를 브라우저에 전송 | 로그 이벤트 |
 | `POST /api/processes/start?process_id=...` | 저장 정의 실행 | `running` 또는 오류 |
 | `POST /api/processes/stop?process_id=...` | 일치 프로세스 트리 강제 종료 | `stopped` 또는 오류 |
+| `POST /api/processes/metadata/reload?process_id=...` | 실행 중이고 metadata가 활성화된 파이프라인에서 `metadata()` 재실행 요청 | 202 및 `reload_requested` |
+| `/ws/pipeline-control?process_id=...` | Conductor가 실행 중인 파이프라인에 제어 명령 전달 | 내부 WebSocket |
 
 잘못된 입력은 422, 존재하지 않는 정의·실행은 404, 중복 실행은 409로 응답한다. 실행 시작 중 일반 OS 오류는
 안전한 메시지로 500 응답한다.
