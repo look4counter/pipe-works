@@ -272,6 +272,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const dialog = document.querySelector("#add-process-dialog");
   const form = document.querySelector("#add-process-form");
   const openButton = document.querySelector("#open-add-process");
+  const startAllButton = document.querySelector("#start-all-processes");
+  const stopAllButton = document.querySelector("#stop-all-processes");
   const dialogTitle = document.querySelector("#dialog-title");
   const submitButton = document.querySelector("#dialog-submit");
   const nameInput = form?.elements.namedItem("name");
@@ -303,6 +305,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const logOutput = document.querySelector("#process-log-output");
   const closeLogButton = document.querySelector("#close-process-logs");
   let saving = false;
+  let changingAllProcessStates = false;
   let pendingProcessAction = null;
   let pendingDuplicateProcess = null;
   let logLines = [];
@@ -600,6 +603,59 @@ document.addEventListener("DOMContentLoaded", () => {
     setProcessState(result.process_id, result.state);
   }
 
+  async function changeAllProcessStates(targetState) {
+    if (changingAllProcessStates) return;
+    changingAllProcessStates = true;
+    [startAllButton, stopAllButton, openButton].forEach((button) => {
+      if (button) button.disabled = true;
+    });
+
+    try {
+      const statusResponse = await fetch("/api/processes/status");
+      if (!statusResponse.ok) {
+        const body = await statusResponse.json().catch(() => ({}));
+        throw new Error(
+          body.detail || `프로세스 상태를 불러오지 못했습니다. (${statusResponse.status})`,
+        );
+      }
+
+      const status = await statusResponse.json();
+      const states = new Map(
+        (status.processes || []).map((process) => [
+          process.process_id,
+          process.state,
+        ]),
+      );
+      const processesToChange = processes.filter(
+        (process) => states.get(process.process_id) !== targetState,
+      );
+      const action = targetState === "running" ? startProcess : stopProcess;
+      const failures = [];
+
+      for (const process of processesToChange) {
+        try {
+          await action({ name: process.process_id });
+        } catch (error) {
+          failures.push(`${process.process_id}: ${error.message}`);
+        }
+      }
+
+      if (failures.length > 0) {
+        const actionName = targetState === "running" ? "시작" : "정지";
+        window.alert(
+          `일부 프로세스를 ${actionName}하지 못했습니다.\n${failures.join("\n")}`,
+        );
+      }
+    } catch (error) {
+      window.alert(error.message);
+    } finally {
+      changingAllProcessStates = false;
+      startAllButton.disabled = false;
+      stopAllButton.disabled = false;
+      openButton.disabled = saving;
+    }
+  }
+
   function showActionDialog(process, action) {
     const labels = {
       start: { title: "프로세스 시작", message: "시작하시겠습니까?", button: "시작" },
@@ -685,6 +741,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   openButton?.addEventListener("click", showAddDialog);
+  startAllButton?.addEventListener("click", () => {
+    changeAllProcessStates("running");
+  });
+  stopAllButton?.addEventListener("click", () => {
+    changeAllProcessStates("stopped");
+  });
   closeButtons.forEach((button) => {
     button.addEventListener("click", () => dialog?.close());
   });

@@ -92,6 +92,12 @@ h2 {
   align-items: center;
 }
 
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .section-heading .eyebrow {
   margin-bottom: 5px;
 }
@@ -777,6 +783,10 @@ input[type="file"]::file-selector-button {
     align-items: start;
     flex-direction: column;
     gap: 14px;
+  }
+
+  .section-actions {
+    flex-wrap: wrap;
   }
 
   .field-row,

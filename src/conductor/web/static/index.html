@@ -15,13 +15,29 @@
             <p class="eyebrow">Supervisor</p>
             <h2 id="processes-title">Processes</h2>
           </div>
-          <button
-            class="text-button primary-button"
-            id="open-add-process"
-            type="button"
-          >
-            추가
-          </button>
+          <div class="section-actions">
+            <button
+              class="text-button secondary-button"
+              id="start-all-processes"
+              type="button"
+            >
+              전체 시작
+            </button>
+            <button
+              class="text-button secondary-button"
+              id="stop-all-processes"
+              type="button"
+            >
+              전체 정지
+            </button>
+            <button
+              class="text-button primary-button"
+              id="open-add-process"
+              type="button"
+            >
+              추가
+            </button>
+          </div>
         </div>
         <div class="process-list" id="process-list" aria-live="polite"></div>
       </section>
