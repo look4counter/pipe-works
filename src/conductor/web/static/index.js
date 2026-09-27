@@ -660,12 +660,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const labels = {
       start: { title: "프로세스 시작", message: "시작하시겠습니까?", button: "시작" },
       stop: { title: "프로세스 정지", message: "정지하시겠습니까?", button: "정지" },
+      "start-all": { title: "전체 시작", message: "시작하시겠습니까?", button: "전체 시작" },
+      "stop-all": { title: "전체 정지", message: "정지하시겠습니까?", button: "전체 정지" },
       delete: { title: "프로세스 삭제", message: "삭제하시겠습니까?", button: "삭제" },
     };
     const label = labels[action];
     pendingProcessAction = { process, action };
     actionDialogTitle.textContent = label.title;
-    actionProcessName.textContent = process.name;
+    actionProcessName.textContent = process?.name || "전체";
     actionConfirmMessage.textContent = label.message;
     confirmActionButton.textContent = label.button;
     confirmActionButton.classList.toggle("delete-confirm-button", action === "delete");
@@ -742,10 +744,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   openButton?.addEventListener("click", showAddDialog);
   startAllButton?.addEventListener("click", () => {
-    changeAllProcessStates("running");
+    showActionDialog(null, "start-all");
   });
   stopAllButton?.addEventListener("click", () => {
-    changeAllProcessStates("stopped");
+    showActionDialog(null, "stop-all");
   });
   closeButtons.forEach((button) => {
     button.addEventListener("click", () => dialog?.close());
@@ -931,6 +933,10 @@ document.addEventListener("DOMContentLoaded", () => {
         await startProcess(pendingProcessAction.process);
       } else if (pendingProcessAction.action === "stop") {
         await stopProcess(pendingProcessAction.process);
+      } else if (pendingProcessAction.action === "start-all") {
+        await changeAllProcessStates("running");
+      } else if (pendingProcessAction.action === "stop-all") {
+        await changeAllProcessStates("stopped");
       } else if (pendingProcessAction.action === "delete") {
         await deleteProcess(pendingProcessAction.process);
       }
