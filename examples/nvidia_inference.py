@@ -1,7 +1,6 @@
 import logging
 from datetime import datetime
 import time
-import torch
 
 from pipeline.arguments import PipelineArguments
 from pipeline.context import FrameContext
@@ -55,7 +54,8 @@ def _draw_timestamp_nv12(
     if frame.pixel_format.upper() != "NV12":
         raise ValueError("The basic timestamp example requires NV12 input frames")
 
-    nv12 = torch.from_dlpack(frame.data)
+    # The pipeline passes a torch.Tensor as frame.data to this hook.
+    nv12 = frame.data
     if (
         nv12.ndim != 2
         or frame.height % 2
@@ -96,8 +96,6 @@ def _draw_timestamp_nv12(
                     nv12[chroma_y_start:chroma_y_end, chroma_x_start:chroma_x_end:2] = chroma_u
                     nv12[chroma_y_start:chroma_y_end, chroma_x_start + 1:chroma_x_end:2] = chroma_v
         x += (glyph_width + glyph_spacing) * scale
-
-    frame.data = nv12
 
 def on_frame(infer: bool, parameters: PipelineArguments, frame: FrameContext) -> FrameContext:
     global _last_inference_result

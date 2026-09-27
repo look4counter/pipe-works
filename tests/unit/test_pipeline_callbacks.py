@@ -16,11 +16,12 @@ def parameters() -> PipelineArguments:
 
 def test_inference_callback_exception_passes_through_original_frame(monkeypatch) -> None:
     monkeypatch.setattr("pipeline.cli.torch.cuda.stream", lambda _: nullcontext())
+    monkeypatch.setattr("pipeline.cli.torch.from_dlpack", lambda data: data)
     increment = Mock()
     monkeypatch.setattr("pipeline.cli.PIPELINE_STATISTICS.increment", increment)
     inference_module = ModuleType("inference")
 
-    def fail(_parameters, _frame):
+    def fail(_infer, _parameters, _frame):
         raise ValueError("inference failed")
 
     inference_module.on_frame = fail

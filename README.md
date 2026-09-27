@@ -76,6 +76,8 @@ def on_frame(
 
 `inference_interval=3`이면 프레임 번호 0, 3, 6 등에서 `infer=True`입니다. 그 외 프레임에서도 hook이 호출되므로, inference 결과를 여러 프레임에 유지할 필요가 있다면 모듈 수준 상태나 `frame.inference_result`를 활용할 수 있습니다.
 
+Inference hook에 들어가기 전에 파이프라인이 `frame.data`를 `torch.from_dlpack()`으로 변환합니다. 따라서 inference hook과 그 뒤에 연결된 postprocess hook에서는 `frame.data`가 `torch.Tensor`이며, 사용자 모듈에서 DLPack 변환을 다시 할 필요가 없습니다. NVENC 직전에는 파이프라인이 Tensor를 DLPack capsule로 내보냅니다. PyNvVideoCodec GPU 입력은 CUDA Array Interface 객체를 요구하므로 인코더에는 같은 GPU 메모리를 공유하는 원본 디코더 프레임 객체를 전달하며, `encode.py`는 PyTorch에 의존하지 않습니다. 추론 결과는 `frame.inference_result`에 기록합니다.
+
 ### Postprocess
 
 ```python

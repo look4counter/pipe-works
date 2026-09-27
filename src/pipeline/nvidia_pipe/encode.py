@@ -1,5 +1,4 @@
 from collections.abc import Iterator
-import torch
 from fractions import Fraction
 from time import perf_counter_ns
 
@@ -111,8 +110,13 @@ def nvidia_encode(
             )
             encoder_configuration = configuration
 
-        with torch.cuda.stream(decoded_frame.cuda_stream):
-            encoded_packets = encoder.Encode(decoded_frame.data)
+        # PyNvVideoCodec's GPU input needs the decoder frame's CUDA Array
+        # Interface. data may be a DLPack capsule at this point, so encode the
+        # retained native frame object that shares the same GPU allocation.
+        encoder_input = decoded_frame.encoder_data
+        if encoder_input is None:
+            encoder_input = decoded_frame.data
+        encoded_packets = encoder.Encode(encoder_input)
         encode_returned_at_ns = perf_counter_ns()
 
         ready_packets = list(wrap_packets(encoded_packets, encoder_metadata))

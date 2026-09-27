@@ -36,6 +36,7 @@ def test_inference_interval_calls_hook_for_every_frame_with_infer_flag(
 
     inference_module.on_frame = on_frame
     monkeypatch.setattr("pipeline.cli.torch.cuda.stream", lambda _: nullcontext())
+    monkeypatch.setattr("pipeline.cli.torch.from_dlpack", lambda data: data)
 
     output = list(
         run_inference(parameters(interval), iter(frames), {"inference": inference_module})

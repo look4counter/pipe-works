@@ -47,7 +47,6 @@ def test_nvidia_encode_uses_encoder_api_and_flushes(monkeypatch) -> None:
         "PyNvVideoCodec",
         SimpleNamespace(CreateEncoder=create_encoder),
     )
-    monkeypatch.setattr("pipeline.nvidia_pipe.encode.torch.cuda.stream", lambda _: nullcontext())
     parameters = PipelineArguments(
         "rtsp://in", "tcp", "rtsp://out", "tcp", "nvidia", 0,
         False, None, False, None, 3, None, False, None, fps=25,
@@ -113,6 +112,7 @@ def test_nvidia_decode_uses_decoder_api_without_gpu(monkeypatch) -> None:
         cudastream=789,
     )
     assert frames[0].data is fake_frame
+    assert frames[0].encoder_data is fake_frame
     assert frames[0].pixel_format == "NV12"
     decoder.Decode.assert_called_once()
 

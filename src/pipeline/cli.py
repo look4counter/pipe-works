@@ -1,6 +1,7 @@
 """RTSP 미디어 파이프라인 실행 파라미터를 검증한다."""
 
 import logging
+from contextlib import nullcontext
 from collections.abc import Iterable, Iterator
 from threading import Event, Thread
 from typing import Sequence
@@ -94,6 +95,7 @@ def run_inference(
         infer = frame_index % parameters.inference_interval == 0
         try:
             with torch.cuda.stream(frame.cuda_stream):
+                frame.data = torch.from_dlpack(frame.data)
                 result = inference_module.on_frame(infer, parameters, frame)
         except Exception:
             PIPELINE_STATISTICS.increment("inferenceFailed")
@@ -101,6 +103,16 @@ def run_inference(
             yield frame
             continue
         yield result
+
+
+def export_dlpack_frames(
+    frames: Iterable[FrameContext],
+) -> Iterator[FrameContext]:
+    """Export torch-backed frames as DLPack capsules before the encoder stage."""
+    for frame in frames:
+        if isinstance(frame.data, torch.Tensor):
+            frame.data = torch.utils.dlpack.to_dlpack(frame.data)
+        yield frame
 
 
 def run_postprocess(
@@ -115,7 +127,13 @@ def run_postprocess(
             yield frame
             continue
         try:
-            result = postprocess_module.on_frame(parameters, frame)
+            stream_context = (
+                torch.cuda.stream(frame.cuda_stream)
+                if frame.cuda_stream is not None
+                else nullcontext()
+            )
+            with stream_context:
+                result = postprocess_module.on_frame(parameters, frame)
         except Exception:
             PIPELINE_STATISTICS.increment("postprocessFailed")
             logger.exception("Postprocess on_frame 실패. 원본 프레임을 전달합니다.")
@@ -229,7 +247,8 @@ def _run_pipeline(
         else:
             postprocessed_frames = inferenced_frames
 
-        encoded_frames = nvidia_encode(parameters, postprocessed_frames)
+        encoder_frames = export_dlpack_frames(postprocessed_frames)
+        encoded_frames = nvidia_encode(parameters, encoder_frames)
         send(parameters, encoded_frames)
     finally:
         module_stop.set()

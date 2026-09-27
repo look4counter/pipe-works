@@ -46,6 +46,7 @@ def _frame_context(
         metadata["width"],
         metadata["height"],
         decode_started_at_ns=decode_started_at_ns,
+        encoder_data=decoded_frame,
     )
 
 

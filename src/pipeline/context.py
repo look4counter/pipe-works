@@ -13,6 +13,7 @@ class ReceivePacket:
 @dataclass(slots=True)
 class FrameContext:
     video_stream: VideoStream
+    # Stage adapters may wrap the payload for inference and encoding.
     data: object
     cuda_stream: object | None = None
     pixel_format: str | None = None
@@ -22,6 +23,8 @@ class FrameContext:
     inference_result: object | None = None
     metadata: object | None = None
     decode_started_at_ns: int | None = None
+    # Retain the native decoder object for encoders requiring its CUDA interface.
+    encoder_data: object | None = None
 
 
 @dataclass(slots=True)

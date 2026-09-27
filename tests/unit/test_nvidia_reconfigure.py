@@ -114,9 +114,6 @@ def test_encoder_is_flushed_and_recreated_when_frame_format_changes(monkeypatch)
         "PyNvVideoCodec",
         SimpleNamespace(CreateEncoder=create_encoder),
     )
-    monkeypatch.setattr(
-        "pipeline.nvidia_pipe.encode.torch.cuda.stream", lambda _: nullcontext()
-    )
     first_stream = SimpleNamespace(cuda_stream=11)
     second_stream = SimpleNamespace(cuda_stream=22)
     frames = [
