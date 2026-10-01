@@ -38,6 +38,7 @@ class Pipeline:
         self._streams: list[Stream] = []
         self._steps: list[PipelineStep] = []
         self._last_queue_metrics: list[QueueMetrics] = []
+        self._last_result: PipelineResult | None = None
         self._lifecycle = Lifecycle()
         if isinstance(config, RuntimeConfig):
             self._config = config
@@ -162,7 +163,7 @@ class Pipeline:
                 if dispatcher.latency_ms
                 else 0.0
             )
-            return PipelineResult(
+            result = PipelineResult(
                 pipeline_name=self.name,
                 contexts=contexts,
                 state=self.state.value,
@@ -183,6 +184,8 @@ class Pipeline:
                     actions_dropped=dispatcher.dropped,
                 ),
             )
+            self._last_result = result
+            return result
         except Exception:
             dispatcher.drain(wait_for_actions=False)
             self._lifecycle.transition(PipelineState.ERROR)
@@ -191,6 +194,12 @@ class Pipeline:
     @property
     def state(self) -> PipelineState:
         return self._lifecycle.state
+
+    @property
+    def metrics(self) -> PipelineMetrics | None:
+        """Return the latest completed run metrics, if a run has completed."""
+
+        return self._last_result.metrics if self._last_result is not None else None
 
     def _initial_contexts(self) -> list[PipelineContext]:
         if self._streams:

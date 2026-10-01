@@ -27,6 +27,7 @@ from pipeworks.lifecycle import Lifecycle, PipelineState
 from pipeworks.loop.engine import LoopEngine
 from pipeworks.models import Detection, DetectionResult, Frame, PipelineContext, Stream
 from pipeworks.observability import HealthStatus, metrics_json, metrics_prometheus, metrics_snapshot
+from pipeworks.observability_server import ObservabilityServer
 from pipeworks.pipeline import Pipeline
 from pipeworks.plan import PipelinePlan, PipelineStep
 from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
@@ -65,6 +66,7 @@ __all__ = [
     "LoopEngine",
     "MQPublishAction",
     "MockSource",
+    "ObservabilityServer",
     "OutputWorker",
     "OverlayWorker",
     "Pipeline",
