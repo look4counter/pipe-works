@@ -54,6 +54,19 @@ class UltralyticsYoloInference:
             )
         raise NotImplementedError("Real Ultralytics invocation is scheduled for the GPU adapter slice.")
 
+    def infer_batch(
+        self, contexts: list[PipelineContext], settings: dict[str, object]
+    ) -> list[DetectionResult]:
+        if self.predictor is None:
+            if not self.available:
+                raise InferenceRuntimeUnavailableError(
+                    "Ultralytics YOLO batch inference requires the 'ultralytics' package."
+                )
+            raise NotImplementedError("Real Ultralytics batch invocation requires a runtime backend.")
+        results = [self.predictor(context.frame.image, settings)[0] for context in contexts]
+        _validate_batch_results(contexts, results)
+        return results
+
 
 @dataclass
 class TensorRTInference:
@@ -63,6 +76,7 @@ class TensorRTInference:
     stage: str = "tensorrt"
     name: str = "TensorRTInference"
     runner: Callable[[object, dict[str, object]], DetectionResult] | None = None
+    batch_runner: Callable[[list[object], dict[str, object]], list[DetectionResult]] | None = None
 
     @property
     def available(self) -> bool:
@@ -84,3 +98,29 @@ class TensorRTInference:
                 "Install TensorRT in the deployment environment or use YoloInference for local tests."
             )
         raise NotImplementedError("Real TensorRT execution is scheduled for the GPU adapter slice.")
+
+    def infer_batch(
+        self, contexts: list[PipelineContext], settings: dict[str, object]
+    ) -> list[DetectionResult]:
+        if self.batch_runner is None:
+            if not self.available:
+                raise InferenceRuntimeUnavailableError(
+                    "TensorRT batch inference requires TensorRT and CUDA runtime."
+                )
+            raise NotImplementedError("Real TensorRT batch execution requires a runtime backend.")
+        results = self.batch_runner([context.frame.image for context in contexts], settings)
+        _validate_batch_results(contexts, results)
+        return results
+
+
+def _validate_batch_results(
+    contexts: list[PipelineContext], results: list[DetectionResult]
+) -> None:
+    if len(results) != len(contexts):
+        raise ValueError("batch inference must return one result per context")
+    for context, result in zip(contexts, results, strict=True):
+        if result.stream_id != context.stream_id:
+            raise ValueError(
+                f"batch result stream_id {result.stream_id!r} does not match "
+                f"context {context.stream_id!r}"
+            )
