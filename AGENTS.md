@@ -141,6 +141,7 @@ Implemented and pushed to `main`:
 - lazy Ultralytics inference normalization and GPU retry policy
 - TensorRT batch runner contract with retry and stream validation
 - TensorRT lazy session factory contract with reset-based CUDA recovery
+- GPU Batch scheduling metrics: batch count, item count, inference latency
 
 Latest relevant commits:
 
@@ -246,7 +247,6 @@ Continue in this order unless blocked:
    - TensorRT adapter execution skeleton when dependency exists
    - MediaMTX publish contract
 2. Production runtime expansion
-   - GPU batch scheduling metrics and CUDA recovery hooks
    - deployment-specific TensorRT engine/session factory implementation
 3. End-to-end operations
    - RTSP to MediaMTX integration tests
