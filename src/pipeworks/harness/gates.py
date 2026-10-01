@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 from pipeworks.core.models import Evidence, GateResult, Task
 
-
 GateCheck = Callable[[Task], Evidence]
 
 

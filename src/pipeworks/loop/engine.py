@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pipeworks.core.models import Evidence, LoopDecision, Task, TaskStatus
+from pipeworks.core.models import LoopDecision, Task, TaskStatus
 from pipeworks.core.ports import EvidenceRecorder, TaskBacklog, VerificationHarness, WorkAgent
 
 
@@ -59,4 +59,4 @@ class LoopEngine:
         candidates = [task for task in tasks if task.is_unblocked_by(completed)]
         if not candidates:
             return None
-        return sorted(candidates, key=lambda task: task.priority)[0]
+        return min(candidates, key=lambda task: task.priority)

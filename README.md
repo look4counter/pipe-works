@@ -11,22 +11,34 @@ old specs have been preserved as `specs_bak`.
 
 ## Current Slice
 
-The first slice proves the engineering foundation that future media components
-must pass through:
+The current slice implements the first working version of the public Pipeline
+DSL and a deterministic MVP runtime:
 
-- task selection
-- agent execution through a port for automated implementation loops
-- harness verification for SDK quality gates
-- evidence recording
-- minimal human-gate policy
+- readable fluent pipeline declarations
+- single-stream execution with mock/descriptor components
+- multi-stream batch inference semantics
+- stream identity preservation
+- multi-stage inference result storage
+- YAML behavior overrides
+- async action dispatch
+- custom processors
 
-The next product slice should introduce the SDK contracts for:
+Example:
 
-- `Source`: RTSP/file/mock frame sources
-- `FrameQueue`: bounded queues and drop policies
-- `InferenceProvider`: YOLO/TensorRT/remote inference adapters
-- `EventPublisher`: non-blocking detection/event dispatch
-- `Pipeline`: single-camera lifecycle, metrics, and failure isolation
+```python
+pipeline = (
+    Pipeline("cobble-detection")
+    .source(RTSPSource("rtsp://camera/main"))
+    .inference(YoloInference("models/cobble.engine"))
+    .overlay(StaticBoxOverlay())
+    .overlay(DetectionBoxOverlay())
+    .action(SvgSendAction("http://server/api/svg"))
+    .action(MQPublishAction("cobble.detected"))
+    .output(RTSPPublisher("rtsp://mediamtx/cobble"))
+)
+
+pipeline.run()
+```
 
 ## Run
 
@@ -38,8 +50,15 @@ python -m pipeworks.cli --once
 ## Layout
 
 - `src/pipeworks/core`: current LOOP/harness foundation; later SDK domain contracts
+- `src/pipeworks/pipeline.py`: fluent Pipeline DSL and MVP runtime
+- `src/pipeworks/components.py`: component protocols and built-in MVP components
+- `src/pipeworks/models.py`: stream-aware frame/context/result models
+- `src/pipeworks/config.py`: default and YAML runtime configuration
 - `src/pipeworks/loop`: AI Agent LOOP orchestration for development automation
 - `src/pipeworks/harness`: quality gates used to verify SDK slices
 - `src/pipeworks/adapters`: local reference adapters and future runtime adapters
 - `specs/001-agent-sdk-foundation`: first accepted feature slice
+- `specs/002-pipeline-dsl-sdk`: Pipeline DSL SDK feature specification
 - `docs`: product architecture, loop protocol, and quality gates
+
+Design details: [docs/pipeline-sdk-design.md](docs/pipeline-sdk-design.md)
