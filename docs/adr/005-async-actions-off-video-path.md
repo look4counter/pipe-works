@@ -1,26 +1,26 @@
-# ADR-005: Async Actions Off the Video Path
+# ADR-005: 비동기 Action을 영상 처리 경로에서 분리한다
 
-## Status
+## 상태
 
-Accepted
+채택
 
-## Context
+## 배경
 
-HTTP calls, MQ publishes, SVG sends, and other actions can be slow or fail. They
-must not block inference, overlay, encoding, or output in the common path.
+HTTP 호출, MQ 발행, SVG 전송과 같은 Action은 느리거나 실패할 수 있다.
+일반적인 영상 처리 경로에서 추론, Overlay, 인코딩, 출력을 막아서는 안 된다.
 
-## Decision
+## 결정
 
-Actions are scheduled through an `ActionDispatcher` with bounded worker
-semantics. MVP uses a background thread executor; future runtimes may use
-asyncio, process pools, or broker-native producers behind the same contract.
+Action은 ActionDispatcher를 통해 제한된 워커 실행 방식으로 예약한다.
+MVP는 백그라운드 스레드 실행기를 사용하고, 이후 asyncio, 프로세스 풀,
+브로커 네이티브 Producer를 같은 계약 뒤에 연결할 수 있게 한다.
 
-## Alternatives Considered
+## 검토한 대안
 
-- Synchronous actions: simpler but can stall real-time video.
-- Force users to manage async queues: flexible but leaks internals.
+- 동기 Action: 단순하지만 실시간 영상을 멈출 수 있다.
+- 비동기 큐를 사용자에게 맡기기: 유연하지만 내부 구현을 노출한다.
 
-## Consequences
+## 결과
 
-Actions become eventually completed side effects. Tests and metrics must expose
-scheduled/completed/failed counts.
+Action은 최종적으로 완료되는 부수 효과가 된다. 테스트와 메트릭은 예약,
+완료, 실패 횟수와 지연 시간을 확인할 수 있어야 한다.

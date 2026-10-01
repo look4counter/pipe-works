@@ -1,26 +1,26 @@
-# ADR-003: Protocol-Based Component Extension
+# ADR-003: Protocol 기반 Component 확장
 
-## Status
+## 상태
 
-Accepted
+채택
 
-## Context
+## 배경
 
-Users need custom processors, overlays, actions, sources, and outputs without
-editing SDK internals.
+사용자는 SDK 내부를 수정하지 않고 Processor, Overlay, Action, Source,
+Output을 추가할 수 있어야 한다.
 
-## Decision
+## 결정
 
-Use structural protocols for component contracts and provide small convenience
-base classes. Users can implement the required methods directly or inherit from
-base classes for names/config helpers.
+Component 계약에는 구조적 Protocol을 사용하고, 이름과 설정 도우미가 필요한
+경우 작은 편의용 기본 클래스를 제공한다. 사용자는 직접 필요한 메서드를
+구현하거나 기본 클래스를 상속할 수 있다.
 
-## Alternatives Considered
+## 검토한 대안
 
-- Deep inheritance tree: discoverable but rigid and harder to compose.
-- Free functions only: concise but poor for reusable configured components.
+- 깊은 상속 트리: 찾기는 쉽지만 결합도가 높고 조합이 어렵다.
+- 함수만 제공: 간결하지만 설정을 가진 재사용 Component로 만들기 어렵다.
 
-## Consequences
+## 결과
 
-The runtime can accept user-defined classes with minimal coupling. Type checks
-and tests must cover protocol behavior rather than exact subclasses.
+런타임은 사용자 정의 클래스와 느슨하게 결합된다. 테스트와 타입 검사는
+특정 상속 관계가 아니라 Protocol 동작을 기준으로 작성해야 한다.
