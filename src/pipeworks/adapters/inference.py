@@ -5,12 +5,29 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from importlib.util import find_spec
+from typing import Protocol, runtime_checkable
 
 from pipeworks.models import Detection, DetectionResult, PipelineContext
 
 
 class InferenceRuntimeUnavailableError(RuntimeError):
     """Raised when a real inference adapter is used without its runtime."""
+
+
+@runtime_checkable
+class TensorRTSession(Protocol):
+    """Vendor-neutral contract around a TensorRT execution context."""
+
+    def infer(self, image: object, settings: dict[str, object]) -> DetectionResult:
+        ...
+
+    def infer_batch(
+        self, images: list[object], settings: dict[str, object]
+    ) -> list[DetectionResult]:
+        ...
+
+    def reset(self) -> None:
+        """Release and recreate CUDA resources after a runtime error."""
 
 
 def is_ultralytics_available() -> bool:
@@ -102,6 +119,8 @@ class TensorRTInference:
     name: str = "TensorRTInference"
     runner: Callable[[object, dict[str, object]], DetectionResult] | None = None
     batch_runner: Callable[[list[object], dict[str, object]], list[DetectionResult]] | None = None
+    session_factory: Callable[[str], TensorRTSession] | None = None
+    _session: TensorRTSession | None = field(default=None, init=False, repr=False)
 
     @property
     def available(self) -> bool:
@@ -120,30 +139,48 @@ class TensorRTInference:
             if result.stream_id != context.stream_id:
                 raise ValueError("inference result stream_id does not match context")
             return result
-        if not self.available:
-            raise InferenceRuntimeUnavailableError(
-                "TensorRT adapter requires the 'tensorrt' Python package and CUDA runtime. "
-                "Install TensorRT in the deployment environment or use YoloInference for local tests."
-            )
-        raise NotImplementedError(
-            "TensorRT package is installed, but a CUDA engine runner must be configured."
+        session = self._get_session()
+        result = _retry_session(
+            lambda: session.infer(context.frame.image, settings),
+            session,
+            int(settings.get("inference_retry", 0)),
         )
+        if result.stream_id != context.stream_id:
+            raise ValueError("inference result stream_id does not match context")
+        return result
 
     def infer_batch(
         self, contexts: list[PipelineContext], settings: dict[str, object]
     ) -> list[DetectionResult]:
-        if self.batch_runner is None:
-            if not self.available:
-                raise InferenceRuntimeUnavailableError(
-                    "TensorRT batch inference requires TensorRT and CUDA runtime."
-                )
-            raise NotImplementedError("Real TensorRT batch execution requires a runtime backend.")
-        results = _retry_inference(
-            lambda: self.batch_runner([context.frame.image for context in contexts], settings),
-            int(settings.get("inference_retry", 0)),
-        )
+        if self.batch_runner is not None:
+            results = _retry_inference(
+                lambda: self.batch_runner([context.frame.image for context in contexts], settings),
+                int(settings.get("inference_retry", 0)),
+            )
+        else:
+            session = self._get_session()
+            results = _retry_session(
+                lambda: session.infer_batch([context.frame.image for context in contexts], settings),
+                session,
+                int(settings.get("inference_retry", 0)),
+            )
         _validate_batch_results(contexts, results)
         return results
+
+    def _get_session(self) -> TensorRTSession:
+        if self._session is None:
+            if self.session_factory is not None:
+                self._session = self.session_factory(self.engine_path)
+            elif not self.available:
+                raise InferenceRuntimeUnavailableError(
+                    "TensorRT adapter requires the 'tensorrt' Python package and CUDA runtime. "
+                    "Install TensorRT in the deployment environment or provide session_factory."
+                )
+            else:
+                raise NotImplementedError(
+                    "TensorRT is installed, but session_factory is required to configure CUDA bindings."
+                )
+        return self._session
 
 
 def _validate_batch_results(
@@ -167,6 +204,19 @@ def _retry_inference(operation: Callable[[], object], retries: int) -> object:
             if attempt == retries:
                 raise
     raise RuntimeError("unreachable inference retry state")
+
+
+def _retry_session(
+    operation: Callable[[], object], session: TensorRTSession, retries: int
+) -> object:
+    for attempt in range(max(retries, 0) + 1):
+        try:
+            return operation()
+        except Exception:
+            session.reset()
+            if attempt == retries:
+                raise
+    raise RuntimeError("unreachable session retry state")
 
 
 def _normalize_ultralytics_result(

@@ -47,3 +47,8 @@ GStreamer와 CUDA/TensorRT 런타임은 운영체제와 GPU 드라이버에 따�
 - GPU와 Media runtime은 별도 이미지 또는 호스트 계층에서 관리한다.
 - 운영 이미지에는 필요한 extra만 설치해 공격 면적과 시작 시간을 줄인다.
 - 배포 전 `pytest`, `ruff`, `pipeworks --check`를 실행한다.
+
+TensorRT Adapter는 CUDA buffer binding 방식이 배포 환경마다 다르므로
+`session_factory`로 프로젝트의 TensorRT Session을 주입한다. Session은
+`infer`, `infer_batch`, `reset` 계약을 구현하고, 일시적인 CUDA 오류 뒤에는
+SDK가 `inference_retry` 설정에 따라 `reset()` 후 재시도한다.
