@@ -178,3 +178,16 @@ Current tests verify:
 
 The MVP intentionally uses deterministic mock execution. Real RTSP, GPU, broker,
 and MediaMTX adapters are next slices that must preserve the current DSL.
+
+## Current Autonomous Slices
+
+- Pipeline DSL MVP
+- Realtime queue/drop policies
+- Command-backed harness gates
+- Pipeline lifecycle model
+- Runtime metrics
+- Local synthetic/file sources
+- Developer-facing examples
+- Optional GStreamer RTSP adapter boundary
+- Optional YOLO/TensorRT inference adapter boundaries
+- Optional HTTP/MQ/MediaMTX action/output adapter boundaries

@@ -22,6 +22,10 @@ DSL and a deterministic MVP runtime:
 - YAML behavior overrides
 - async action dispatch
 - custom processors
+- realtime queue/drop and batch collection policies
+- pipeline lifecycle state
+- runtime metrics
+- optional adapter boundaries for GStreamer RTSP, YOLO/TensorRT, HTTP, MQ, and MediaMTX
 
 Example:
 
@@ -47,6 +51,16 @@ python -m pytest -q
 python -m pipeworks.cli --once
 ```
 
+## Examples
+
+Developer-facing examples live in [examples](examples):
+
+- [01_single_stream_rtsp_style.py](examples/01_single_stream_rtsp_style.py): RTSP-shaped single-stream pipeline
+- [02_multistream_batch.py](examples/02_multistream_batch.py): 9-channel batch inference declaration
+- [03_multistage_inference.py](examples/03_multistage_inference.py): primary inference, crop, secondary inference
+- [04_custom_component.py](examples/04_custom_component.py): custom domain processor
+- [05_local_synthetic_config.py](examples/05_local_synthetic_config.py): local synthetic source with YAML behavior overrides
+
 ## Layout
 
 - `src/pipeworks/core`: current LOOP/harness foundation; later SDK domain contracts
@@ -54,11 +68,14 @@ python -m pipeworks.cli --once
 - `src/pipeworks/components.py`: component protocols and built-in MVP components
 - `src/pipeworks/models.py`: stream-aware frame/context/result models
 - `src/pipeworks/config.py`: default and YAML runtime configuration
+- `src/pipeworks/runtime.py`: realtime queue/drop and batch collection policies
+- `src/pipeworks/lifecycle.py`: pipeline lifecycle state model
+- `src/pipeworks/adapters`: optional runtime adapter boundaries
 - `src/pipeworks/loop`: AI Agent LOOP orchestration for development automation
 - `src/pipeworks/harness`: quality gates used to verify SDK slices
-- `src/pipeworks/adapters`: local reference adapters and future runtime adapters
 - `specs/001-agent-sdk-foundation`: first accepted feature slice
 - `specs/002-pipeline-dsl-sdk`: Pipeline DSL SDK feature specification
+- `specs/003-*` and later: autonomous implementation slices
 - `docs`: product architecture, loop protocol, and quality gates
 
 Design details: [docs/pipeline-sdk-design.md](docs/pipeline-sdk-design.md)
