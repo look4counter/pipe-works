@@ -1,38 +1,20 @@
 [project]
 name = "pipe-works"
-version = "1.0.0"
+version = "0.1.0"
 requires-python = "==3.11.9"
 dependencies = [
-    "av==18.1.0",
     "pyyaml==6.0.3",
-    "PyNvVideoCodec==2.2.2",
-    "psutil==7.2.2",
-    "torch==2.2.1+cu121",
-    "torchvision==0.17.1+cu121",
-    "numpy==1.26.4",
-    "ultralytics==8.4.146",
-    "fastapi==0.141.1",
-    "uvicorn[standard]==0.53.0",
-    "websockets==17.1",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0,<9.0",
-    "httpx>=0.27,<1.0",
+    "ruff>=0.8,<1.0",
+    "mypy>=1.13,<2.0",
 ]
 
 [project.scripts]
-conductor = "conductor.cli:main"
-
-[tool.uv.sources]
-torch = { index = "pytorch-cu121" }
-torchvision = { index = "pytorch-cu121" }
-
-[[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
-explicit = true
+pipeworks = "pipeworks.cli:main"
 
 [build-system]
 requires = ["setuptools>=61"]
@@ -40,3 +22,14 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "--confcutdir=tests/sdk"
+testpaths = ["tests/sdk"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
