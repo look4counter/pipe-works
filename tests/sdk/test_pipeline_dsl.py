@@ -40,6 +40,23 @@ def test_single_stream_dsl_describes_architecture_and_runs() -> None:
     assert output.written[0].stream_id == "default"
 
 
+def test_single_stream_diagram_shows_actions_as_branches() -> None:
+    diagram = (
+        Pipeline("diagram")
+        .source(RTSPSource("rtsp://camera/main"))
+        .inference(YoloInference("models/cobble.engine"))
+        .overlay(DetectionBoxOverlay())
+        .action(SvgSendAction("http://server/api/svg"))
+        .output(RTSPPublisher("rtsp://mediamtx/cobble"))
+        .diagram()
+    )
+
+    assert "RTSPSource(url=rtsp://camera/main" in diagram
+    assert "inference: YoloInference(model=models/cobble.engine)" in diagram
+    assert "+-- action: SvgSendAction(url=http://server/api/svg)" in diagram
+    assert "output: RTSPPublisher(url=rtsp://mediamtx/cobble)" in diagram
+
+
 def test_yaml_overrides_behavior_without_hiding_identity(tmp_path: Path) -> None:
     config_path = tmp_path / "pipeworks.yaml"
     config_path.write_text(
@@ -105,6 +122,24 @@ def test_multi_stream_batch_preserves_stream_identity() -> None:
         assert next(iter(context.results.values())).stream_id == context.stream_id
         assert context.overlays
     assert result.metrics.batch_size == 3
+
+
+def test_multistream_batch_diagram_shows_streams_and_batch_inference() -> None:
+    diagram = (
+        Pipeline("batch-diagram")
+        .streams(
+            [
+                Stream("cam01", source="rtsp://cam01"),
+                Stream("cam02", source="rtsp://cam02"),
+            ]
+        )
+        .batch_inference(YoloInference("models/cobble.engine"))
+        .diagram()
+    )
+
+    assert "cam01: rtsp://cam01" in diagram
+    assert "cam02: rtsp://cam02" in diagram
+    assert "batch inference: YoloInference(model=models/cobble.engine)" in diagram
 
 
 def test_batch_policy_caps_multistream_contexts(tmp_path: Path) -> None:

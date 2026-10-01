@@ -22,5 +22,5 @@ pipeline = (
 
 
 if __name__ == "__main__":
-    print("\n".join(pipeline.describe()))
+    print(pipeline.diagram())
     print(pipeline.run().metrics)

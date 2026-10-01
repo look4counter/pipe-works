@@ -96,6 +96,31 @@ class Pipeline:
             lines.append(f"{step.kind}: {self._describe_component(step.component)}")
         return lines
 
+    def diagram(self) -> str:
+        """Return a readable text diagram for the declared pipeline."""
+
+        lines: list[str] = [f"Pipeline: {self.name}"]
+        if self._streams:
+            lines.extend(f"{stream.stream_id}: {stream.source}" for stream in self._streams)
+        elif self._source is not None:
+            lines.append(self._describe_component(self._source))
+        else:
+            lines.append("<no source>")
+
+        main_steps = [step for step in self._steps if step.kind != "action"]
+        action_steps = [step for step in self._steps if step.kind == "action"]
+        for step in main_steps:
+            lines.append("  |")
+            label = "batch inference" if step.kind == "batch_inference" else step.kind
+            lines.append(f"{label}: {self._describe_component(step.component)}")
+            if action_steps and step.kind in {"overlay", "batch_inference", "inference"}:
+                for action in action_steps:
+                    lines.append(f"  +-- action: {self._describe_component(action.component)}")
+                action_steps = []
+        for action in action_steps:
+            lines.append(f"  +-- action: {self._describe_component(action.component)}")
+        return "\n".join(lines)
+
     def run(self, wait_for_actions: bool = True) -> PipelineResult:
         run_started_at = perf_counter()
         self._lifecycle.transition(PipelineState.STARTING)
