@@ -111,6 +111,10 @@ class PipelineMetrics:
     queue_dropped: int = 0
     queue_max_depth: int = 0
     batch_size: int = 0
+    duration_ms: float = 0.0
+    effective_fps: float = 0.0
+    action_latency_ms_max: float = 0.0
+    action_latency_ms_avg: float = 0.0
 
 
 @dataclass(frozen=True)

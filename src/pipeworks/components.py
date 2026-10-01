@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
-from time import sleep
+from time import perf_counter, sleep
 from typing import Protocol, runtime_checkable
 
 from pipeworks.models import (
@@ -214,15 +214,18 @@ class ActionDispatcher:
     def __init__(self, max_workers: int = 4) -> None:
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
         self._futures: list[Future[None]] = []
+        self._started_at: dict[Future[None], float] = {}
         self.scheduled = 0
         self.completed = 0
         self.errors = 0
+        self.latency_ms: list[float] = []
 
     def submit(
         self, action: ActionComponent, context: PipelineContext, settings: dict[str, object]
     ) -> None:
         self.scheduled += 1
         future = self._executor.submit(action.execute, context, settings)
+        self._started_at[future] = perf_counter()
         future.add_done_callback(self._on_done)
         self._futures.append(future)
 
@@ -232,6 +235,9 @@ class ActionDispatcher:
         self._executor.shutdown(wait=wait_for_actions)
 
     def _on_done(self, future: Future[None]) -> None:
+        started_at = self._started_at.pop(future, None)
+        if started_at is not None:
+            self.latency_ms.append((perf_counter() - started_at) * 1000)
         try:
             exception = future.exception()
         except CancelledError:

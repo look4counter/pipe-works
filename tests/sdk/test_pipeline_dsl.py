@@ -194,3 +194,20 @@ def test_actions_are_scheduled_off_the_output_path() -> None:
     assert output.written
     assert result.metrics.actions_scheduled == 1
     assert elapsed < 0.1
+
+
+def test_runtime_metrics_include_duration_fps_and_action_latency() -> None:
+    slow_action = SvgSendAction("http://server/api/svg", delay_s=0.01)
+
+    result = (
+        Pipeline("metrics")
+        .source(MockSource("cam01"))
+        .inference(YoloInference("models/cobble.engine"))
+        .action(slow_action)
+        .run()
+    )
+
+    assert result.metrics.duration_ms > 0
+    assert result.metrics.effective_fps > 0
+    assert result.metrics.action_latency_ms_max > 0
+    assert result.metrics.action_latency_ms_avg > 0

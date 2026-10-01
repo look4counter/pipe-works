@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from pipeworks.components import (
@@ -96,6 +97,7 @@ class Pipeline:
         return lines
 
     def run(self, wait_for_actions: bool = True) -> PipelineResult:
+        run_started_at = perf_counter()
         self._lifecycle.transition(PipelineState.STARTING)
         dispatcher = ActionDispatcher()
         try:
@@ -146,7 +148,13 @@ class Pipeline:
             self._lifecycle.transition(PipelineState.DRAINING)
             dispatcher.drain(wait_for_actions=wait_for_actions)
             self._lifecycle.transition(PipelineState.STOPPED)
+            duration_ms = (perf_counter() - run_started_at) * 1000
             error_count = dispatcher.errors + sum(len(context.errors) for context in contexts)
+            action_latency_avg = (
+                sum(dispatcher.latency_ms) / len(dispatcher.latency_ms)
+                if dispatcher.latency_ms
+                else 0.0
+            )
             return PipelineResult(
                 pipeline_name=self.name,
                 contexts=contexts,
@@ -161,6 +169,10 @@ class Pipeline:
                     queue_dropped=sum(metrics.dropped_count for metrics in queue_metrics),
                     queue_max_depth=max((metrics.max_depth_seen for metrics in queue_metrics), default=0),
                     batch_size=largest_batch_size,
+                    duration_ms=duration_ms,
+                    effective_fps=(len(contexts) / (duration_ms / 1000)) if duration_ms > 0 else 0.0,
+                    action_latency_ms_max=max(dispatcher.latency_ms, default=0.0),
+                    action_latency_ms_avg=action_latency_avg,
                 ),
             )
         except Exception:
