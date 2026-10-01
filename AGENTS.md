@@ -137,6 +137,7 @@ Implemented and pushed to `main`:
 - HTTP health/Prometheus endpoint example and Docker Compose deployment template
 - GStreamer lazy `appsink` frame extraction and continuous source iterator contract
 - `Pipeline.run_streams()` continuous multi-stream cycles with batch identity preservation
+- bounded Context Queue between Worker stages with configurable drop policy
 
 Latest relevant commits:
 
@@ -242,7 +243,6 @@ Continue in this order unless blocked:
    - TensorRT adapter execution skeleton when dependency exists
    - MediaMTX publish contract
 2. Production runtime expansion
-   - bounded queues between every Worker stage
    - GPU batch scheduling and real TensorRT/Ultralytics execution
 3. End-to-end operations
    - RTSP to MediaMTX integration tests
