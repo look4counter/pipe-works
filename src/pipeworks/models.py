@@ -120,6 +120,10 @@ class PipelineMetrics:
     batch_count: int = 0
     batch_items: int = 0
     inference_latency_ms: float = 0.0
+    expired_frames_dropped: int = 0
+    end_to_end_latency_ms_max: float = 0.0
+    end_to_end_latency_ms_avg: float = 0.0
+    end_to_end_latency_ms_p95: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -140,6 +144,10 @@ class PipelineMetrics:
             "batch_count": self.batch_count,
             "batch_items": self.batch_items,
             "inference_latency_ms": self.inference_latency_ms,
+            "expired_frames_dropped": self.expired_frames_dropped,
+            "end_to_end_latency_ms_max": self.end_to_end_latency_ms_max,
+            "end_to_end_latency_ms_avg": self.end_to_end_latency_ms_avg,
+            "end_to_end_latency_ms_p95": self.end_to_end_latency_ms_p95,
         }
 
     def to_json(self) -> str:

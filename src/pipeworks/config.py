@@ -26,6 +26,13 @@ DEFAULT_CONFIG: dict[str, dict[str, Any]] = {
     "YoloInference": {"confidence": 0.5, "device": "cpu", "fp16": False},
     "Action": {"timeout": 3, "retry": 0, "max_workers": 4, "max_pending": 64},
     "RTSPPublisher": {"codec": "h264", "fps": 25, "bitrate": "4M"},
+    "Realtime": {
+        "max_end_to_end_latency_ms": 1000,
+        "max_frame_age_ms": 800,
+        "drop_policy": "latest",
+        "drop_expired_frames": True,
+        "output_latency_action": "drop",
+    },
 }
 
 

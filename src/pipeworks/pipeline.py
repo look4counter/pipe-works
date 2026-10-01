@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from math import ceil
 from pathlib import Path
+from statistics import fmean
 from time import perf_counter
 
 from pipeworks.components import (
@@ -191,6 +193,10 @@ class Pipeline:
                     batch_count=worker_result.batch_count,
                     batch_items=worker_result.batch_items,
                     inference_latency_ms=worker_result.inference_latency_ms,
+                    expired_frames_dropped=worker_result.expired_frames_dropped,
+                    end_to_end_latency_ms_max=max(worker_result.output_latency_ms, default=0.0),
+                    end_to_end_latency_ms_avg=_average(worker_result.output_latency_ms),
+                    end_to_end_latency_ms_p95=_percentile95(worker_result.output_latency_ms),
                 ),
             )
             self._last_result = result
@@ -266,6 +272,10 @@ class Pipeline:
                     batch_count=worker_result.batch_count,
                     batch_items=worker_result.batch_items,
                     inference_latency_ms=worker_result.inference_latency_ms,
+                    expired_frames_dropped=worker_result.expired_frames_dropped,
+                    end_to_end_latency_ms_max=max(worker_result.output_latency_ms, default=0.0),
+                    end_to_end_latency_ms_avg=_average(worker_result.output_latency_ms),
+                    end_to_end_latency_ms_p95=_percentile95(worker_result.output_latency_ms),
                 ),
             )
             self._last_result = result
@@ -345,3 +355,15 @@ class Pipeline:
             for queue in queues.values()
             for frame in queue.drain_all()
         ]
+
+
+def _average(values: tuple[float, ...]) -> float:
+    return fmean(values) if values else 0.0
+
+
+def _percentile95(values: tuple[float, ...]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, ceil(len(ordered) * 0.95) - 1))
+    return ordered[index]

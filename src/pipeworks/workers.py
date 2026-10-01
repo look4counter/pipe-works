@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from time import perf_counter, sleep
+from time import perf_counter, sleep, time
 
 from pipeworks.components import ActionDispatcher
 from pipeworks.config import RuntimeConfig
@@ -145,13 +145,13 @@ class OutputWorker:
         contexts: list[PipelineContext],
         step: PipelineStep,
         config: RuntimeConfig,
-        on_output: Callable[[], None],
+        on_output: Callable[[PipelineContext], None],
     ) -> list[PipelineContext]:
         settings = config.for_component(step.component)
         for context in contexts:
             try:
                 step.component.write(context, settings)  # type: ignore[attr-defined]
-                on_output()
+                on_output(context)
             except Exception as error:
                 if not self.isolate_errors:
                     raise
@@ -169,6 +169,8 @@ class WorkerRunResult:
     batch_count: int = 0
     batch_items: int = 0
     inference_latency_ms: float = 0.0
+    expired_frames_dropped: int = 0
+    output_latency_ms: tuple[float, ...] = ()
 
 
 class ContinuousPipelineRunner:
@@ -195,6 +197,8 @@ class ContinuousPipelineRunner:
         batch_count = 0
         batch_items = 0
         inference_latency_ms = 0.0
+        expired_frames_dropped = 0
+        output_latency_ms: list[float] = []
         runtime = WorkerRuntime(isolate_errors=isolate_errors)
         cycle = 0
         while iterators and (max_cycles is None or cycle < max_cycles):
@@ -224,6 +228,8 @@ class ContinuousPipelineRunner:
             batch_count += result.batch_count
             batch_items += result.batch_items
             inference_latency_ms += result.inference_latency_ms
+            expired_frames_dropped += result.expired_frames_dropped
+            output_latency_ms.extend(result.output_latency_ms)
             cycle += 1
         return WorkerRunResult(
             contexts=contexts,
@@ -234,6 +240,8 @@ class ContinuousPipelineRunner:
             batch_count=batch_count,
             batch_items=batch_items,
             inference_latency_ms=inference_latency_ms,
+            expired_frames_dropped=expired_frames_dropped,
+            output_latency_ms=tuple(output_latency_ms),
         )
 
 
@@ -267,6 +275,8 @@ class WorkerRuntime:
         batch_count = 0
         batch_items = 0
         inference_latency_ms = 0.0
+        expired_frames_dropped = 0
+        output_latency_ms: list[float] = []
         queue_settings = config.sections.get("Pipeline", {})
         queue_size = int(queue_settings.get("worker_queue_size", 64))
         drop_policy = str(queue_settings.get("worker_drop_policy", "latest"))
@@ -281,7 +291,29 @@ class WorkerRuntime:
             queue_max_depth = max(queue_max_depth, queue_metrics.max_depth_seen)
             return queue.drain_all()
 
+        def enforce_freshness(values: list[PipelineContext]) -> list[PipelineContext]:
+            nonlocal expired_frames_dropped
+            realtime = config.sections.get("Realtime", {})
+            if not bool(realtime.get("drop_expired_frames", True)):
+                return values
+            max_age_ms = min(
+                float(realtime.get("max_frame_age_ms", 800)),
+                float(realtime.get("max_end_to_end_latency_ms", 1000)),
+            )
+            now = time()
+            fresh: list[PipelineContext] = []
+            for context in values:
+                age_ms = max((now - context.frame.timestamp) * 1000, 0.0)
+                if age_ms > max_age_ms:
+                    expired_frames_dropped += 1
+                    continue
+                fresh.append(context)
+            return fresh
+
         for step in steps:
+            contexts = enforce_freshness(contexts)
+            if not contexts:
+                break
             if step.kind == "inference":
                 started_at = perf_counter()
                 contexts = self.inference.run(contexts, step, config)
@@ -302,9 +334,10 @@ class WorkerRuntime:
             elif step.kind == "output":
                 successful_outputs = 0
 
-                def count_output() -> None:
+                def count_output(context: PipelineContext) -> None:
                     nonlocal successful_outputs
                     successful_outputs += 1
+                    output_latency_ms.append(max((time() - context.frame.timestamp) * 1000, 0.0))
 
                 contexts = self.output.run(
                     contexts,
@@ -326,4 +359,6 @@ class WorkerRuntime:
             batch_count=batch_count,
             batch_items=batch_items,
             inference_latency_ms=inference_latency_ms,
+            expired_frames_dropped=expired_frames_dropped,
+            output_latency_ms=tuple(output_latency_ms),
         )
