@@ -7,6 +7,7 @@ are installed in the runtime environment.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from importlib.util import find_spec
 
@@ -28,6 +29,7 @@ class GStreamerRTSPSource:
     url: str
     stream_id: str = "default"
     name: str = "GStreamerRTSPSource"
+    frame_reader: Callable[[str, str], Iterable[Frame]] | None = None
 
     @property
     def available(self) -> bool:
@@ -40,6 +42,8 @@ class GStreamerRTSPSource:
         )
 
     def frames(self) -> list[Frame]:
+        if self.frame_reader is not None:
+            return list(self.frame_reader(self.url, self.stream_id))
         if not self.available:
             raise GStreamerUnavailableError(
                 "GStreamer RTSP adapter requires PyGObject and GStreamer runtime. "

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.util import find_spec
 from urllib import error, request
@@ -64,6 +65,7 @@ class MQAdapterAction:
     topic: str
     broker_url: str = "amqp://guest:guest@localhost:5672/"
     name: str = "MQAdapterAction"
+    publisher: Callable[[str, dict[str, object]], None] | None = None
 
     @property
     def available(self) -> bool:
@@ -78,6 +80,9 @@ class MQAdapterAction:
         }
 
     def execute(self, context: PipelineContext, settings: dict[str, object]) -> None:
+        if self.publisher is not None:
+            self.publisher(self.topic, self.build_message(context))
+            return
         if not self.available:
             raise ActionAdapterUnavailableError(
                 "MQAdapterAction requires the 'pika' package and a reachable AMQP broker. "

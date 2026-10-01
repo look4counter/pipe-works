@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.util import find_spec
 
@@ -31,12 +32,21 @@ class UltralyticsYoloInference:
     model: str
     stage: str = "yolo"
     name: str = "UltralyticsYoloInference"
+    predictor: Callable[[object, dict[str, object]], list[DetectionResult]] | None = None
 
     @property
     def available(self) -> bool:
         return is_ultralytics_available()
 
     def infer(self, context: PipelineContext, settings: dict[str, object]) -> DetectionResult:
+        if self.predictor is not None:
+            results = self.predictor(context.frame.image, settings)
+            if len(results) != 1:
+                raise ValueError("Ultralytics predictor must return one DetectionResult")
+            result = results[0]
+            if result.stream_id != context.stream_id:
+                raise ValueError("inference result stream_id does not match context")
+            return result
         if not self.available:
             raise InferenceRuntimeUnavailableError(
                 "Ultralytics YOLO adapter requires the 'ultralytics' package. "
@@ -52,6 +62,7 @@ class TensorRTInference:
     engine_path: str
     stage: str = "tensorrt"
     name: str = "TensorRTInference"
+    runner: Callable[[object, dict[str, object]], DetectionResult] | None = None
 
     @property
     def available(self) -> bool:
@@ -62,6 +73,11 @@ class TensorRTInference:
         return self.engine_path
 
     def infer(self, context: PipelineContext, settings: dict[str, object]) -> DetectionResult:
+        if self.runner is not None:
+            result = self.runner(context.frame.image, settings)
+            if result.stream_id != context.stream_id:
+                raise ValueError("inference result stream_id does not match context")
+            return result
         if not self.available:
             raise InferenceRuntimeUnavailableError(
                 "TensorRT adapter requires the 'tensorrt' Python package and CUDA runtime. "
