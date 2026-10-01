@@ -62,6 +62,28 @@ YoloInference:
     assert "models/cobble.engine" in "\n".join(pipeline.describe())
 
 
+def test_pipeline_applies_queue_policy_to_source_frames(tmp_path: Path) -> None:
+    config_path = tmp_path / "pipeworks.yaml"
+    config_path.write_text(
+        """
+Pipeline:
+  queue_size: 2
+  drop_policy: drop_oldest
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = (
+        Pipeline("queued-source", config=config_path)
+        .source(MockSource("cam01", frame_count=3))
+        .run()
+    )
+
+    assert [context.frame.sequence for context in result.contexts] == [1, 2]
+    assert result.metrics.queue_dropped == 1
+    assert result.metrics.queue_max_depth == 2
+
+
 def test_multi_stream_batch_preserves_stream_identity() -> None:
     streams = [
         Stream("cam01", source="rtsp://cam01", output="rtsp://out01"),
@@ -82,6 +104,35 @@ def test_multi_stream_batch_preserves_stream_identity() -> None:
         assert context.detections
         assert next(iter(context.results.values())).stream_id == context.stream_id
         assert context.overlays
+    assert result.metrics.batch_size == 3
+
+
+def test_batch_policy_caps_multistream_contexts(tmp_path: Path) -> None:
+    config_path = tmp_path / "pipeworks.yaml"
+    config_path.write_text(
+        """
+BatchInference:
+  max_batch_size: 2
+  max_wait_ms: 0
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = (
+        Pipeline("capped-batch", config=config_path)
+        .streams(
+            [
+                Stream("cam01", source="rtsp://cam01"),
+                Stream("cam02", source="rtsp://cam02"),
+                Stream("cam03", source="rtsp://cam03"),
+            ]
+        )
+        .batch_inference(YoloInference("models/cobble.engine"))
+        .run()
+    )
+
+    assert [context.stream_id for context in result.contexts] == ["cam01", "cam02"]
+    assert result.metrics.batch_size == 2
 
 
 def test_multistage_inference_keeps_stage_results() -> None:

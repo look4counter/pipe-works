@@ -85,6 +85,11 @@ class FrameQueue:
         self._frames.clear()
         return frame
 
+    def drain_all(self) -> list[Frame]:
+        frames = list(self._frames)
+        self._frames.clear()
+        return frames
+
     @property
     def metrics(self) -> QueueMetrics:
         return QueueMetrics(

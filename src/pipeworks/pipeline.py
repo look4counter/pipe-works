@@ -18,6 +18,7 @@ from pipeworks.components import (
 )
 from pipeworks.config import RuntimeConfig
 from pipeworks.models import Frame, PipelineContext, PipelineMetrics, PipelineResult, Stream
+from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class Pipeline:
         self._source: SourceComponent | None = None
         self._streams: list[Stream] = []
         self._steps: list[PipelineStep] = []
+        self._last_queue_metrics: list[QueueMetrics] = []
         if isinstance(config, RuntimeConfig):
             self._config = config
         else:
@@ -93,8 +95,10 @@ class Pipeline:
 
     def run(self, wait_for_actions: bool = True) -> PipelineResult:
         contexts = self._initial_contexts()
+        queue_metrics = self._last_queue_metrics
         dispatcher = ActionDispatcher()
         output_count = 0
+        largest_batch_size = 0
 
         for step in self._steps:
             if step.kind == "inference":
@@ -106,6 +110,7 @@ class Pipeline:
             elif step.kind == "batch_inference":
                 component = step.component
                 settings = self._config.for_component(component, fallback="BatchInference")
+                largest_batch_size = max(largest_batch_size, len(contexts))
                 results = component.infer_batch(contexts, settings)  # type: ignore[attr-defined]
                 if len(results) != len(contexts):
                     raise ValueError("batch inference must return one result per context")
@@ -143,25 +148,72 @@ class Pipeline:
                 action_errors=dispatcher.errors,
                 output_count=output_count,
                 error_count=error_count,
+                queue_dropped=sum(metrics.dropped_count for metrics in queue_metrics),
+                queue_max_depth=max((metrics.max_depth_seen for metrics in queue_metrics), default=0),
+                batch_size=largest_batch_size,
             ),
         )
 
     def _initial_contexts(self) -> list[PipelineContext]:
         if self._streams:
-            return [
-                PipelineContext(
-                    frame=Frame(
-                        stream_id=stream.stream_id,
-                        image=stream.source,
-                        sequence=0,
-                        metadata={"source": stream.source, "output": stream.output},
-                    )
-                )
-                for stream in self._streams
-            ]
+            return self._initial_stream_contexts()
         if self._source is None:
             raise ValueError("pipeline requires either source(...) or streams(...)")
-        return [PipelineContext(frame=frame) for frame in self._source.frames()]
+        return self._contexts_from_frames(self._source.frames())
+
+    def _initial_stream_contexts(self) -> list[PipelineContext]:
+        queue_settings = self._config.sections.get("Pipeline", {})
+        batch_settings = self._config.sections.get("BatchInference", {})
+        stream_queues = {
+            stream.stream_id: FrameQueue(
+                max_frames=int(queue_settings.get("queue_size", 8)),
+                drop_policy=str(queue_settings.get("drop_policy", DropPolicy.LATEST.value)),
+            )
+            for stream in self._streams
+        }
+        for stream in self._streams:
+            stream_queues[stream.stream_id].put(
+                Frame(
+                    stream_id=stream.stream_id,
+                    image=stream.source,
+                    sequence=0,
+                    metadata={"source": stream.source, "output": stream.output},
+                )
+            )
+        self._last_queue_metrics = [queue.metrics for queue in stream_queues.values()]
+        if any(step.kind == "batch_inference" for step in self._steps):
+            return BatchCollector(
+                stream_queues,
+                BatchPolicy(
+                    max_batch_size=int(batch_settings.get("max_batch_size", len(stream_queues))),
+                    max_wait_ms=int(batch_settings.get("max_wait_ms", 20)),
+                    drop_policy=str(batch_settings.get("drop_policy", DropPolicy.LATEST.value)),
+                ),
+            ).collect()
+        return [
+            PipelineContext(frame=frame)
+            for queue in stream_queues.values()
+            for frame in queue.drain_all()
+        ]
+
+    def _contexts_from_frames(self, frames: list[Frame]) -> list[PipelineContext]:
+        queue_settings = self._config.sections.get("Pipeline", {})
+        queues: dict[str, FrameQueue] = {}
+        for frame in frames:
+            queue = queues.setdefault(
+                frame.stream_id,
+                FrameQueue(
+                    max_frames=int(queue_settings.get("queue_size", 8)),
+                    drop_policy=str(queue_settings.get("drop_policy", DropPolicy.LATEST.value)),
+                ),
+            )
+            queue.put(frame)
+        self._last_queue_metrics = [queue.metrics for queue in queues.values()]
+        return [
+            PipelineContext(frame=frame)
+            for queue in queues.values()
+            for frame in queue.drain_all()
+        ]
 
     @staticmethod
     def _describe_component(component: Any) -> str:

@@ -108,6 +108,9 @@ class PipelineMetrics:
     action_errors: int
     output_count: int
     error_count: int
+    queue_dropped: int = 0
+    queue_max_depth: int = 0
+    batch_size: int = 0
 
 
 @dataclass(frozen=True)
