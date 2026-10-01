@@ -3,12 +3,14 @@
 from pipeworks.components import (
     DetectionBoxOverlay,
     DetectionCrop,
+    FileSource,
     MockSource,
     MQPublishAction,
     RTSPPublisher,
     RTSPSource,
     StaticBoxOverlay,
     SvgSendAction,
+    SyntheticSource,
     YoloInference,
 )
 from pipeworks.core.models import (
@@ -35,6 +37,7 @@ __all__ = [
     "DetectionResult",
     "DropPolicy",
     "Evidence",
+    "FileSource",
     "Frame",
     "FrameQueue",
     "GateResult",
@@ -52,6 +55,7 @@ __all__ = [
     "StaticBoxOverlay",
     "Stream",
     "SvgSendAction",
+    "SyntheticSource",
     "Task",
     "TaskStatus",
     "YoloInference",

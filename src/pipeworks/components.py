@@ -85,6 +85,50 @@ class MockSource:
 
 
 @dataclass
+class SyntheticSource:
+    """Synthetic video source for local development and tests."""
+
+    stream_id: str = "synthetic"
+    frame_count: int = 5
+    width: int = 640
+    height: int = 360
+    name: str = "SyntheticSource"
+
+    def frames(self) -> list[Frame]:
+        return [
+            Frame(
+                stream_id=self.stream_id,
+                image=f"synthetic:{self.width}x{self.height}:{index}",
+                sequence=index,
+                metadata={"width": self.width, "height": self.height},
+            )
+            for index in range(self.frame_count)
+        ]
+
+
+@dataclass
+class FileSource:
+    """Local file descriptor source.
+
+    MVP stores the file path in frame payload; real decode is a future adapter.
+    """
+
+    path: str
+    stream_id: str = "file"
+    name: str = "FileSource"
+
+    def frames(self) -> list[Frame]:
+        return [
+            Frame(
+                stream_id=self.stream_id,
+                image=self.path,
+                sequence=0,
+                metadata={"path": self.path},
+            )
+        ]
+
+
+@dataclass
 class RTSPSource:
     """Public RTSP source descriptor.
 

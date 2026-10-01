@@ -1,0 +1,7 @@
+Pipeline:
+  queue_size: 4
+  drop_policy: drop_oldest
+
+YoloInference:
+  confidence: 0.8
+  device: cpu
