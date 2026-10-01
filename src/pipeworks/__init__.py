@@ -1,5 +1,7 @@
 """Pipe Works real-time video pipeline SDK."""
 
+__version__ = "0.1.0"
+
 from pipeworks.components import (
     DetectionBoxOverlay,
     DetectionCrop,
@@ -85,6 +87,7 @@ __all__ = [
     "ValidationReport",
     "WorkerRuntime",
     "YoloInference",
+    "__version__",
     "metrics_json",
     "metrics_prometheus",
     "metrics_snapshot",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from pipeworks import __version__
 from pipeworks.adapters.memory import InMemoryBacklog, InMemoryRecorder, NoOpAgent
 from pipeworks.core.models import AcceptanceCriterion, Task
 from pipeworks.harness.gates import (
@@ -40,6 +41,7 @@ def build_demo_engine() -> LoopEngine:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run Pipe Works agent loop harness.")
+    parser.add_argument("--version", action="version", version=f"pipe-works {__version__}")
     parser.add_argument("--once", action="store_true", help="Run one loop iteration.")
     parser.add_argument("--check", action="store_true", help="Run local SDK quality gates.")
     parser.add_argument("--init-example", metavar="DIR", help="Create a starter pipeline project.")
