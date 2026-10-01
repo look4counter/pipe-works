@@ -135,6 +135,7 @@ Implemented and pushed to `main`:
 - opt-in per-context failure isolation with `Pipeline.isolate_errors`
 - batch inference adapter contracts with stream identity validation
 - HTTP health/Prometheus endpoint example and Docker Compose deployment template
+- GStreamer lazy `appsink` frame extraction and continuous source iterator contract
 
 Latest relevant commits:
 
@@ -236,13 +237,12 @@ Do not make the normal user write:
 Continue in this order unless blocked:
 
 1. Real adapter deepening
-   - GStreamer appsink frame extraction behind `GStreamerRTSPSource`
    - Ultralytics adapter real inference when dependency exists
    - TensorRT adapter execution skeleton when dependency exists
    - MediaMTX publish contract
 2. Production runtime expansion
    - bounded queues between every Worker stage
-   - continuous multi-stream ingest instead of the deterministic MVP source pull
+   - continuous multi-stream ingest through the Source iterator contract
    - GPU batch scheduling and real TensorRT/Ultralytics execution
 3. End-to-end operations
    - RTSP to MediaMTX integration tests
