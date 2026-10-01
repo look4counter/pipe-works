@@ -116,6 +116,7 @@ class PipelineMetrics:
     effective_fps: float = 0.0
     action_latency_ms_max: float = 0.0
     action_latency_ms_avg: float = 0.0
+    actions_dropped: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -132,6 +133,7 @@ class PipelineMetrics:
             "effective_fps": self.effective_fps,
             "action_latency_ms_max": self.action_latency_ms_max,
             "action_latency_ms_avg": self.action_latency_ms_avg,
+            "actions_dropped": self.actions_dropped,
         }
 
     def to_json(self) -> str:

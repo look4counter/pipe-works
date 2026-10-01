@@ -134,7 +134,11 @@ class Pipeline:
         self.validate().raise_for_errors()
         run_started_at = perf_counter()
         self._lifecycle.transition(PipelineState.STARTING)
-        dispatcher = ActionDispatcher()
+        action_settings = self._config.sections.get("Action", {})
+        dispatcher = ActionDispatcher(
+            max_workers=int(action_settings.get("max_workers", 4)),
+            max_pending=int(action_settings.get("max_pending", 64)),
+        )
         try:
             contexts = self._initial_contexts()
             queue_metrics = self._last_queue_metrics
@@ -175,6 +179,7 @@ class Pipeline:
                     effective_fps=(len(contexts) / (duration_ms / 1000)) if duration_ms > 0 else 0.0,
                     action_latency_ms_max=max(dispatcher.latency_ms, default=0.0),
                     action_latency_ms_avg=action_latency_avg,
+                    actions_dropped=dispatcher.dropped,
                 ),
             )
         except Exception:

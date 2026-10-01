@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from threading import BoundedSemaphore
 from time import perf_counter, sleep
 from typing import Protocol, runtime_checkable
 
@@ -253,25 +254,38 @@ class RTSPPublisher:
 
 
 class ActionDispatcher:
-    """Bounded-ish MVP dispatcher hiding action execution from the video path."""
+    """Bounded dispatcher hiding action execution from the video path."""
 
-    def __init__(self, max_workers: int = 4) -> None:
+    def __init__(self, max_workers: int = 4, max_pending: int = 64) -> None:
+        if max_workers <= 0 or max_pending <= 0:
+            raise ValueError("max_workers and max_pending must be greater than zero")
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._slots = BoundedSemaphore(max_pending)
         self._futures: list[Future[None]] = []
         self._started_at: dict[Future[None], float] = {}
         self.scheduled = 0
         self.completed = 0
         self.errors = 0
+        self.dropped = 0
         self.latency_ms: list[float] = []
 
     def submit(
         self, action: ActionComponent, context: PipelineContext, settings: dict[str, object]
-    ) -> None:
+    ) -> bool:
+        if not self._slots.acquire(blocking=False):
+            self.dropped += 1
+            context.errors.append(f"action queue full: dropped {action.__class__.__name__}")
+            return False
         self.scheduled += 1
-        future = self._executor.submit(action.execute, context, settings)
+        try:
+            future = self._executor.submit(action.execute, context, settings)
+        except Exception:
+            self._slots.release()
+            raise
         self._started_at[future] = perf_counter()
         future.add_done_callback(self._on_done)
         self._futures.append(future)
+        return True
 
     def drain(self, timeout: float | None = None, wait_for_actions: bool = True) -> None:
         if wait_for_actions and self._futures:
@@ -279,6 +293,7 @@ class ActionDispatcher:
         self._executor.shutdown(wait=wait_for_actions)
 
     def _on_done(self, future: Future[None]) -> None:
+        self._slots.release()
         started_at = self._started_at.pop(future, None)
         if started_at is not None:
             self.latency_ms.append((perf_counter() - started_at) * 1000)
