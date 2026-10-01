@@ -188,6 +188,9 @@ class Pipeline:
                     action_latency_ms_max=max(dispatcher.latency_ms, default=0.0),
                     action_latency_ms_avg=action_latency_avg,
                     actions_dropped=dispatcher.dropped,
+                    batch_count=worker_result.batch_count,
+                    batch_items=worker_result.batch_items,
+                    inference_latency_ms=worker_result.inference_latency_ms,
                 ),
             )
             self._last_result = result
@@ -260,6 +263,9 @@ class Pipeline:
                     actions_dropped=dispatcher.dropped,
                     queue_dropped=worker_result.queue_dropped,
                     queue_max_depth=worker_result.queue_max_depth,
+                    batch_count=worker_result.batch_count,
+                    batch_items=worker_result.batch_items,
+                    inference_latency_ms=worker_result.inference_latency_ms,
                 ),
             )
             self._last_result = result

@@ -117,6 +117,9 @@ class PipelineMetrics:
     action_latency_ms_max: float = 0.0
     action_latency_ms_avg: float = 0.0
     actions_dropped: int = 0
+    batch_count: int = 0
+    batch_items: int = 0
+    inference_latency_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -134,6 +137,9 @@ class PipelineMetrics:
             "action_latency_ms_max": self.action_latency_ms_max,
             "action_latency_ms_avg": self.action_latency_ms_avg,
             "actions_dropped": self.actions_dropped,
+            "batch_count": self.batch_count,
+            "batch_items": self.batch_items,
+            "inference_latency_ms": self.inference_latency_ms,
         }
 
     def to_json(self) -> str:

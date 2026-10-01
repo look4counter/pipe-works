@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from time import sleep
+from time import perf_counter, sleep
 
 from pipeworks.components import ActionDispatcher
 from pipeworks.config import RuntimeConfig
@@ -166,6 +166,9 @@ class WorkerRunResult:
     output_count: int
     queue_dropped: int = 0
     queue_max_depth: int = 0
+    batch_count: int = 0
+    batch_items: int = 0
+    inference_latency_ms: float = 0.0
 
 
 class ContinuousPipelineRunner:
@@ -189,6 +192,9 @@ class ContinuousPipelineRunner:
         largest_batch_size = 0
         queue_dropped = 0
         queue_max_depth = 0
+        batch_count = 0
+        batch_items = 0
+        inference_latency_ms = 0.0
         runtime = WorkerRuntime(isolate_errors=isolate_errors)
         cycle = 0
         while iterators and (max_cycles is None or cycle < max_cycles):
@@ -215,6 +221,9 @@ class ContinuousPipelineRunner:
             largest_batch_size = max(largest_batch_size, result.largest_batch_size)
             queue_dropped += result.queue_dropped
             queue_max_depth = max(queue_max_depth, result.queue_max_depth)
+            batch_count += result.batch_count
+            batch_items += result.batch_items
+            inference_latency_ms += result.inference_latency_ms
             cycle += 1
         return WorkerRunResult(
             contexts=contexts,
@@ -222,6 +231,9 @@ class ContinuousPipelineRunner:
             output_count=output_count,
             queue_dropped=queue_dropped,
             queue_max_depth=queue_max_depth,
+            batch_count=batch_count,
+            batch_items=batch_items,
+            inference_latency_ms=inference_latency_ms,
         )
 
 
@@ -252,6 +264,9 @@ class WorkerRuntime:
         largest_batch_size = 0
         queue_dropped = 0
         queue_max_depth = 0
+        batch_count = 0
+        batch_items = 0
+        inference_latency_ms = 0.0
         queue_settings = config.sections.get("Pipeline", {})
         queue_size = int(queue_settings.get("worker_queue_size", 64))
         drop_policy = str(queue_settings.get("worker_drop_policy", "latest"))
@@ -268,10 +283,16 @@ class WorkerRuntime:
 
         for step in steps:
             if step.kind == "inference":
+                started_at = perf_counter()
                 contexts = self.inference.run(contexts, step, config)
+                inference_latency_ms += (perf_counter() - started_at) * 1000
             elif step.kind == "batch_inference":
                 largest_batch_size = max(largest_batch_size, len(contexts))
+                batch_count += 1
+                batch_items += len(contexts)
+                started_at = perf_counter()
                 contexts = self.batch_inference.run(contexts, step, config)
+                inference_latency_ms += (perf_counter() - started_at) * 1000
             elif step.kind == "process":
                 contexts = self.process.run(contexts, step)
             elif step.kind == "overlay":
@@ -302,4 +323,7 @@ class WorkerRuntime:
             output_count=output_count,
             queue_dropped=queue_dropped,
             queue_max_depth=queue_max_depth,
+            batch_count=batch_count,
+            batch_items=batch_items,
+            inference_latency_ms=inference_latency_ms,
         )
