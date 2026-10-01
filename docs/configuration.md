@@ -66,6 +66,36 @@ Pipeline 사이의 큐와 오류 격리를 조정한다.
 실제 GStreamer 파이프라인의 네트워크 timeout 지원 여부는 배포 adapter 구현에
 따라 다를 수 있다. 장비가 끊겼다 복구되는 테스트를 반드시 수행한다.
 
+## Realtime freshness 정책
+
+이 섹션은 원본과 합성 영상의 시간 차이를 제한하기 위한 설계 목표다. 현재
+bounded queue와 `latest` drop 기반은 구현되어 있지만, 아래 end-to-end freshness
+강제와 latency 계측은 후속 runtime에서 구현해야 한다.
+
+| 키 | 자료형 | 설계 기본값 | 설명 |
+| --- | --- | ---: | --- |
+| `max_end_to_end_latency_ms` | 정수 | `1000` | 입력 수신부터 출력 publish까지 허용할 최대 지연 |
+| `max_frame_age_ms` | 정수 | `800` | 추론/출력 단계에 진입할 수 있는 최대 Frame age |
+| `drop_policy` | 문자열 | `latest` | 지연 시 최신 Frame 우선 정책 |
+| `drop_expired_frames` | 불리언 | `true` | freshness budget 초과 Frame 폐기 여부 |
+| `output_latency_action` | 문자열 | `drop` | 출력 직전 초과 시 `drop` 또는 운영 오류 처리 |
+
+목표 설정 예시:
+
+```yaml
+Realtime:
+  max_end_to_end_latency_ms: 1000
+  max_frame_age_ms: 800
+  drop_policy: latest
+  drop_expired_frames: true
+  output_latency_action: drop
+```
+
+이 정책은 모든 Frame을 보존하는 분석 시스템과 trade-off가 있다. 실시간 화면이
+오래된 영상을 보여주지 않아야 하는 Pipeline에서는 지연된 Frame을 버리는 것이
+의도된 정상 동작이다. 관련 acceptance criteria는
+`docs/adr/006-freshness-over-completeness.md`를 따른다.
+
 ## BatchInference
 
 Multi-stream Batch 수집 정책이다. Pipeline 코드의 `.batch_inference(...)`가

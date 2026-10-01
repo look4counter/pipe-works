@@ -44,6 +44,13 @@ YAML configuration은 **How**를 표현한다.
 - batch timeout
 - performance tuning
 
+핵심 실시간성 원칙:
+
+- 원본 영상과 합성 영상의 end-to-end latency를 기본 1,000ms 이하로 관리한다.
+- 모든 Frame을 보존하지 않는다. freshness budget을 초과한 오래된 Frame은 버린다.
+- 현재 bounded queue와 `latest` drop 기반은 구현되어 있지만, 입력부터 실제 출력까지의 1초 SLO 강제/계측은 아직 후속 구현 항목이다.
+- 관련 설계 기준은 `docs/pipeline-sdk-design.md`, `docs/architecture.md`, `docs/adr/006-freshness-over-completeness.md`를 먼저 읽는다.
+
 Python 코드가 `config.xxx`로 도배되어 pipeline 의미를 숨기면 안 된다.
 
 ## 현재 저장소 상태
@@ -253,6 +260,8 @@ Continue in this order unless blocked:
    - deployment Secret and configuration examples
    - startup/readiness checks for model, RTSP, CUDA, and MediaMTX dependencies
 3. Production operations
+   - implement end-to-end freshness budget and expired-frame drop enforcement
+   - add p95/p99 latency and per-stage age metrics
    - long-running soak tests with reconnect and backpressure evidence
    - dashboards and alert thresholds from the existing metrics contract
 

@@ -40,12 +40,34 @@ SDK는 다음 계약을 안정적으로 제공해야 한다.
 - Media plane과 action/event plane을 분리한다.
 - Queue, worker, retry, retained frame, event buffer는 bounded여야 한다.
 - Real-time 동작은 backlog보다 freshness를 우선한다.
+- 원본 수신부터 합성 출력까지의 end-to-end latency budget을 지키기 위해 만료 Frame을 폐기한다.
+- 1초 이내 실시간성은 단순 FPS 목표가 아니라 측정 가능한 SLO이며, 모든 media stage의 latency를 합산해 검증한다.
 - Camera/plugin failure의 blast radius를 명확히 한다.
 - Lifecycle state는 관측 가능해야 한다.
 - Metadata는 model vendor 형식이 아니라 SDK 계약에 속한다.
 - Observability는 부가 기능이 아니라 기본 동작이다.
 - 완료된 agent loop는 evidence를 남긴다.
 - Human gate는 irreversible/ambiguous decision에만 사용한다.
+
+## 실시간성 안전 원칙
+
+원본 영상보다 합성 영상이 1초 이상 늦어지는 상황은 기능 오류가 아니라 핵심
+운영 실패로 취급한다.
+
+```text
+Frame timestamp
+  -> bounded queue
+  -> batch wait budget
+  -> inference/overlay
+  -> encode/publish
+  -> freshness check
+  -> output 또는 expired-frame drop
+```
+
+큐에 오래된 Frame을 계속 쌓아 처리 완료율만 높이는 방식은 채택하지 않는다.
+현재 저장소는 bounded queue와 latest drop 기반까지 구현되어 있지만, 입력부터
+MediaMTX 출력까지 1초 SLO를 강제하는 freshness budget과 end-to-end 계측은
+아직 미구현이다. 이 항목은 다음 운영 runtime의 필수 acceptance criterion이다.
 
 ## 다음 주요 설계 결정
 
