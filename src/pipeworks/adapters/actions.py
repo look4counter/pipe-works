@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from importlib.util import find_spec
-from urllib import request
+from urllib import error, request
 
 from pipeworks.models import PipelineContext
 
@@ -36,15 +36,23 @@ class HttpPostAction:
 
     def execute(self, context: PipelineContext, settings: dict[str, object]) -> None:
         timeout = float(settings.get("timeout", 3))
+        retry = int(settings.get("retry", 0))
         payload = json.dumps(self.build_payload(context)).encode("utf-8")
-        req = request.Request(
-            self.url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with request.urlopen(req, timeout=timeout):
-            return
+        last_error: Exception | None = None
+        for _attempt in range(retry + 1):
+            req = request.Request(
+                self.url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with request.urlopen(req, timeout=timeout):
+                    return
+            except (OSError, error.HTTPError, error.URLError) as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
 
 
 def is_pika_available() -> bool:
