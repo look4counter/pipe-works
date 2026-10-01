@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any
 
 from pipeworks.components import (
     ActionComponent,
@@ -20,13 +18,8 @@ from pipeworks.components import (
 from pipeworks.config import RuntimeConfig
 from pipeworks.lifecycle import Lifecycle, PipelineState
 from pipeworks.models import Frame, PipelineContext, PipelineMetrics, PipelineResult, Stream
+from pipeworks.plan import PipelinePlan, PipelineStep
 from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
-
-
-@dataclass(frozen=True)
-class PipelineStep:
-    kind: str
-    component: object
 
 
 class Pipeline:
@@ -84,41 +77,46 @@ class Pipeline:
         self._steps.append(PipelineStep("output", component))
         return self
 
+    def compile(self) -> PipelinePlan:
+        """Compile the fluent declaration into a read-only execution plan."""
+
+        return PipelinePlan(
+            name=self.name,
+            source=self._source,
+            streams=tuple(self._streams),
+            steps=tuple(self._steps),
+            config=self._config,
+        )
+
     def describe(self) -> list[str]:
         """Return a simple architecture-diagram-like summary."""
 
-        lines = [f"Pipeline({self.name})"]
-        if self._source is not None:
-            lines.append(f"source: {self._describe_component(self._source)}")
-        if self._streams:
-            lines.append(f"streams: {', '.join(stream.stream_id for stream in self._streams)}")
-        for step in self._steps:
-            lines.append(f"{step.kind}: {self._describe_component(step.component)}")
-        return lines
+        return self.compile().describe()
 
     def diagram(self) -> str:
         """Return a readable text diagram for the declared pipeline."""
 
         lines: list[str] = [f"Pipeline: {self.name}"]
-        if self._streams:
-            lines.extend(f"{stream.stream_id}: {stream.source}" for stream in self._streams)
-        elif self._source is not None:
-            lines.append(self._describe_component(self._source))
+        plan = self.compile()
+        if plan.streams:
+            lines.extend(f"{stream.stream_id}: {stream.source}" for stream in plan.streams)
+        elif plan.source is not None:
+            lines.append(PipelinePlan.describe_component(plan.source))
         else:
             lines.append("<no source>")
 
-        main_steps = [step for step in self._steps if step.kind != "action"]
-        action_steps = [step for step in self._steps if step.kind == "action"]
+        main_steps = [step for step in plan.steps if step.kind != "action"]
+        action_steps = [step for step in plan.steps if step.kind == "action"]
         for step in main_steps:
             lines.append("  |")
             label = "batch inference" if step.kind == "batch_inference" else step.kind
-            lines.append(f"{label}: {self._describe_component(step.component)}")
+            lines.append(f"{label}: {PipelinePlan.describe_component(step.component)}")
             if action_steps and step.kind in {"overlay", "batch_inference", "inference"}:
                 for action in action_steps:
-                    lines.append(f"  +-- action: {self._describe_component(action.component)}")
+                    lines.append(f"  +-- action: {PipelinePlan.describe_component(action.component)}")
                 action_steps = []
         for action in action_steps:
-            lines.append(f"  +-- action: {self._describe_component(action.component)}")
+            lines.append(f"  +-- action: {PipelinePlan.describe_component(action.component)}")
         return "\n".join(lines)
 
     def run(self, wait_for_actions: bool = True) -> PipelineResult:
@@ -269,14 +267,3 @@ class Pipeline:
             for queue in queues.values()
             for frame in queue.drain_all()
         ]
-
-    @staticmethod
-    def _describe_component(component: Any) -> str:
-        values: list[str] = []
-        for attr in ("url", "model", "topic", "stream_id"):
-            if hasattr(component, attr):
-                value = getattr(component, attr)
-                if value:
-                    values.append(f"{attr}={value}")
-        suffix = f"({', '.join(values)})" if values else ""
-        return f"{component.__class__.__name__}{suffix}"

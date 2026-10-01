@@ -25,6 +25,7 @@ from pipeworks.lifecycle import Lifecycle, PipelineState
 from pipeworks.loop.engine import LoopEngine
 from pipeworks.models import Detection, DetectionResult, Frame, PipelineContext, Stream
 from pipeworks.pipeline import Pipeline
+from pipeworks.plan import PipelinePlan, PipelineStep
 from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
 
 __all__ = [
@@ -48,7 +49,9 @@ __all__ = [
     "MockSource",
     "Pipeline",
     "PipelineContext",
+    "PipelinePlan",
     "PipelineState",
+    "PipelineStep",
     "QueueMetrics",
     "RTSPPublisher",
     "RTSPSource",
