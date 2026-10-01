@@ -60,6 +60,7 @@ Python 코드가 `config.xxx`로 도배되어 pipeline 의미를 숨기면 안 �
 - `src/pipeworks/workers.py`: deterministic Source/Inference/Action/Output workers
 - `src/pipeworks/validation.py`: early declaration validation and warnings
 - `src/pipeworks/observability.py`: health, JSON, and Prometheus exporters
+- `src/pipeworks/observability_server.py`: standard-library `/health` and `/metrics` HTTP adapter
 - `src/pipeworks/components.py`: bounded async Action Dispatcher and graceful close
 - `src/pipeworks/components.py`: public component protocols and MVP components
 - `src/pipeworks/models.py`: `Frame`, `PipelineContext`, `DetectionResult`, metrics
@@ -133,6 +134,7 @@ Implemented and pushed to `main`:
 - Source reconnect policy with configurable attempts and interval
 - opt-in per-context failure isolation with `Pipeline.isolate_errors`
 - batch inference adapter contracts with stream identity validation
+- HTTP health/Prometheus endpoint example and Docker Compose deployment template
 
 Latest relevant commits:
 
@@ -238,14 +240,14 @@ Continue in this order unless blocked:
    - Ultralytics adapter real inference when dependency exists
    - TensorRT adapter execution skeleton when dependency exists
    - MediaMTX publish contract
-2. Operational integrations
-   - HTTP health and Prometheus endpoint adapter
-   - container image and deployment examples
-   - end-to-end RTSP to MediaMTX integration tests
-3. Production runtime expansion
+2. Production runtime expansion
    - bounded queues between every Worker stage
    - continuous multi-stream ingest instead of the deterministic MVP source pull
    - GPU batch scheduling and real TensorRT/Ultralytics execution
+3. End-to-end operations
+   - RTSP to MediaMTX integration tests
+   - container image variants for GPU and GStreamer
+   - deployment Secret and configuration examples
 
 ## 커밋 규칙
 
