@@ -59,6 +59,26 @@ Windows PowerShell이 아닌 환경에서는 PYTHONPATH를 해당 셸 문법에 
 - `.action(...)`은 외부 이벤트를 보낸다.
 - `.output(...)`은 결과 영상의 목적지를 선언한다.
 
+실행 결과는 `PipelineResult`로 받는다.
+
+```python
+result = pipeline.run()
+for context in result.contexts:
+    model_result = context.results["YoloInference"]
+    for detection in model_result.detections:
+        print(detection.label, detection.confidence, detection.box)
+```
+
+개발자가 직접 `model.predict(...)`나 `infer(...)`를 호출하지 않는 이유는
+Runtime이 Frame/Context 생성, 설정 병합, Stream ID 보존, 결과 저장, 다음
+Overlay/Action 단계 전달을 담당하기 때문이다. 모델 경로는 Python 인자로
+전달하고 `confidence`, `device`, `fp16`, retry 같은 실행값은 YAML에서 읽는다.
+
+01번의 `YoloInference`는 외부 GPU 없이 예제를 실행하기 위한 결정적 MVP
+컴포넌트다. 실제 모델 실행에서는 같은 `.inference(...)` 위치에
+`UltralyticsYoloInference` 또는 `TensorRTInference` adapter를 넣고, adapter가
+반환한 `DetectionResult`는 동일한 `context.results[stage]` 형식으로 받는다.
+
 실행:
 
     python examples/01_single_stream_rtsp_style.py
