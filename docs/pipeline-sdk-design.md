@@ -131,9 +131,10 @@ GPU 실행은 후속 adapter에서 담당한다. Public contract는 이미 준�
 > 처리할 수 없는 오래된 Frame을 쌓아두지 않는다. 정해진 freshness budget을
 > 초과한 Frame은 추론하지 않고 버린다.
 
-현재 bounded queue와 `latest` drop policy는 이 방향을 위한 기반일 뿐,
-원본 대비 1초 이내 end-to-end latency를 아직 보장하지 않는다. 실제 GStreamer
-decode, GPU inference, encoder, MediaMTX publish 구간의 지연은 별도로 측정해야 한다.
+현재 SDK Worker Runtime은 Frame age를 단계 진입 전에 검사하고 만료 Frame을
+폐기하며, output latency max/avg/p95를 metrics로 기록한다. 다만 실제 GStreamer
+decode, GPU inference, encoder, MediaMTX publish를 포함한 운영 환경의 1초
+end-to-end SLO는 배포 adapter와 장비 부하 테스트로 별도 검증해야 한다.
 
 필수 runtime 계약:
 
@@ -169,8 +170,8 @@ Realtime:
 
 ### 14.3 필수 후속 구현
 
-- Source 수신 timestamp부터 Output publish까지 latency 계측
-- `Realtime` freshness policy와 만료 Frame drop worker
+- 실제 encoded Output publish timestamp까지 포함하는 latency 계측
+- `Realtime` 정책의 GPU/encoder/MediaMTX 통합 검증
 - GStreamer appsink의 `max-buffers=1`, `drop=true`, `sync=false` 적용 검토
 - GPU/encoder/MediaMTX를 포함한 p95/p99 latency 부하 테스트
 - 1초 초과 시 health/metrics/로그에 원인별 카운터 기록
@@ -217,7 +218,7 @@ MVP는 context와 metrics에 error를 기록한다. Lifecycle state는 다음을
 - effective FPS
 - action latency
 - error count
-- 현재는 end-to-end freshness SLO를 보장하지 않으며, latency percentile과 Frame age 계측이 필수 후속 항목이다.
+- SDK Worker 수준 freshness enforcement와 latency percentile 계측은 구현되었다. 실제 encoded MediaMTX 종단 SLO 검증은 필수 후속 항목이다.
 
 향후 추가:
 

@@ -68,9 +68,10 @@ Pipeline 사이의 큐와 오류 격리를 조정한다.
 
 ## Realtime freshness 정책
 
-이 섹션은 원본과 합성 영상의 시간 차이를 제한하기 위한 설계 목표다. 현재
-bounded queue와 `latest` drop 기반은 구현되어 있지만, 아래 end-to-end freshness
-강제와 latency 계측은 후속 runtime에서 구현해야 한다.
+이 섹션은 원본과 합성 영상의 시간 차이를 제한한다. SDK Worker Runtime은
+`max_frame_age_ms`를 기준으로 오래된 Frame을 단계 진입 전에 폐기하고,
+output latency max/avg/p95를 metrics로 기록한다. 실제 encoded MediaMTX
+publish까지의 종단 지연은 배포 환경에서 별도로 검증한다.
 
 | 키 | 자료형 | 설계 기본값 | 설명 |
 | --- | --- | ---: | --- |

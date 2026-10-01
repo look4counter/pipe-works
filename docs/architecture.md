@@ -65,9 +65,10 @@ Frame timestamp
 ```
 
 큐에 오래된 Frame을 계속 쌓아 처리 완료율만 높이는 방식은 채택하지 않는다.
-현재 저장소는 bounded queue와 latest drop 기반까지 구현되어 있지만, 입력부터
-MediaMTX 출력까지 1초 SLO를 강제하는 freshness budget과 end-to-end 계측은
-아직 미구현이다. 이 항목은 다음 운영 runtime의 필수 acceptance criterion이다.
+현재 저장소는 Worker 단계의 freshness budget 검사, 만료 Frame drop, output
+latency max/avg/p95 metrics까지 구현했다. 다만 실제 encoded MediaMTX 출력
+timestamp까지 포함한 1초 SLO는 배포 adapter와 장비 부하 테스트에서 검증해야
+한다. 이 항목은 운영 runtime의 필수 acceptance criterion이다.
 
 ## 다음 주요 설계 결정
 

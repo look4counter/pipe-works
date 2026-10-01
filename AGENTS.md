@@ -48,7 +48,7 @@ YAML configuration은 **How**를 표현한다.
 
 - 원본 영상과 합성 영상의 end-to-end latency를 기본 1,000ms 이하로 관리한다.
 - 모든 Frame을 보존하지 않는다. freshness budget을 초과한 오래된 Frame은 버린다.
-- 현재 bounded queue와 `latest` drop 기반은 구현되어 있지만, 입력부터 실제 출력까지의 1초 SLO 강제/계측은 아직 후속 구현 항목이다.
+- Worker 단계의 freshness budget 검사, 만료 Frame drop, output latency max/avg/p95 계측은 구현되었다. 실제 encoded MediaMTX 종단 1초 SLO 검증은 후속 항목이다.
 - 관련 설계 기준은 `docs/pipeline-sdk-design.md`, `docs/architecture.md`, `docs/adr/006-freshness-over-completeness.md`를 먼저 읽는다.
 
 Python 코드가 `config.xxx`로 도배되어 pipeline 의미를 숨기면 안 된다.
@@ -152,6 +152,7 @@ Implemented and pushed to `main`:
 - GPU Batch scheduling metrics: batch count, item count, inference latency
 - fake GStreamer RTSP to MediaMTX end-to-end contract with stream/output assertions
 - parameterized CPU/GStreamer/GPU deployment image contract and Compose healthcheck
+- Worker freshness budget enforcement with expired-frame drop and output latency metrics
 
 Latest relevant commits:
 
@@ -260,8 +261,8 @@ Continue in this order unless blocked:
    - deployment Secret and configuration examples
    - startup/readiness checks for model, RTSP, CUDA, and MediaMTX dependencies
 3. Production operations
-   - implement end-to-end freshness budget and expired-frame drop enforcement
-   - add p95/p99 latency and per-stage age metrics
+   - validate encoded MediaMTX end-to-end freshness SLO under GPU/load conditions
+   - add per-stage age metrics and output publish timestamp from deployment adapters
    - long-running soak tests with reconnect and backpressure evidence
    - dashboards and alert thresholds from the existing metrics contract
 

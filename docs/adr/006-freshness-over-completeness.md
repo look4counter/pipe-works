@@ -2,7 +2,7 @@
 
 ## 상태
 
-Accepted as a core design principle; runtime enforcement is pending.
+Accepted as a core design principle; SDK Worker enforcement is implemented.
 
 ## 문맥
 
@@ -31,9 +31,10 @@ Pipe Works는 **freshness over completeness**를 기본 원칙으로 채택한�
 
 ## 구현 상태
 
-bounded queue, `latest` drop policy, batch wait 설정, queue drop metrics는
-구현되어 있다. 그러나 Source 수신부터 실제 encoded MediaMTX output까지의
-end-to-end age 측정과 1초 freshness budget 강제는 아직 구현해야 한다.
+bounded queue, `latest` drop policy, batch wait 설정, queue drop metrics,
+Worker 단계의 expired-frame drop, output latency max/avg/p95 metrics가 구현되어
+있다. Source 수신부터 실제 encoded MediaMTX output timestamp까지의 종단 SLO는
+배포 adapter와 장비 부하 테스트에서 검증해야 한다.
 
 ## Acceptance Criteria
 

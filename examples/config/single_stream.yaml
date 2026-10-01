@@ -4,6 +4,12 @@ Pipeline:
   worker_queue_size: 64
   worker_drop_policy: latest
 
+Realtime:
+  max_end_to_end_latency_ms: 1000
+  max_frame_age_ms: 800
+  drop_expired_frames: true
+  output_latency_action: drop
+
 RTSPSource:
   reconnect: true
   reconnect_attempts: 3
