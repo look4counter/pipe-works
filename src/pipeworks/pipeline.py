@@ -18,6 +18,7 @@ from pipeworks.components import (
 from pipeworks.config import RuntimeConfig
 from pipeworks.lifecycle import Lifecycle, PipelineState
 from pipeworks.models import Frame, PipelineContext, PipelineMetrics, PipelineResult, Stream
+from pipeworks.observability import HealthStatus, health_status
 from pipeworks.plan import PipelinePlan, PipelineStep
 from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
 from pipeworks.validation import ValidationReport, validate_plan
@@ -94,6 +95,9 @@ class Pipeline:
         """Check the declared pipeline without starting any source or worker."""
 
         return validate_plan(self.compile())
+
+    def health(self) -> HealthStatus:
+        return health_status(self.name, self.state)
 
     def describe(self) -> list[str]:
         """Return a simple architecture-diagram-like summary."""

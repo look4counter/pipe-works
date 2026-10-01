@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from time import time
 from typing import Any
@@ -115,6 +116,26 @@ class PipelineMetrics:
     effective_fps: float = 0.0
     action_latency_ms_max: float = 0.0
     action_latency_ms_avg: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "frames_processed": self.frames_processed,
+            "actions_scheduled": self.actions_scheduled,
+            "actions_completed": self.actions_completed,
+            "action_errors": self.action_errors,
+            "output_count": self.output_count,
+            "error_count": self.error_count,
+            "queue_dropped": self.queue_dropped,
+            "queue_max_depth": self.queue_max_depth,
+            "batch_size": self.batch_size,
+            "duration_ms": self.duration_ms,
+            "effective_fps": self.effective_fps,
+            "action_latency_ms_max": self.action_latency_ms_max,
+            "action_latency_ms_avg": self.action_latency_ms_avg,
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), sort_keys=True)
 
 
 @dataclass(frozen=True)

@@ -24,6 +24,7 @@ from pipeworks.core.models import (
 from pipeworks.lifecycle import Lifecycle, PipelineState
 from pipeworks.loop.engine import LoopEngine
 from pipeworks.models import Detection, DetectionResult, Frame, PipelineContext, Stream
+from pipeworks.observability import HealthStatus, metrics_json, metrics_prometheus, metrics_snapshot
 from pipeworks.pipeline import Pipeline
 from pipeworks.plan import PipelinePlan, PipelineStep
 from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
@@ -55,6 +56,7 @@ __all__ = [
     "Frame",
     "FrameQueue",
     "GateResult",
+    "HealthStatus",
     "InferenceWorker",
     "Lifecycle",
     "LoopDecision",
@@ -83,4 +85,7 @@ __all__ = [
     "ValidationReport",
     "WorkerRuntime",
     "YoloInference",
+    "metrics_json",
+    "metrics_prometheus",
+    "metrics_snapshot",
 ]
