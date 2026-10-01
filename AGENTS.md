@@ -138,6 +138,8 @@ Implemented and pushed to `main`:
 - GStreamer lazy `appsink` frame extraction and continuous source iterator contract
 - `Pipeline.run_streams()` continuous multi-stream cycles with batch identity preservation
 - bounded Context Queue between Worker stages with configurable drop policy
+- lazy Ultralytics inference normalization and GPU retry policy
+- TensorRT batch runner contract with retry and stream validation
 
 Latest relevant commits:
 
@@ -243,7 +245,8 @@ Continue in this order unless blocked:
    - TensorRT adapter execution skeleton when dependency exists
    - MediaMTX publish contract
 2. Production runtime expansion
-   - GPU batch scheduling and real TensorRT/Ultralytics execution
+   - real TensorRT engine/session loader behind the batch runner contract
+   - GPU batch scheduling metrics and CUDA recovery hooks
 3. End-to-end operations
    - RTSP to MediaMTX integration tests
    - container image variants for GPU and GStreamer
