@@ -32,6 +32,13 @@ class SourceWorker:
             raise last_error
         return []
 
+    def stream(self, source: object, config: RuntimeConfig | None = None):
+        """Return a lazy frame iterator for continuous sources."""
+
+        if hasattr(source, "stream_frames"):
+            return source.stream_frames()  # type: ignore[attr-defined]
+        return iter(self.run(source, config))
+
 
 class InferenceWorker:
     def __init__(self, isolate_errors: bool = False) -> None:
