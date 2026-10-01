@@ -20,6 +20,7 @@ from pipeworks.lifecycle import Lifecycle, PipelineState
 from pipeworks.models import Frame, PipelineContext, PipelineMetrics, PipelineResult, Stream
 from pipeworks.plan import PipelinePlan, PipelineStep
 from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
+from pipeworks.workers import SourceWorker, WorkerRuntime
 
 
 class Pipeline:
@@ -126,47 +127,14 @@ class Pipeline:
         try:
             contexts = self._initial_contexts()
             queue_metrics = self._last_queue_metrics
-            output_count = 0
-            largest_batch_size = 0
             self._lifecycle.transition(PipelineState.RUNNING)
-
-            for step in self._steps:
-                if step.kind == "inference":
-                    component = step.component
-                    settings = self._config.for_component(component)
-                    for context in contexts:
-                        result = component.infer(context, settings)  # type: ignore[attr-defined]
-                        context.add_result(result)
-                elif step.kind == "batch_inference":
-                    component = step.component
-                    settings = self._config.for_component(component, fallback="BatchInference")
-                    largest_batch_size = max(largest_batch_size, len(contexts))
-                    results = component.infer_batch(contexts, settings)  # type: ignore[attr-defined]
-                    if len(results) != len(contexts):
-                        raise ValueError("batch inference must return one result per context")
-                    for context, result in zip(contexts, results, strict=True):
-                        context.add_result(result)
-                elif step.kind == "process":
-                    contexts = [
-                        step.component.process(context) for context in contexts  # type: ignore[attr-defined]
-                    ]
-                elif step.kind == "overlay":
-                    contexts = [
-                        step.component.apply(context) for context in contexts  # type: ignore[attr-defined]
-                    ]
-                elif step.kind == "action":
-                    component = step.component
-                    settings = self._config.for_component(component, fallback="Action")
-                    for context in contexts:
-                        dispatcher.submit(component, context, settings)  # type: ignore[arg-type]
-                elif step.kind == "output":
-                    component = step.component
-                    settings = self._config.for_component(component)
-                    for context in contexts:
-                        component.write(context, settings)  # type: ignore[attr-defined]
-                        output_count += 1
-                else:
-                    raise ValueError(f"unknown pipeline step {step.kind!r}")
+            worker_result = WorkerRuntime().run(
+                self.compile().steps,
+                contexts,
+                self._config,
+                dispatcher,
+            )
+            contexts = worker_result.contexts
 
             self._lifecycle.transition(PipelineState.DRAINING)
             dispatcher.drain(wait_for_actions=wait_for_actions)
@@ -187,11 +155,11 @@ class Pipeline:
                     actions_scheduled=dispatcher.scheduled,
                     actions_completed=dispatcher.completed,
                     action_errors=dispatcher.errors,
-                    output_count=output_count,
+                    output_count=worker_result.output_count,
                     error_count=error_count,
                     queue_dropped=sum(metrics.dropped_count for metrics in queue_metrics),
                     queue_max_depth=max((metrics.max_depth_seen for metrics in queue_metrics), default=0),
-                    batch_size=largest_batch_size,
+                    batch_size=worker_result.largest_batch_size,
                     duration_ms=duration_ms,
                     effective_fps=(len(contexts) / (duration_ms / 1000)) if duration_ms > 0 else 0.0,
                     action_latency_ms_max=max(dispatcher.latency_ms, default=0.0),
@@ -212,7 +180,7 @@ class Pipeline:
             return self._initial_stream_contexts()
         if self._source is None:
             raise ValueError("pipeline requires either source(...) or streams(...)")
-        return self._contexts_from_frames(self._source.frames())
+        return self._contexts_from_frames(SourceWorker().run(self._source))
 
     def _initial_stream_contexts(self) -> list[PipelineContext]:
         queue_settings = self._config.sections.get("Pipeline", {})
