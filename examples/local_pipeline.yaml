@@ -1,6 +1,10 @@
+# Python 코드에 적은 Source/Model의 정체성은 이곳으로 옮기지 않는다.
+# 아래 값은 운영 환경에 따라 바꿀 수 있는 How 설정이다.
 Pipeline:
   queue_size: 4
   drop_policy: drop_oldest
+  worker_queue_size: 64
+  worker_drop_policy: latest
 
 YoloInference:
   confidence: 0.8
