@@ -79,6 +79,7 @@ def run_checks() -> int:
             "examples/03_multistage_inference.py",
             "examples/04_custom_component.py",
             "examples/05_local_synthetic_config.py",
+            "examples/07_custom_source.py",
         ),
         CommandGate(
             name="pytest",

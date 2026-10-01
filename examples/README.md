@@ -208,6 +208,26 @@ Docker Compose 실행:
 
     docker compose -f deploy/docker-compose.yml up --build
 
+### 예제 07: Custom Source
+
+파일: `07_custom_source.py`
+
+SDK가 제공하지 않는 카메라나 데이터 수신기를 직접 연결하는 방법이다.
+
+- 단일 실행 Source: `frames() -> list[Frame]`
+- 연속 실행 Source: `stream_frames() -> Iterator[Frame]`
+- 반드시 `Frame.stream_id`, `Frame.sequence`를 채운다.
+- 수신기 내부의 OpenCV loop, SDK 호출, reconnect 구현은 Custom Source 안에 둔다.
+- Pipeline 이후의 Batch, Inference, Overlay, Output은 기존 DSL로 조립한다.
+
+실행:
+
+    python examples/07_custom_source.py
+
+실제 수신기를 연결할 때도 `Frame`만 반환하면 된다. SDK Runtime이 결과를
+Context에 저장하고 `stream_id`를 끝까지 보존하므로, Custom Source가 추론
+호출이나 결과 Demultiplex를 직접 구현하지 않는다.
+
 ## 3. 새 Pipeline을 만드는 방법
 
 1. `python -m pipeworks.cli --init-example ./my-pipeline`으로 시작 파일과 `pipeworks.yaml`을 만든다.

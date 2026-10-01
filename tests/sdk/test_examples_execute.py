@@ -12,6 +12,7 @@ EXAMPLES = [
     ROOT / "examples" / "03_multistage_inference.py",
     ROOT / "examples" / "04_custom_component.py",
     ROOT / "examples" / "05_local_synthetic_config.py",
+    ROOT / "examples" / "07_custom_source.py",
 ]
 
 
