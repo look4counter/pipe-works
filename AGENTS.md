@@ -56,6 +56,10 @@ Python 코드가 `config.xxx`로 도배되어 pipeline 의미를 숨기면 안 �
 현재 SDK 구현 위치:
 
 - `src/pipeworks/pipeline.py`: fluent Pipeline DSL and MVP runtime
+- `src/pipeworks/plan.py`: compiled `PipelinePlan` execution shape
+- `src/pipeworks/workers.py`: deterministic Source/Inference/Action/Output workers
+- `src/pipeworks/validation.py`: early declaration validation and warnings
+- `src/pipeworks/observability.py`: health, JSON, and Prometheus exporters
 - `src/pipeworks/components.py`: public component protocols and MVP components
 - `src/pipeworks/models.py`: `Frame`, `PipelineContext`, `DetectionResult`, metrics
 - `src/pipeworks/runtime.py`: realtime queue/drop policies and batch collector
@@ -122,6 +126,8 @@ Implemented and pushed to `main`:
 - curated examples execution harness
 - `pipeworks --check`
 - `pipeworks --init-example <DIR>`
+- optional package extras: `gstreamer`, `yolo`, `mq`, `all`
+- wheel build verified on Python 3.14
 
 Latest relevant commits:
 
@@ -222,38 +228,20 @@ Do not make the normal user write:
 
 Continue in this order unless blocked:
 
-1. `Pipeline.compile()` and `PipelinePlan`
-   - Split DSL declaration from executable runtime plan.
-   - Plan should list sources, stages, actions, outputs, config summary.
-   - Useful for docs, validation, and future worker runtime.
-
-2. Worker runtime skeleton
-   - source worker
-   - inference worker
-   - action worker
-   - output worker
-   - still deterministic and testable without real RTSP/GPU
-
-3. Pipeline validation
-   - fail early if no source/streams
-   - fail early if output missing for production-shaped pipeline
-   - validate batch inference only with streams or multi-frame sources
-
-4. Real adapter deepening
+1. Real adapter deepening
    - GStreamer appsink frame extraction behind `GStreamerRTSPSource`
    - Ultralytics adapter real inference when dependency exists
    - TensorRT adapter execution skeleton when dependency exists
    - MediaMTX publish contract
-
-5. Observability exporters
-   - metrics snapshot as dict/JSON
-   - Prometheus text format
-   - health status object
-
-6. Packaging extras
-   - `pipe-works[gstreamer]`
-   - `pipe-works[yolo]`
-   - `pipe-works[mq]`
+2. Production runtime hardening
+   - bounded asynchronous worker queues behind the Worker contracts
+   - reconnect and graceful shutdown integration
+   - per-stream failure isolation
+   - real GPU batch execution and demultiplexing
+3. Operational integrations
+   - HTTP health and Prometheus endpoint adapter
+   - container image and deployment examples
+   - end-to-end RTSP to MediaMTX integration tests
 
 ## 커밋 규칙
 
