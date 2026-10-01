@@ -9,7 +9,7 @@ from pathlib import Path
 from pipeworks import DetectionBoxOverlay, Pipeline, SyntheticSource, YoloInference
 
 # 배포 시에는 이 파일 대신 환경별 설정 경로를 전달할 수 있다.
-config_path = Path(__file__).with_name("local_pipeline.yaml")
+config_path = Path(__file__).with_name("config") / "local_pipeline.yaml"
 
 pipeline = (
     Pipeline("local-configured-pipeline", config=config_path)

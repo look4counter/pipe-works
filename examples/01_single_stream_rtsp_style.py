@@ -5,6 +5,8 @@ Architecture Diagram 역할을 한다. 로컬에서는 RTSP 주소를 설명자�
 사용하므로 카메라가 없어도 DSL과 검증 흐름을 확인할 수 있다.
 """
 
+from pathlib import Path
+
 from pipeworks import (
     DetectionBoxOverlay,
     MQPublishAction,
@@ -17,7 +19,7 @@ from pipeworks import (
 )
 
 pipeline = (
-    Pipeline("cobble-detection")
+    Pipeline("cobble-detection", config=Path(__file__).with_name("config") / "single_stream.yaml")
     # 무엇을 입력으로 받을지 코드에서 바로 읽을 수 있다.
     .source(RTSPSource("rtsp://camera/main"))
     # 모델 경로는 What이므로 Python 인자로 둔다.

@@ -17,7 +17,7 @@ class SourceWorker:
     """Turn a source component's frames into runtime contexts."""
 
     def run(self, source: object, config: RuntimeConfig | None = None) -> list[Frame]:
-        settings = config.for_component(source) if config is not None else {}
+        settings = config.for_component(source, fallback="RTSPSource") if config is not None else {}
         reconnect = bool(settings.get("reconnect", False))
         attempts = int(settings.get("reconnect_attempts", 1)) if reconnect else 1
         interval = float(settings.get("reconnect_interval", 0))

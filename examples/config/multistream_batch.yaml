@@ -1,0 +1,25 @@
+# 예제 02의 Batch/실시간 튜닝값이다.
+# 9개 Camera의 주소와 하나의 Model 경로는 Python 코드에서 확인한다.
+Pipeline:
+  worker_queue_size: 128
+  worker_drop_policy: latest
+
+BatchInference:
+  max_batch_size: 9
+  max_wait_ms: 20
+  drop_policy: latest
+
+YoloInference:
+  confidence: 0.8
+  device: cuda:0
+  fp16: true
+
+RTSPSource:
+  reconnect: true
+  reconnect_attempts: 5
+  reconnect_interval: 2
+
+RTSPPublisher:
+  codec: h264
+  fps: 25
+  bitrate: 4M

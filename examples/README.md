@@ -11,6 +11,15 @@
 - 카메라, GPU, MQ가 없어도 기본 예제는 실행되어야 한다.
 - 실제 운영으로 옮길 때 교체할 지점을 주석과 문서에 남긴다.
 
+설정 파일은 `examples/config/`에 모아두었다. Python 파일에서 Pipeline의
+의미를 읽고, YAML 파일에서 성능·재시도·큐·장치 같은 운영 튜닝값을 읽는다.
+
+| 설정 파일 | 연결된 예제 | 용도 |
+| --- | --- | --- |
+| `config/single_stream.yaml` | `01_single_stream_rtsp_style.py` | 단일 RTSP/Action/Output 튜닝 |
+| `config/multistream_batch.yaml` | `02_multistream_batch.py` | 9개 Stream Batch 튜닝 |
+| `config/local_pipeline.yaml` | `05_local_synthetic_config.py` | 카메라/GPU 없는 로컬 실행 |
+
 ## 1. 설치와 실행 준비
 
 저장소 루트에서 실행한다.
@@ -62,7 +71,8 @@ Windows PowerShell이 아닌 환경에서는 PYTHONPATH를 해당 셸 문법에 
 파일: `02_multistream_batch.py`
 
 여러 카메라 Frame을 하나의 Batch로 묶고, 결과를 원래 Stream으로 되돌리는
-선언이다.
+실행 가능한 예제다. 외부 카메라 없이도 9개 Source와 2개 cycle을 가짜
+appsink reader로 실행하므로 Batch 크기와 매핑 결과를 직접 확인할 수 있다.
 
     Camera 01 ... Camera 09
                  -> Batch Inference
@@ -76,8 +86,27 @@ Windows PowerShell이 아닌 환경에서는 PYTHONPATH를 해당 셸 문법에 
 - stream_id 매핑
 - Frame Drop 정책
 
-실제 연속 입력을 연결할 때는 `Pipeline.run_streams(...)`와 Source iterator를
-사용한다. 현재 예제는 DSL의 구조를 빠르게 확인하는 descriptor 기반 예제다.
+소스의 핵심 구조:
+
+- `STREAMS`: 카메라 ID, RTSP 입력 주소, MediaMTX 출력 주소를 선언한다.
+- `build_sources()`: 각 Stream을 GStreamer RTSP Source로 만든다.
+- `Pipeline.run_streams()`: cycle마다 각 Source에서 최대 한 Frame을 모은다.
+- `.batch_inference(...)`: 모은 Context를 한 번에 모델에 전달한다.
+- SDK Context: 결과의 `stream_id`와 `frame.sequence`를 원본 Frame과 보존한다.
+- `MediaMTXPublisher`: 출력 경계에서 Stream별 URL로 전달할 수 있다.
+
+실행:
+
+    python examples/02_multistream_batch.py
+
+실제 연속 입력에서는 예제의 `build_sources()`를 다음처럼 바꾼다.
+
+    sources = build_sources(frame_reader=None)
+    result = pipeline.run_streams(sources)
+
+이때 GStreamer 런타임이 각 RTSP URL에서 Frame을 읽으며, Batch 생성/대기,
+결과 Demultiplex, Stream ID 보존, 출력 연결은 그대로 SDK가 맡는다. `max_cycles`
+는 로컬 테스트용 제한이고 운영에서는 생략한다.
 
 ### 예제 03: Multi-stage Inference
 
@@ -132,7 +161,7 @@ YAML에 둘 것:
 - batch 대기 시간
 - Action worker 수와 pending 한도
 
-설정 파일: `local_pipeline.yaml`
+설정 파일: `config/local_pipeline.yaml`
 
 실행:
 
@@ -161,9 +190,9 @@ Docker Compose 실행:
 
 ## 3. 새 Pipeline을 만드는 방법
 
-1. `python -m pipeworks.cli --init-example ./my-pipeline`으로 시작 파일을 만든다.
+1. `python -m pipeworks.cli --init-example ./my-pipeline`으로 시작 파일과 `pipeworks.yaml`을 만든다.
 2. `pipeline.py`에서 Source, Model, Action, Output을 읽기 좋은 순서로 선언한다.
-3. 운영 튜닝값은 `pipeworks.yaml`에 추가한다.
+3. 운영 튜닝값은 `examples/config/`를 참고해 `pipeworks.yaml`에 추가한다.
 4. `pipeline.diagram()`으로 사람이 읽는 흐름을 확인한다.
 5. `pipeline.validate()`로 구성 오류를 실행 전에 확인한다.
 6. 외부 서비스 없이 Synthetic/Mock Source로 테스트한다.
@@ -216,6 +245,8 @@ drop 정책과 Queue 메트릭을 함께 확인한다.
 
 - 프로젝트 전체 방향: [README.md](../README.md)
 - 다른 AI Agent 인수인계: [AGENTS.md](../AGENTS.md)
+- YAML 설정 전체 reference: [configuration.md](../docs/configuration.md)
+- 예제 YAML 설명: [config/README.md](config/README.md)
 - 배포 템플릿: [deploy/README.md](../deploy/README.md)
 - Pipeline 설계: [pipeline-sdk-design.md](../docs/pipeline-sdk-design.md)
 - 런타임 구조: [architecture.md](../docs/architecture.md)

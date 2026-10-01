@@ -32,3 +32,12 @@ def test_curated_example_executes(example: Path) -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip()
+
+
+def test_official_examples_include_external_config_samples() -> None:
+    config_dir = ROOT / "examples" / "config"
+    assert {
+        "single_stream.yaml",
+        "multistream_batch.yaml",
+        "local_pipeline.yaml",
+    } <= {path.name for path in config_dir.glob("*.yaml")}

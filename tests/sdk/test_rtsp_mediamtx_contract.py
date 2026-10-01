@@ -58,3 +58,9 @@ def test_gstreamer_rtsp_to_mediamtx_preserves_stream_identity_and_output_route()
     assert result.metrics.frames_processed == 4
     assert result.metrics.batch_count == 2
     assert result.metrics.batch_items == 4
+    assert [context.frame.metadata["output_url"] for context in result.contexts] == [
+        "rtsp://mediamtx/cam01",
+        "rtsp://mediamtx/cam02",
+        "rtsp://mediamtx/cam01",
+        "rtsp://mediamtx/cam02",
+    ]

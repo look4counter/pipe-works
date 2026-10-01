@@ -144,6 +144,7 @@ Implemented and pushed to `main`:
 - cached `TensorRTSessionFactory` with per-engine lifecycle cleanup
 - GPU Batch scheduling metrics: batch count, item count, inference latency
 - fake GStreamer RTSP to MediaMTX end-to-end contract with stream/output assertions
+- parameterized CPU/GStreamer/GPU deployment image contract and Compose healthcheck
 
 Latest relevant commits:
 
@@ -249,7 +250,6 @@ Continue in this order unless blocked:
    - connect `TensorRTSessionFactory` to the deployment's CUDA binding loader
    - validate encoded MediaMTX publishing with a real GStreamer/MediaMTX stack
 2. Deployment packaging
-   - container image variants for CPU, GPU, and GStreamer runtimes
    - deployment Secret and configuration examples
    - startup/readiness checks for model, RTSP, CUDA, and MediaMTX dependencies
 3. Production operations
