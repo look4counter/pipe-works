@@ -10,6 +10,7 @@ from pipeworks.components import ActionDispatcher
 from pipeworks.config import RuntimeConfig
 from pipeworks.models import Frame, PipelineContext
 from pipeworks.plan import PipelineStep
+from pipeworks.runtime import ContextQueue
 
 
 class SourceWorker:
@@ -163,6 +164,8 @@ class WorkerRunResult:
     contexts: list[PipelineContext]
     largest_batch_size: int
     output_count: int
+    queue_dropped: int = 0
+    queue_max_depth: int = 0
 
 
 class ContinuousPipelineRunner:
@@ -184,6 +187,8 @@ class ContinuousPipelineRunner:
         contexts: list[PipelineContext] = []
         output_count = 0
         largest_batch_size = 0
+        queue_dropped = 0
+        queue_max_depth = 0
         runtime = WorkerRuntime(isolate_errors=isolate_errors)
         cycle = 0
         while iterators and (max_cycles is None or cycle < max_cycles):
@@ -208,11 +213,15 @@ class ContinuousPipelineRunner:
             contexts.extend(result.contexts)
             output_count += result.output_count
             largest_batch_size = max(largest_batch_size, result.largest_batch_size)
+            queue_dropped += result.queue_dropped
+            queue_max_depth = max(queue_max_depth, result.queue_max_depth)
             cycle += 1
         return WorkerRunResult(
             contexts=contexts,
             largest_batch_size=largest_batch_size,
             output_count=output_count,
+            queue_dropped=queue_dropped,
+            queue_max_depth=queue_max_depth,
         )
 
 
@@ -241,6 +250,22 @@ class WorkerRuntime:
     ) -> WorkerRunResult:
         output_count = 0
         largest_batch_size = 0
+        queue_dropped = 0
+        queue_max_depth = 0
+        queue_settings = config.sections.get("Pipeline", {})
+        queue_size = int(queue_settings.get("worker_queue_size", 64))
+        drop_policy = str(queue_settings.get("worker_drop_policy", "latest"))
+
+        def handoff(values: list[PipelineContext]) -> list[PipelineContext]:
+            nonlocal queue_dropped, queue_max_depth
+            queue = ContextQueue(queue_size, drop_policy)
+            for value in values:
+                queue.put(value)
+            queue_metrics = queue.metrics
+            queue_dropped += queue_metrics.dropped_count
+            queue_max_depth = max(queue_max_depth, queue_metrics.max_depth_seen)
+            return queue.drain_all()
+
         for step in steps:
             if step.kind == "inference":
                 contexts = self.inference.run(contexts, step, config)
@@ -269,8 +294,12 @@ class WorkerRuntime:
                 output_count += successful_outputs
             else:
                 raise ValueError(f"unknown pipeline step {step.kind!r}")
+            if step.kind != "output":
+                contexts = handoff(contexts)
         return WorkerRunResult(
             contexts=contexts,
             largest_batch_size=largest_batch_size,
             output_count=output_count,
+            queue_dropped=queue_dropped,
+            queue_max_depth=queue_max_depth,
         )

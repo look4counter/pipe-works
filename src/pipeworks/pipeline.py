@@ -174,8 +174,14 @@ class Pipeline:
                     action_errors=dispatcher.errors,
                     output_count=worker_result.output_count,
                     error_count=error_count,
-                    queue_dropped=sum(metrics.dropped_count for metrics in queue_metrics),
-                    queue_max_depth=max((metrics.max_depth_seen for metrics in queue_metrics), default=0),
+                    queue_dropped=(
+                        sum(metrics.dropped_count for metrics in queue_metrics)
+                        + worker_result.queue_dropped
+                    ),
+                    queue_max_depth=max(
+                        max((metrics.max_depth_seen for metrics in queue_metrics), default=0),
+                        worker_result.queue_max_depth,
+                    ),
                     batch_size=worker_result.largest_batch_size,
                     duration_ms=duration_ms,
                     effective_fps=(len(contexts) / (duration_ms / 1000)) if duration_ms > 0 else 0.0,
@@ -252,6 +258,8 @@ class Pipeline:
                         else 0.0
                     ),
                     actions_dropped=dispatcher.dropped,
+                    queue_dropped=worker_result.queue_dropped,
+                    queue_max_depth=worker_result.queue_max_depth,
                 ),
             )
             self._last_result = result

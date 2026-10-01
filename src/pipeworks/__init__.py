@@ -30,7 +30,14 @@ from pipeworks.observability import HealthStatus, metrics_json, metrics_promethe
 from pipeworks.observability_server import ObservabilityServer
 from pipeworks.pipeline import Pipeline
 from pipeworks.plan import PipelinePlan, PipelineStep
-from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
+from pipeworks.runtime import (
+    BatchCollector,
+    BatchPolicy,
+    ContextQueue,
+    DropPolicy,
+    FrameQueue,
+    QueueMetrics,
+)
 from pipeworks.validation import PipelineValidationError, ValidationReport
 from pipeworks.workers import (
     ActionWorker,
@@ -50,6 +57,7 @@ __all__ = [
     "BatchCollector",
     "BatchInferenceWorker",
     "BatchPolicy",
+    "ContextQueue",
     "ContinuousPipelineRunner",
     "Detection",
     "DetectionBoxOverlay",

@@ -102,6 +102,49 @@ class FrameQueue:
         self._max_depth_seen = max(self._max_depth_seen, len(self._frames))
 
 
+class ContextQueue:
+    """Bounded handoff queue between Worker stages."""
+
+    def __init__(
+        self,
+        max_contexts: int,
+        drop_policy: DropPolicy | str = DropPolicy.LATEST,
+    ) -> None:
+        if max_contexts <= 0:
+            raise ValueError("max_contexts must be greater than zero")
+        self.max_contexts = max_contexts
+        self.drop_policy = DropPolicy(drop_policy)
+        if self.drop_policy == DropPolicy.LATEST:
+            self.drop_policy = DropPolicy.DROP_OLDEST
+        self._contexts: deque[PipelineContext] = deque()
+        self._dropped_count = 0
+        self._max_depth_seen = 0
+
+    def put(self, context: PipelineContext) -> bool:
+        if len(self._contexts) < self.max_contexts:
+            self._contexts.append(context)
+            self._max_depth_seen = max(self._max_depth_seen, len(self._contexts))
+            return True
+        if self.drop_policy == DropPolicy.DROP_OLDEST:
+            self._contexts.popleft()
+            self._contexts.append(context)
+            self._dropped_count += 1
+            return True
+        if self.drop_policy in {DropPolicy.DROP_NEWEST, DropPolicy.BLOCK}:
+            self._dropped_count += 1
+            return False
+        raise ValueError(f"unsupported drop policy {self.drop_policy}")
+
+    def drain_all(self) -> list[PipelineContext]:
+        contexts = list(self._contexts)
+        self._contexts.clear()
+        return contexts
+
+    @property
+    def metrics(self) -> QueueMetrics:
+        return QueueMetrics(len(self._contexts), self._dropped_count, self._max_depth_seen)
+
+
 @dataclass(frozen=True)
 class BatchPolicy:
     max_batch_size: int
