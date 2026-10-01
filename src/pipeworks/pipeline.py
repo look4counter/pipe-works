@@ -197,7 +197,7 @@ class Pipeline:
             return self._initial_stream_contexts()
         if self._source is None:
             raise ValueError("pipeline requires either source(...) or streams(...)")
-        return self._contexts_from_frames(SourceWorker().run(self._source))
+        return self._contexts_from_frames(SourceWorker().run(self._source, self._config))
 
     def _initial_stream_contexts(self) -> list[PipelineContext]:
         queue_settings = self._config.sections.get("Pipeline", {})

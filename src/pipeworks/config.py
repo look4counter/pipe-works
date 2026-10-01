@@ -11,7 +11,12 @@ import yaml
 DEFAULT_CONFIG: dict[str, dict[str, Any]] = {
     "Pipeline": {"queue_size": 8, "drop_policy": "latest", "isolate_errors": False},
     "BatchInference": {"max_batch_size": 16, "max_wait_ms": 20, "drop_policy": "latest"},
-    "RTSPSource": {"reconnect": True, "reconnect_interval": 3, "timeout": 10},
+    "RTSPSource": {
+        "reconnect": True,
+        "reconnect_attempts": 3,
+        "reconnect_interval": 3,
+        "timeout": 10,
+    },
     "YoloInference": {"confidence": 0.5, "device": "cpu", "fp16": False},
     "Action": {"timeout": 3, "retry": 0, "max_workers": 4, "max_pending": 64},
     "RTSPPublisher": {"codec": "h264", "fps": 25, "bitrate": "4M"},

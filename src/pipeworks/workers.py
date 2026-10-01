@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from time import sleep
 
 from pipeworks.components import ActionDispatcher
 from pipeworks.config import RuntimeConfig
@@ -14,8 +15,22 @@ from pipeworks.plan import PipelineStep
 class SourceWorker:
     """Turn a source component's frames into runtime contexts."""
 
-    def run(self, source: object) -> list[Frame]:
-        return source.frames()  # type: ignore[attr-defined]
+    def run(self, source: object, config: RuntimeConfig | None = None) -> list[Frame]:
+        settings = config.for_component(source) if config is not None else {}
+        reconnect = bool(settings.get("reconnect", False))
+        attempts = int(settings.get("reconnect_attempts", 1)) if reconnect else 1
+        interval = float(settings.get("reconnect_interval", 0))
+        last_error: Exception | None = None
+        for attempt in range(max(attempts, 1)):
+            try:
+                return source.frames()  # type: ignore[attr-defined]
+            except Exception as error:  # noqa: BLE001
+                last_error = error
+                if attempt + 1 < attempts and interval > 0:
+                    sleep(interval)
+        if last_error is not None:
+            raise last_error
+        return []
 
 
 class InferenceWorker:
