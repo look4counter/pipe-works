@@ -19,6 +19,7 @@ from pipeworks.core.models import (
     Task,
     TaskStatus,
 )
+from pipeworks.lifecycle import Lifecycle, PipelineState
 from pipeworks.loop.engine import LoopEngine
 from pipeworks.models import Detection, DetectionResult, Frame, PipelineContext, Stream
 from pipeworks.pipeline import Pipeline
@@ -37,12 +38,14 @@ __all__ = [
     "Frame",
     "FrameQueue",
     "GateResult",
+    "Lifecycle",
     "LoopDecision",
     "LoopEngine",
     "MQPublishAction",
     "MockSource",
     "Pipeline",
     "PipelineContext",
+    "PipelineState",
     "QueueMetrics",
     "RTSPPublisher",
     "RTSPSource",

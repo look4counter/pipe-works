@@ -120,3 +120,4 @@ class PipelineResult:
     pipeline_name: str
     contexts: list[PipelineContext]
     metrics: PipelineMetrics
+    state: str = "stopped"

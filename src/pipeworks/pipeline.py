@@ -17,6 +17,7 @@ from pipeworks.components import (
     SourceComponent,
 )
 from pipeworks.config import RuntimeConfig
+from pipeworks.lifecycle import Lifecycle, PipelineState
 from pipeworks.models import Frame, PipelineContext, PipelineMetrics, PipelineResult, Stream
 from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
 
@@ -40,6 +41,7 @@ class Pipeline:
         self._streams: list[Stream] = []
         self._steps: list[PipelineStep] = []
         self._last_queue_metrics: list[QueueMetrics] = []
+        self._lifecycle = Lifecycle()
         if isinstance(config, RuntimeConfig):
             self._config = config
         else:
@@ -94,65 +96,81 @@ class Pipeline:
         return lines
 
     def run(self, wait_for_actions: bool = True) -> PipelineResult:
-        contexts = self._initial_contexts()
-        queue_metrics = self._last_queue_metrics
+        self._lifecycle.transition(PipelineState.STARTING)
         dispatcher = ActionDispatcher()
-        output_count = 0
-        largest_batch_size = 0
+        try:
+            contexts = self._initial_contexts()
+            queue_metrics = self._last_queue_metrics
+            output_count = 0
+            largest_batch_size = 0
+            self._lifecycle.transition(PipelineState.RUNNING)
 
-        for step in self._steps:
-            if step.kind == "inference":
-                component = step.component
-                settings = self._config.for_component(component)
-                for context in contexts:
-                    result = component.infer(context, settings)  # type: ignore[attr-defined]
-                    context.add_result(result)
-            elif step.kind == "batch_inference":
-                component = step.component
-                settings = self._config.for_component(component, fallback="BatchInference")
-                largest_batch_size = max(largest_batch_size, len(contexts))
-                results = component.infer_batch(contexts, settings)  # type: ignore[attr-defined]
-                if len(results) != len(contexts):
-                    raise ValueError("batch inference must return one result per context")
-                for context, result in zip(contexts, results, strict=True):
-                    context.add_result(result)
-            elif step.kind == "process":
-                contexts = [step.component.process(context) for context in contexts]  # type: ignore[attr-defined]
-            elif step.kind == "overlay":
-                contexts = [step.component.apply(context) for context in contexts]  # type: ignore[attr-defined]
-            elif step.kind == "action":
-                component = step.component
-                settings = self._config.for_component(component, fallback="Action")
-                for context in contexts:
-                    dispatcher.submit(component, context, settings)  # type: ignore[arg-type]
-            elif step.kind == "output":
-                component = step.component
-                settings = self._config.for_component(component)
-                for context in contexts:
-                    component.write(context, settings)  # type: ignore[attr-defined]
-                    output_count += 1
-            else:
-                raise ValueError(f"unknown pipeline step {step.kind!r}")
+            for step in self._steps:
+                if step.kind == "inference":
+                    component = step.component
+                    settings = self._config.for_component(component)
+                    for context in contexts:
+                        result = component.infer(context, settings)  # type: ignore[attr-defined]
+                        context.add_result(result)
+                elif step.kind == "batch_inference":
+                    component = step.component
+                    settings = self._config.for_component(component, fallback="BatchInference")
+                    largest_batch_size = max(largest_batch_size, len(contexts))
+                    results = component.infer_batch(contexts, settings)  # type: ignore[attr-defined]
+                    if len(results) != len(contexts):
+                        raise ValueError("batch inference must return one result per context")
+                    for context, result in zip(contexts, results, strict=True):
+                        context.add_result(result)
+                elif step.kind == "process":
+                    contexts = [
+                        step.component.process(context) for context in contexts  # type: ignore[attr-defined]
+                    ]
+                elif step.kind == "overlay":
+                    contexts = [
+                        step.component.apply(context) for context in contexts  # type: ignore[attr-defined]
+                    ]
+                elif step.kind == "action":
+                    component = step.component
+                    settings = self._config.for_component(component, fallback="Action")
+                    for context in contexts:
+                        dispatcher.submit(component, context, settings)  # type: ignore[arg-type]
+                elif step.kind == "output":
+                    component = step.component
+                    settings = self._config.for_component(component)
+                    for context in contexts:
+                        component.write(context, settings)  # type: ignore[attr-defined]
+                        output_count += 1
+                else:
+                    raise ValueError(f"unknown pipeline step {step.kind!r}")
 
-        # Output path is not blocked by actions. By default we drain before
-        # returning a deterministic summary; advanced callers can opt out.
-        dispatcher.drain(wait_for_actions=wait_for_actions)
-        error_count = dispatcher.errors + sum(len(context.errors) for context in contexts)
-        return PipelineResult(
-            pipeline_name=self.name,
-            contexts=contexts,
-            metrics=PipelineMetrics(
-                frames_processed=len(contexts),
-                actions_scheduled=dispatcher.scheduled,
-                actions_completed=dispatcher.completed,
-                action_errors=dispatcher.errors,
-                output_count=output_count,
-                error_count=error_count,
-                queue_dropped=sum(metrics.dropped_count for metrics in queue_metrics),
-                queue_max_depth=max((metrics.max_depth_seen for metrics in queue_metrics), default=0),
-                batch_size=largest_batch_size,
-            ),
-        )
+            self._lifecycle.transition(PipelineState.DRAINING)
+            dispatcher.drain(wait_for_actions=wait_for_actions)
+            self._lifecycle.transition(PipelineState.STOPPED)
+            error_count = dispatcher.errors + sum(len(context.errors) for context in contexts)
+            return PipelineResult(
+                pipeline_name=self.name,
+                contexts=contexts,
+                state=self.state.value,
+                metrics=PipelineMetrics(
+                    frames_processed=len(contexts),
+                    actions_scheduled=dispatcher.scheduled,
+                    actions_completed=dispatcher.completed,
+                    action_errors=dispatcher.errors,
+                    output_count=output_count,
+                    error_count=error_count,
+                    queue_dropped=sum(metrics.dropped_count for metrics in queue_metrics),
+                    queue_max_depth=max((metrics.max_depth_seen for metrics in queue_metrics), default=0),
+                    batch_size=largest_batch_size,
+                ),
+            )
+        except Exception:
+            dispatcher.drain(wait_for_actions=False)
+            self._lifecycle.transition(PipelineState.ERROR)
+            raise
+
+    @property
+    def state(self) -> PipelineState:
+        return self._lifecycle.state
 
     def _initial_contexts(self) -> list[PipelineContext]:
         if self._streams:
