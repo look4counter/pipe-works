@@ -136,6 +136,7 @@ Implemented and pushed to `main`:
 - batch inference adapter contracts with stream identity validation
 - HTTP health/Prometheus endpoint example and Docker Compose deployment template
 - GStreamer lazy `appsink` frame extraction and continuous source iterator contract
+- `Pipeline.run_streams()` continuous multi-stream cycles with batch identity preservation
 
 Latest relevant commits:
 
@@ -242,7 +243,6 @@ Continue in this order unless blocked:
    - MediaMTX publish contract
 2. Production runtime expansion
    - bounded queues between every Worker stage
-   - continuous multi-stream ingest through the Source iterator contract
    - GPU batch scheduling and real TensorRT/Ultralytics execution
 3. End-to-end operations
    - RTSP to MediaMTX integration tests
