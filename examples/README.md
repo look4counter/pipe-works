@@ -3,6 +3,9 @@
 이 디렉터리는 Pipe Works SDK를 처음 사용하는 개발자가 **영상 흐름을 코드만
 읽고 이해하는 방법**을 익히도록 만든 공식 예제 모음이다.
 
+처음 맡은 개발자는 먼저 [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)를 순서대로
+실행한 뒤, 아래 예제를 관심 있는 유형부터 읽는다.
+
 모든 공식 예제는 다음 원칙을 따른다.
 
 - Python DSL에는 Source, Model, Transform, Overlay, Action, Output의 정체성을 적는다.
@@ -30,7 +33,7 @@
 개발 검증까지 하려면 다음을 실행한다.
 
     python -m pytest -q
-    python -m ruff check src\pipeworks tests\sdk examples\01_single_stream_rtsp_style.py examples\02_multistream_batch.py examples\03_multistage_inference.py examples\04_custom_component.py examples\05_local_synthetic_config.py examples\06_observability_server.py
+    python -m ruff check src\pipeworks tests\sdk examples\01_single_stream_rtsp_style.py examples\02_multistream_batch.py examples\03_multistage_inference.py examples\04_custom_component.py examples\05_local_synthetic_config.py examples\06_observability_server.py examples\07_custom_source.py
 
 Windows PowerShell이 아닌 환경에서는 PYTHONPATH를 해당 셸 문법에 맞게 설정한다.
 설치 후에는 PYTHONPATH 없이도 `pipeworks --version`과 `pipeworks --check`를

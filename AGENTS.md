@@ -85,6 +85,7 @@ Developer-facing examples:
 - `examples/03_multistage_inference.py`
 - `examples/04_custom_component.py`
 - `examples/05_local_synthetic_config.py`
+- `examples/07_custom_source.py`
 
 Design docs:
 
@@ -192,7 +193,7 @@ Human gate를 최소화한다. 명확한 blocker가 없으면 다음 순서로 �
 
 ```powershell
 $env:PYTHONPATH='src'; python -m pytest -q
-python -m ruff check src\pipeworks tests\sdk examples\01_single_stream_rtsp_style.py examples\02_multistream_batch.py examples\03_multistage_inference.py examples\04_custom_component.py examples\05_local_synthetic_config.py
+python -m ruff check src\pipeworks tests\sdk examples\01_single_stream_rtsp_style.py examples\02_multistream_batch.py examples\03_multistage_inference.py examples\04_custom_component.py examples\05_local_synthetic_config.py examples\06_observability_server.py examples\07_custom_source.py
 $env:PYTHONPATH='src'; python -m pipeworks.cli --check
 ```
 

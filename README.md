@@ -33,7 +33,7 @@ Pipe Works는 **Python 기반 실시간 영상 처리 Pipeline SDK**다. 목표�
 - pipeline lifecycle state
 - runtime metrics
 - GStreamer RTSP, YOLO/TensorRT, HTTP, MQ, MediaMTX adapter boundary
-- curated examples 5개
+- curated examples 7개
 - `pipeworks --check`
 - `pipeworks --init-example <DIR>`
 
@@ -76,7 +76,7 @@ RTSP 출력
 
 ```powershell
 $env:PYTHONPATH='src'; python -m pytest -q
-python -m ruff check src\pipeworks tests\sdk examples\01_single_stream_rtsp_style.py examples\02_multistream_batch.py examples\03_multistage_inference.py examples\04_custom_component.py examples\05_local_synthetic_config.py
+python -m ruff check src\pipeworks tests\sdk examples\01_single_stream_rtsp_style.py examples\02_multistream_batch.py examples\03_multistage_inference.py examples\04_custom_component.py examples\05_local_synthetic_config.py examples\06_observability_server.py examples\07_custom_source.py
 $env:PYTHONPATH='src'; python -m pipeworks.cli --check
 ```
 
@@ -95,6 +95,7 @@ $env:PYTHONPATH='src'; python -m pipeworks.cli --check
 - [03_multistage_inference.py](examples/03_multistage_inference.py): 1차 모델 -> crop -> 2차 모델
 - [04_custom_component.py](examples/04_custom_component.py): custom domain processor
 - [05_local_synthetic_config.py](examples/05_local_synthetic_config.py): local synthetic source + YAML 설정 override
+- [07_custom_source.py](examples/07_custom_source.py): custom finite/live Source 연결
 
 예제들은 테스트에서 subprocess로 실제 실행된다. 예제가 깨지면 SDK 품질 게이트가 실패해야 한다.
 
