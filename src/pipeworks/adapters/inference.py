@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib.util import find_spec
 
-from pipeworks.models import DetectionResult, PipelineContext
+from pipeworks.models import Detection, DetectionResult, PipelineContext
 
 
 class InferenceRuntimeUnavailableError(RuntimeError):
@@ -33,6 +33,7 @@ class UltralyticsYoloInference:
     stage: str = "yolo"
     name: str = "UltralyticsYoloInference"
     predictor: Callable[[object, dict[str, object]], list[DetectionResult]] | None = None
+    _model: object | None = field(default=None, init=False, repr=False)
 
     @property
     def available(self) -> bool:
@@ -47,25 +48,49 @@ class UltralyticsYoloInference:
             if result.stream_id != context.stream_id:
                 raise ValueError("inference result stream_id does not match context")
             return result
-        if not self.available:
-            raise InferenceRuntimeUnavailableError(
-                "Ultralytics YOLO adapter requires the 'ultralytics' package. "
-                "Install the yolo extra or use YoloInference for local deterministic tests."
-            )
-        raise NotImplementedError("Real Ultralytics invocation is scheduled for the GPU adapter slice.")
+        return self._infer_real([context], settings)[0]
 
     def infer_batch(
         self, contexts: list[PipelineContext], settings: dict[str, object]
     ) -> list[DetectionResult]:
-        if self.predictor is None:
-            if not self.available:
-                raise InferenceRuntimeUnavailableError(
-                    "Ultralytics YOLO batch inference requires the 'ultralytics' package."
-                )
-            raise NotImplementedError("Real Ultralytics batch invocation requires a runtime backend.")
-        results = [self.predictor(context.frame.image, settings)[0] for context in contexts]
+        if self.predictor is not None:
+            results = [self.predictor(context.frame.image, settings)[0] for context in contexts]
+        else:
+            results = self._infer_real(contexts, settings)
         _validate_batch_results(contexts, results)
         return results
+
+    def _infer_real(
+        self, contexts: list[PipelineContext], settings: dict[str, object]
+    ) -> list[DetectionResult]:
+        if self._model is None and not self.available:
+            raise InferenceRuntimeUnavailableError(
+                "Ultralytics YOLO adapter requires the 'ultralytics' package. "
+                "Install the yolo extra or use YoloInference for local deterministic tests."
+            )
+        retries = max(int(settings.get("inference_retry", 0)), 0)
+        for attempt in range(retries + 1):
+            try:
+                if self._model is None:
+                    from ultralytics import YOLO
+
+                    self._model = YOLO(self.model)
+                results = self._model.predict(
+                    source=[context.frame.image for context in contexts],
+                    conf=float(settings.get("confidence", 0.5)),
+                    device=settings.get("device", "cpu"),
+                    half=bool(settings.get("fp16", False)),
+                    verbose=False,
+                )
+                return [
+                    _normalize_ultralytics_result(context, raw, self.stage)
+                    for context, raw in zip(contexts, results, strict=True)
+                ]
+            except Exception:
+                self._model = None
+                if attempt == retries:
+                    raise
+        raise RuntimeError("unreachable inference retry state")
 
 
 @dataclass
@@ -88,7 +113,10 @@ class TensorRTInference:
 
     def infer(self, context: PipelineContext, settings: dict[str, object]) -> DetectionResult:
         if self.runner is not None:
-            result = self.runner(context.frame.image, settings)
+            result = _retry_inference(
+                lambda: self.runner(context.frame.image, settings),
+                int(settings.get("inference_retry", 0)),
+            )
             if result.stream_id != context.stream_id:
                 raise ValueError("inference result stream_id does not match context")
             return result
@@ -97,7 +125,9 @@ class TensorRTInference:
                 "TensorRT adapter requires the 'tensorrt' Python package and CUDA runtime. "
                 "Install TensorRT in the deployment environment or use YoloInference for local tests."
             )
-        raise NotImplementedError("Real TensorRT execution is scheduled for the GPU adapter slice.")
+        raise NotImplementedError(
+            "TensorRT package is installed, but a CUDA engine runner must be configured."
+        )
 
     def infer_batch(
         self, contexts: list[PipelineContext], settings: dict[str, object]
@@ -108,7 +138,10 @@ class TensorRTInference:
                     "TensorRT batch inference requires TensorRT and CUDA runtime."
                 )
             raise NotImplementedError("Real TensorRT batch execution requires a runtime backend.")
-        results = self.batch_runner([context.frame.image for context in contexts], settings)
+        results = _retry_inference(
+            lambda: self.batch_runner([context.frame.image for context in contexts], settings),
+            int(settings.get("inference_retry", 0)),
+        )
         _validate_batch_results(contexts, results)
         return results
 
@@ -124,3 +157,58 @@ def _validate_batch_results(
                 f"batch result stream_id {result.stream_id!r} does not match "
                 f"context {context.stream_id!r}"
             )
+
+
+def _retry_inference(operation: Callable[[], object], retries: int) -> object:
+    for attempt in range(max(retries, 0) + 1):
+        try:
+            return operation()
+        except Exception:
+            if attempt == retries:
+                raise
+    raise RuntimeError("unreachable inference retry state")
+
+
+def _normalize_ultralytics_result(
+    context: PipelineContext, raw: object, stage: str
+) -> DetectionResult:
+    boxes = getattr(raw, "boxes", None)
+    xyxy = _as_rows(getattr(boxes, "xyxy", []))
+    confidences = _as_values(getattr(boxes, "conf", []))
+    classes = _as_values(getattr(boxes, "cls", []))
+    names = getattr(raw, "names", {})
+    detections = []
+    for index, box in enumerate(xyxy):
+        class_id = int(classes[index]) if index < len(classes) else 0
+        label = names.get(class_id) if isinstance(names, dict) else None
+        detections.append(
+            Detection(
+                box=tuple(float(value) for value in box[:4]),
+                confidence=float(confidences[index]) if index < len(confidences) else 0.0,
+                class_id=class_id,
+                label=label,
+            )
+        )
+    return DetectionResult(
+        stream_id=context.stream_id,
+        stage=stage,
+        detections=detections,
+        frame_sequence=context.frame.sequence,
+    )
+
+
+def _as_values(value: object) -> list[object]:
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "cpu"):
+        value = value.cpu()
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if isinstance(value, list):
+        return value
+    return list(value) if value else []  # type: ignore[arg-type]
+
+
+def _as_rows(value: object) -> list[list[object]]:
+    rows = _as_values(value)
+    return [row if isinstance(row, list) else list(row) for row in rows]
