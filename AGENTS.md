@@ -141,7 +141,9 @@ Implemented and pushed to `main`:
 - lazy Ultralytics inference normalization and GPU retry policy
 - TensorRT batch runner contract with retry and stream validation
 - TensorRT lazy session factory contract with reset-based CUDA recovery
+- cached `TensorRTSessionFactory` with per-engine lifecycle cleanup
 - GPU Batch scheduling metrics: batch count, item count, inference latency
+- fake GStreamer RTSP to MediaMTX end-to-end contract with stream/output assertions
 
 Latest relevant commits:
 
@@ -187,7 +189,7 @@ $env:PYTHONPATH='src'; python -m pipeworks.cli --check
 
 현재 기준 통과 상태:
 
-- `pytest`: 41 passed
+- `pytest`: 77 passed
 - `ruff`: All checks passed
 - `pipeworks --check`: PASS
 
@@ -242,16 +244,17 @@ Do not make the normal user write:
 
 Continue in this order unless blocked:
 
-1. Real adapter deepening
-   - Ultralytics adapter real inference when dependency exists
-   - TensorRT adapter execution skeleton when dependency exists
-   - MediaMTX publish contract
-2. Production runtime expansion
-   - deployment-specific TensorRT engine/session factory implementation
-3. End-to-end operations
-   - RTSP to MediaMTX integration tests
-   - container image variants for GPU and GStreamer
+1. Hardware-backed adapter validation
+   - run Ultralytics/TensorRT inference against a deployment-provided model
+   - connect `TensorRTSessionFactory` to the deployment's CUDA binding loader
+   - validate encoded MediaMTX publishing with a real GStreamer/MediaMTX stack
+2. Deployment packaging
+   - container image variants for CPU, GPU, and GStreamer runtimes
    - deployment Secret and configuration examples
+   - startup/readiness checks for model, RTSP, CUDA, and MediaMTX dependencies
+3. Production operations
+   - long-running soak tests with reconnect and backpressure evidence
+   - dashboards and alert thresholds from the existing metrics contract
 
 ## 커밋 규칙
 

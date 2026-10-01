@@ -49,6 +49,14 @@ GStreamer와 CUDA/TensorRT 런타임은 운영체제와 GPU 드라이버에 따�
 - 배포 전 `pytest`, `ruff`, `pipeworks --check`를 실행한다.
 
 TensorRT Adapter는 CUDA buffer binding 방식이 배포 환경마다 다르므로
-`session_factory`로 프로젝트의 TensorRT Session을 주입한다. Session은
-`infer`, `infer_batch`, `reset` 계약을 구현하고, 일시적인 CUDA 오류 뒤에는
-SDK가 `inference_retry` 설정에 따라 `reset()` 후 재시도한다.
+프로젝트의 로더를 `TensorRTSessionFactory(loader=...)`로 주입한다. 팩토리는
+엔진 경로별 Session을 지연 생성하고 재사용한다. Session은 `infer`,
+`infer_batch`, `reset` 계약을 구현하고, 일시적인 CUDA 오류 뒤에는 SDK가
+`inference_retry` 설정에 따라 `reset()` 후 재시도한다. 배포 재시작이나 엔진
+교체 시에는 `factory.clear(path)` 또는 `factory.clear()`로 CUDA 자원을 정리한다.
+
+현재 저장소의 RTSP-출력 통합 테스트는 실제 장비 없이도 실행할 수 있도록
+GStreamer `frame_reader`와 MediaMTX `publisher`를 주입한다. 이 테스트는
+프레임 디코딩 payload 자체가 아니라 stream ID, sequence, 배치 결과, 출력 URL
+라우팅을 검증한다. 실제 운영 검증에서는 동일한 DSL에 배포 어댑터를 연결하고
+카메라, GPU, MediaMTX가 포함된 별도 환경 테스트를 추가한다.
