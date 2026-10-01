@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from pipeworks.adapters.memory import InMemoryBacklog, InMemoryRecorder, NoOpAgent
 from pipeworks.core.models import AcceptanceCriterion, Task
@@ -14,6 +15,7 @@ from pipeworks.harness.gates import (
     ruff_gate,
 )
 from pipeworks.loop.engine import LoopEngine
+from pipeworks.templates import STARTER_CONFIG, STARTER_PIPELINE
 
 
 def build_demo_engine() -> LoopEngine:
@@ -40,10 +42,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run Pipe Works agent loop harness.")
     parser.add_argument("--once", action="store_true", help="Run one loop iteration.")
     parser.add_argument("--check", action="store_true", help="Run local SDK quality gates.")
+    parser.add_argument("--init-example", metavar="DIR", help="Create a starter pipeline project.")
     args = parser.parse_args()
 
     if args.check:
         return run_checks()
+
+    if args.init_example:
+        init_example(Path(args.init_example))
+        return 0
 
     if args.once:
         decision = build_demo_engine().run_once()
@@ -89,6 +96,21 @@ def run_checks() -> int:
         status = "PASS" if result.passed else "FAIL"
         print(f"{status} {result.name}: {result.evidence[0].summary}")
     return 0 if all(result.passed for result in results) else 1
+
+
+def init_example(directory: Path) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    files = {
+        directory / "pipeline.py": STARTER_PIPELINE,
+        directory / "pipeworks.yaml": STARTER_CONFIG,
+    }
+    existing = [path for path in files if path.exists()]
+    if existing:
+        existing_names = ", ".join(path.name for path in existing)
+        raise FileExistsError(f"refusing to overwrite existing files: {existing_names}")
+    for path, content in files.items():
+        path.write_text(content, encoding="utf-8")
+    print(f"Created starter Pipe Works project in {directory}")
 
 
 if __name__ == "__main__":
