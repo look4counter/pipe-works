@@ -143,7 +143,8 @@ class Pipeline:
             contexts = self._initial_contexts()
             queue_metrics = self._last_queue_metrics
             self._lifecycle.transition(PipelineState.RUNNING)
-            worker_result = WorkerRuntime().run(
+            isolate_errors = bool(self._config.sections.get("Pipeline", {}).get("isolate_errors", False))
+            worker_result = WorkerRuntime(isolate_errors=isolate_errors).run(
                 self.compile().steps,
                 contexts,
                 self._config,

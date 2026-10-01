@@ -268,10 +268,16 @@ class ActionDispatcher:
         self.errors = 0
         self.dropped = 0
         self.latency_ms: list[float] = []
+        self._contexts: dict[Future[None], PipelineContext] = {}
+        self._closed = False
 
     def submit(
         self, action: ActionComponent, context: PipelineContext, settings: dict[str, object]
     ) -> bool:
+        if self._closed:
+            self.dropped += 1
+            context.errors.append("action dispatcher is closed")
+            return False
         if not self._slots.acquire(blocking=False):
             self.dropped += 1
             context.errors.append(f"action queue full: dropped {action.__class__.__name__}")
@@ -283,18 +289,26 @@ class ActionDispatcher:
             self._slots.release()
             raise
         self._started_at[future] = perf_counter()
+        self._contexts[future] = context
         future.add_done_callback(self._on_done)
         self._futures.append(future)
         return True
 
     def drain(self, timeout: float | None = None, wait_for_actions: bool = True) -> None:
+        self._closed = True
         if wait_for_actions and self._futures:
             wait(self._futures, timeout=timeout)
         self._executor.shutdown(wait=wait_for_actions)
 
+    def close(self, timeout: float | None = None) -> None:
+        """Gracefully stop accepting actions and drain pending work."""
+
+        self.drain(timeout=timeout, wait_for_actions=True)
+
     def _on_done(self, future: Future[None]) -> None:
         self._slots.release()
         started_at = self._started_at.pop(future, None)
+        context = self._contexts.pop(future, None)
         if started_at is not None:
             self.latency_ms.append((perf_counter() - started_at) * 1000)
         try:
@@ -304,5 +318,7 @@ class ActionDispatcher:
             return
         if exception is not None:
             self.errors += 1
+            if context is not None:
+                context.errors.append(f"action failed: {exception}")
             return
         self.completed += 1

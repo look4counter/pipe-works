@@ -19,38 +19,84 @@ class SourceWorker:
 
 
 class InferenceWorker:
+    def __init__(self, isolate_errors: bool = False) -> None:
+        self.isolate_errors = isolate_errors
+
     def run(
         self, contexts: list[PipelineContext], step: PipelineStep, config: RuntimeConfig
     ) -> list[PipelineContext]:
         settings = config.for_component(step.component)
         component = step.component
         for context in contexts:
-            result = component.infer(context, settings)  # type: ignore[attr-defined]
-            context.add_result(result)
+            try:
+                result = component.infer(context, settings)  # type: ignore[attr-defined]
+                context.add_result(result)
+            except Exception as error:
+                if not self.isolate_errors:
+                    raise
+                context.errors.append(f"inference failed: {error}")
         return contexts
 
 
 class BatchInferenceWorker:
+    def __init__(self, isolate_errors: bool = False) -> None:
+        self.isolate_errors = isolate_errors
+
     def run(
         self, contexts: list[PipelineContext], step: PipelineStep, config: RuntimeConfig
     ) -> list[PipelineContext]:
         settings = config.for_component(step.component, fallback="BatchInference")
-        results = step.component.infer_batch(contexts, settings)  # type: ignore[attr-defined]
+        try:
+            results = step.component.infer_batch(contexts, settings)  # type: ignore[attr-defined]
+        except Exception as error:
+            if not self.isolate_errors:
+                raise
+            for context in contexts:
+                context.errors.append(f"batch inference failed: {error}")
+            return contexts
         if len(results) != len(contexts):
-            raise ValueError("batch inference must return one result per context")
+            error = "batch inference must return one result per context"
+            for context in contexts:
+                context.errors.append(error)
+            return contexts
         for context, result in zip(contexts, results, strict=True):
-            context.add_result(result)
+            try:
+                context.add_result(result)
+            except Exception as error:
+                if not self.isolate_errors:
+                    raise
+                context.errors.append(f"batch result failed: {error}")
         return contexts
 
 
 class ProcessWorker:
+    def __init__(self, isolate_errors: bool = False) -> None:
+        self.isolate_errors = isolate_errors
+
     def run(self, contexts: list[PipelineContext], step: PipelineStep) -> list[PipelineContext]:
-        return [step.component.process(context) for context in contexts]  # type: ignore[attr-defined]
+        for index, context in enumerate(contexts):
+            try:
+                contexts[index] = step.component.process(context)  # type: ignore[attr-defined]
+            except Exception as error:
+                if not self.isolate_errors:
+                    raise
+                context.errors.append(f"process failed: {error}")
+        return contexts
 
 
 class OverlayWorker:
+    def __init__(self, isolate_errors: bool = False) -> None:
+        self.isolate_errors = isolate_errors
+
     def run(self, contexts: list[PipelineContext], step: PipelineStep) -> list[PipelineContext]:
-        return [step.component.apply(context) for context in contexts]  # type: ignore[attr-defined]
+        for index, context in enumerate(contexts):
+            try:
+                contexts[index] = step.component.apply(context)  # type: ignore[attr-defined]
+            except Exception as error:
+                if not self.isolate_errors:
+                    raise
+                context.errors.append(f"overlay failed: {error}")
+        return contexts
 
 
 class ActionWorker:
@@ -68,6 +114,9 @@ class ActionWorker:
 
 
 class OutputWorker:
+    def __init__(self, isolate_errors: bool = False) -> None:
+        self.isolate_errors = isolate_errors
+
     def run(
         self,
         contexts: list[PipelineContext],
@@ -77,8 +126,13 @@ class OutputWorker:
     ) -> list[PipelineContext]:
         settings = config.for_component(step.component)
         for context in contexts:
-            step.component.write(context, settings)  # type: ignore[attr-defined]
-            on_output()
+            try:
+                step.component.write(context, settings)  # type: ignore[attr-defined]
+                on_output()
+            except Exception as error:
+                if not self.isolate_errors:
+                    raise
+                context.errors.append(f"output failed: {error}")
         return contexts
 
 
@@ -97,13 +151,13 @@ class WorkerRuntime:
     these worker contracts without changing the DSL.
     """
 
-    def __init__(self) -> None:
-        self.inference = InferenceWorker()
-        self.batch_inference = BatchInferenceWorker()
-        self.process = ProcessWorker()
-        self.overlay = OverlayWorker()
+    def __init__(self, isolate_errors: bool = False) -> None:
+        self.inference = InferenceWorker(isolate_errors)
+        self.batch_inference = BatchInferenceWorker(isolate_errors)
+        self.process = ProcessWorker(isolate_errors)
+        self.overlay = OverlayWorker(isolate_errors)
         self.action = ActionWorker()
-        self.output = OutputWorker()
+        self.output = OutputWorker(isolate_errors)
 
     def run(
         self,
@@ -127,13 +181,19 @@ class WorkerRuntime:
             elif step.kind == "action":
                 contexts = self.action.run(contexts, step, config, dispatcher)
             elif step.kind == "output":
+                successful_outputs = 0
+
+                def count_output() -> None:
+                    nonlocal successful_outputs
+                    successful_outputs += 1
+
                 contexts = self.output.run(
                     contexts,
                     step,
                     config,
-                    on_output=lambda: None,
+                    on_output=count_output,
                 )
-                output_count += len(contexts)
+                output_count += successful_outputs
             else:
                 raise ValueError(f"unknown pipeline step {step.kind!r}")
         return WorkerRunResult(

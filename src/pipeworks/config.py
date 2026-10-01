@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 DEFAULT_CONFIG: dict[str, dict[str, Any]] = {
-    "Pipeline": {"queue_size": 8, "drop_policy": "latest"},
+    "Pipeline": {"queue_size": 8, "drop_policy": "latest", "isolate_errors": False},
     "BatchInference": {"max_batch_size": 16, "max_wait_ms": 20, "drop_policy": "latest"},
     "RTSPSource": {"reconnect": True, "reconnect_interval": 3, "timeout": 10},
     "YoloInference": {"confidence": 0.5, "device": "cpu", "fp16": False},
