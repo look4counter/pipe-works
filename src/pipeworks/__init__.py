@@ -35,6 +35,7 @@ from pipeworks.validation import PipelineValidationError, ValidationReport
 from pipeworks.workers import (
     ActionWorker,
     BatchInferenceWorker,
+    ContinuousPipelineRunner,
     InferenceWorker,
     OutputWorker,
     OverlayWorker,
@@ -49,6 +50,7 @@ __all__ = [
     "BatchCollector",
     "BatchInferenceWorker",
     "BatchPolicy",
+    "ContinuousPipelineRunner",
     "Detection",
     "DetectionBoxOverlay",
     "DetectionCrop",

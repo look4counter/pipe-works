@@ -22,7 +22,7 @@ from pipeworks.observability import HealthStatus, health_status
 from pipeworks.plan import PipelinePlan, PipelineStep
 from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
 from pipeworks.validation import ValidationReport, validate_plan
-from pipeworks.workers import SourceWorker, WorkerRuntime
+from pipeworks.workers import ContinuousPipelineRunner, SourceWorker, WorkerRuntime
 
 
 class Pipeline:
@@ -181,6 +181,76 @@ class Pipeline:
                     effective_fps=(len(contexts) / (duration_ms / 1000)) if duration_ms > 0 else 0.0,
                     action_latency_ms_max=max(dispatcher.latency_ms, default=0.0),
                     action_latency_ms_avg=action_latency_avg,
+                    actions_dropped=dispatcher.dropped,
+                ),
+            )
+            self._last_result = result
+            return result
+        except Exception:
+            dispatcher.drain(wait_for_actions=False)
+            self._lifecycle.transition(PipelineState.ERROR)
+            raise
+
+    def run_streams(
+        self,
+        sources: dict[str, SourceComponent],
+        max_cycles: int | None = None,
+        wait_for_actions: bool = True,
+    ) -> PipelineResult:
+        """Run continuous sources in synchronized per-cycle batches.
+
+        A cycle takes at most one Frame from each source. This keeps the public
+        API simple while allowing batch inference to preserve stream identity.
+        ``max_cycles`` is intended for tests and controlled local runs; live
+        deployments leave it as ``None``.
+        """
+
+        self.validate().raise_for_errors()
+        if not sources:
+            raise ValueError("run_streams requires at least one source")
+        run_started_at = perf_counter()
+        self._lifecycle.transition(PipelineState.STARTING)
+        action_settings = self._config.sections.get("Action", {})
+        dispatcher = ActionDispatcher(
+            max_workers=int(action_settings.get("max_workers", 4)),
+            max_pending=int(action_settings.get("max_pending", 64)),
+        )
+        try:
+            self._lifecycle.transition(PipelineState.RUNNING)
+            isolate_errors = bool(self._config.sections.get("Pipeline", {}).get("isolate_errors", False))
+            worker_result = ContinuousPipelineRunner().run(
+                sources,
+                self.compile().steps,
+                self._config,
+                dispatcher,
+                max_cycles=max_cycles,
+                isolate_errors=isolate_errors,
+            )
+            self._lifecycle.transition(PipelineState.DRAINING)
+            dispatcher.drain(wait_for_actions=wait_for_actions)
+            self._lifecycle.transition(PipelineState.STOPPED)
+            duration_ms = (perf_counter() - run_started_at) * 1000
+            contexts = worker_result.contexts
+            result = PipelineResult(
+                pipeline_name=self.name,
+                contexts=contexts,
+                state=self.state.value,
+                metrics=PipelineMetrics(
+                    frames_processed=len(contexts),
+                    actions_scheduled=dispatcher.scheduled,
+                    actions_completed=dispatcher.completed,
+                    action_errors=dispatcher.errors,
+                    output_count=worker_result.output_count,
+                    error_count=dispatcher.errors + sum(len(context.errors) for context in contexts),
+                    batch_size=worker_result.largest_batch_size,
+                    duration_ms=duration_ms,
+                    effective_fps=(len(contexts) / (duration_ms / 1000)) if duration_ms > 0 else 0.0,
+                    action_latency_ms_max=max(dispatcher.latency_ms, default=0.0),
+                    action_latency_ms_avg=(
+                        sum(dispatcher.latency_ms) / len(dispatcher.latency_ms)
+                        if dispatcher.latency_ms
+                        else 0.0
+                    ),
                     actions_dropped=dispatcher.dropped,
                 ),
             )

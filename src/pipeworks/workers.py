@@ -165,6 +165,57 @@ class WorkerRunResult:
     output_count: int
 
 
+class ContinuousPipelineRunner:
+    """Consume one frame per source per cycle and preserve stream identity."""
+
+    def run(
+        self,
+        sources: dict[str, object],
+        steps: tuple[PipelineStep, ...],
+        config: RuntimeConfig,
+        dispatcher: ActionDispatcher,
+        max_cycles: int | None = None,
+        isolate_errors: bool = False,
+    ) -> WorkerRunResult:
+        iterators = {
+            stream_id: iter(SourceWorker().stream(source, config))
+            for stream_id, source in sorted(sources.items())
+        }
+        contexts: list[PipelineContext] = []
+        output_count = 0
+        largest_batch_size = 0
+        runtime = WorkerRuntime(isolate_errors=isolate_errors)
+        cycle = 0
+        while iterators and (max_cycles is None or cycle < max_cycles):
+            current: list[PipelineContext] = []
+            exhausted: list[str] = []
+            for stream_id, iterator in iterators.items():
+                try:
+                    frame = next(iterator)
+                except StopIteration:
+                    exhausted.append(stream_id)
+                    continue
+                if frame.stream_id != stream_id:
+                    raise ValueError(
+                        f"source {stream_id!r} yielded frame for {frame.stream_id!r}"
+                    )
+                current.append(PipelineContext(frame=frame))
+            for stream_id in exhausted:
+                del iterators[stream_id]
+            if not current:
+                break
+            result = runtime.run(steps, current, config, dispatcher)
+            contexts.extend(result.contexts)
+            output_count += result.output_count
+            largest_batch_size = max(largest_batch_size, result.largest_batch_size)
+            cycle += 1
+        return WorkerRunResult(
+            contexts=contexts,
+            largest_batch_size=largest_batch_size,
+            output_count=output_count,
+        )
+
+
 class WorkerRuntime:
     """Execute plan stages through explicit workers.
 
