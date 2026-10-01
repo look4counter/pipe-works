@@ -2,6 +2,7 @@
 
 __version__ = "0.1.0"
 
+from pipeworks.adapters.inference import TensorRTSession, TensorRTSessionFactory
 from pipeworks.components import (
     DetectionBoxOverlay,
     DetectionCrop,
@@ -96,6 +97,8 @@ __all__ = [
     "SyntheticSource",
     "Task",
     "TaskStatus",
+    "TensorRTSession",
+    "TensorRTSessionFactory",
     "ValidationReport",
     "WorkerRuntime",
     "YoloInference",

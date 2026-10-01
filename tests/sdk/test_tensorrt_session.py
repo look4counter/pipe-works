@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from pipeworks import Frame, PipelineContext
-from pipeworks.adapters.inference import TensorRTInference
+from pipeworks.adapters.inference import TensorRTInference, TensorRTSessionFactory
 from pipeworks.models import DetectionResult
 
 
@@ -46,3 +46,27 @@ def test_tensorrt_session_batch_preserves_stream_mapping() -> None:
     results = adapter.infer_batch(contexts, {})
 
     assert [result.stream_id for result in results] == ["cam01", "cam02"]
+
+
+def test_tensorrt_session_factory_caches_per_engine_and_clears() -> None:
+    created: dict[str, list[FakeTensorRTSession]] = {}
+
+    def load(path: str) -> FakeTensorRTSession:
+        session = FakeTensorRTSession()
+        created.setdefault(path, []).append(session)
+        return session
+
+    factory = TensorRTSessionFactory(
+        loader=load
+    )
+
+    first = factory("models/one.engine")
+    assert factory("models/one.engine") is first
+    second = factory("models/two.engine")
+
+    factory.clear("models/one.engine")
+    assert first.resets == 1
+    assert factory("models/one.engine") is not first
+    factory.clear()
+    assert second.resets == 1
+    assert len(created["models/one.engine"]) == 2

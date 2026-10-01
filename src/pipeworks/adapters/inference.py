@@ -30,6 +30,32 @@ class TensorRTSession(Protocol):
         """Release and recreate CUDA resources after a runtime error."""
 
 
+@dataclass
+class TensorRTSessionFactory:
+    """Cache deployment-specific TensorRT sessions by engine path.
+
+    The SDK owns lifecycle and reuse, while the deployment supplies the loader
+    that knows its CUDA bindings, plugins, and execution-context setup.
+    """
+
+    loader: Callable[[str], TensorRTSession]
+    _sessions: dict[str, TensorRTSession] = field(default_factory=dict, init=False, repr=False)
+
+    def __call__(self, engine_path: str) -> TensorRTSession:
+        if engine_path not in self._sessions:
+            self._sessions[engine_path] = self.loader(engine_path)
+        return self._sessions[engine_path]
+
+    def clear(self, engine_path: str | None = None) -> None:
+        """Reset and forget one engine session, or every cached session."""
+
+        paths = [engine_path] if engine_path is not None else list(self._sessions)
+        for path in paths:
+            session = self._sessions.pop(path, None)
+            if session is not None:
+                session.reset()
+
+
 def is_ultralytics_available() -> bool:
     return find_spec("ultralytics") is not None
 
