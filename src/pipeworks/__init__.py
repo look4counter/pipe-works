@@ -27,6 +27,7 @@ from pipeworks.models import Detection, DetectionResult, Frame, PipelineContext,
 from pipeworks.pipeline import Pipeline
 from pipeworks.plan import PipelinePlan, PipelineStep
 from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
+from pipeworks.validation import PipelineValidationError, ValidationReport
 from pipeworks.workers import (
     ActionWorker,
     BatchInferenceWorker,
@@ -67,6 +68,7 @@ __all__ = [
     "PipelinePlan",
     "PipelineState",
     "PipelineStep",
+    "PipelineValidationError",
     "ProcessWorker",
     "QueueMetrics",
     "RTSPPublisher",
@@ -78,6 +80,7 @@ __all__ = [
     "SyntheticSource",
     "Task",
     "TaskStatus",
+    "ValidationReport",
     "WorkerRuntime",
     "YoloInference",
 ]

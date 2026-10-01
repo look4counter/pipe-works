@@ -20,6 +20,7 @@ from pipeworks.lifecycle import Lifecycle, PipelineState
 from pipeworks.models import Frame, PipelineContext, PipelineMetrics, PipelineResult, Stream
 from pipeworks.plan import PipelinePlan, PipelineStep
 from pipeworks.runtime import BatchCollector, BatchPolicy, DropPolicy, FrameQueue, QueueMetrics
+from pipeworks.validation import ValidationReport, validate_plan
 from pipeworks.workers import SourceWorker, WorkerRuntime
 
 
@@ -89,6 +90,11 @@ class Pipeline:
             config=self._config,
         )
 
+    def validate(self) -> ValidationReport:
+        """Check the declared pipeline without starting any source or worker."""
+
+        return validate_plan(self.compile())
+
     def describe(self) -> list[str]:
         """Return a simple architecture-diagram-like summary."""
 
@@ -121,6 +127,7 @@ class Pipeline:
         return "\n".join(lines)
 
     def run(self, wait_for_actions: bool = True) -> PipelineResult:
+        self.validate().raise_for_errors()
         run_started_at = perf_counter()
         self._lifecycle.transition(PipelineState.STARTING)
         dispatcher = ActionDispatcher()
