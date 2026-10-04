@@ -1,0 +1,30 @@
+RTSPSource:
+  reconnect: true
+  reconnect_interval: 3
+  transport: tcp
+  timeout: 10
+
+NvidiaDecode:
+  gpu_id: 0
+
+NvidiaEncode:
+  gpu_id: 0
+  fps: 30
+
+RTSPPublish:
+  reconnect: true
+  reconnect_interval: 3
+  transport: tcp
+  timeout: 10
+  packet_size: 1452
+
+YoloDetectBatch:
+  classes: [2]
+  confidence: 0.25
+  gpu_id: 0
+  inference_interval: 3
+
+BoxOverlay:
+  line_width: 2
+  line_color: "#00ff00"
+  keep_previous: true
