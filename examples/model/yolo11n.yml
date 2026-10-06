@@ -1,0 +1,2 @@
+max_batch_size: 10
+timeout: 5
