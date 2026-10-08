@@ -1,6 +1,10 @@
-# YoloDetect: 동기 YOLO 객체 감지
+# YoloDetect: 비동기 GPU YOLO 객체 감지
 
-각 프레임마다 동기적으로 YOLO 모델을 실행합니다.
+선택 프레임의 YOLO 추론을 별도 작업자와 CUDA 스트림에서 실행합니다. 추론이 지연되거나 실패해도 영상은 감지 결과 없이 계속 전달합니다.
+
+입력은 설정된 GPU의 uint8 NV12 프레임이어야 합니다. 영상 변환·추론·좌표 복원을 GPU에서 수행하며 영상과 감지 텐서를 CPU로 복사하지 않습니다. `detections.orig_img`는 원본 해상도의 GPU RGB float 텐서이고 `detections.boxes.data`도 GPU에 남습니다. CPU 입력이나 GPU 번호 불일치는 오류를 기록하고 해당 프레임을 감지 결과 없이 전달합니다.
+
+모델 초기화도 작업자에서 수행합니다. 선택 프레임은 모델 동명 YAML의 `timeout` 안에 완료된 결과만 받습니다. 제한 시간이 지나면 `detections=None`으로 전달하고 늦은 결과는 폐기합니다. 작업자가 사용 중이면 추가 추론을 쌓지 않고 프레임을 즉시 전달합니다. 입력 종료·반복자 닫기에서도 추론 완료를 기다리지 않습니다.
 
 **파일 위치:** `src/pipeworks/embedded/yolo_detect.py`
 
@@ -9,10 +13,10 @@
 ## 📚 개요
 
 - **역할**: Processing Step (데이터 처리)
-- **기능**: 프레임별 동기 YOLO 추론
-- **의존성**: `torch`, `ultralytics`, `cv2`
+- **기능**: 제한 시간이 있는 비동기 단일 프레임 YOLO 추론
+- **의존성**: `torch`, `ultralytics`, `pyyaml`
 - **GPU**: NVIDIA GPU 지원 (CUDA)
-- **처리 모드**: 동기 (각 프레임을 순차 처리)
+- **처리 모드**: 입력 순서를 유지하며 추론을 별도 작업자로 분리
 
 ---
 
@@ -44,10 +48,22 @@ YoloDetect:
   
   # 성능 튜닝
   gpu_id: 0                     # NVIDIA GPU ID (기본: 0)
-  inference_interval: 1         # 프레임 간격 (1=모든 프레임, 기본: 1)
+  inference_interval: 1         # 추론 대상 선택 간격 (사용 중에는 건너뜀, 기본: 1)
 ```
 
 ### 각 옵션 설명
+
+#### 모델 동명 YAML의 timeout
+
+`models/yolo11n.pt`와 `models/yolo11n.engine`는 모두 `models/yolo11n.yml`을 읽습니다.
+
+```yaml
+timeout: 5  # 요청 제출부터 GPU 결과 준비까지 기다리는 최대 밀리초
+```
+
+파일이나 `timeout` 항목이 없으면 기본값은 5ms입니다. 0은 대기 없이 완료 여부만 확인합니다. 유한한 0 이상 숫자만 허용하며 불리언·문자열·음수는 설정 오류입니다. 배치용 `max_batch_size`가 함께 있어도 단일 단계에서는 사용하지 않습니다. `YoloDetectBatch`의 `timeout`은 배치 요청을 모으는 시간이고, 여기서는 해당 프레임의 결과 대기 제한입니다.
+
+제한 시간은 실행 시작에 읽습니다. 처음 모델을 로드하거나 추론이 제한 시간보다 오래 걸리면 감지 결과 없이 전달되는 것이 정상입니다. 늦은 결과를 이후 프레임에 재사용하거나 이미 전달한 컨텍스트를 수정하지 않습니다. 실행 중인 요청은 최대 1개이며 CUDA 호출이 멈춰도 새 작업자를 계속 만들지 않습니다.
 
 #### confidence (float)
 신뢰도 임계값. 이 값 이상의 검출만 반환
@@ -102,10 +118,10 @@ YoloDetect:
 ```
 
 #### inference_interval (int)
-몇 개 프레임마다 추론할지 (처리량 vs 정확도 트레이드오프)
+몇 개 프레임마다 추론 대상을 선택할지 지정합니다. 선택 시점에 작업자가 사용 중이면 해당 프레임의 추론도 건너뜁니다.
 
 ```yaml
-# 모든 프레임 처리 (높은 정확도, 낮은 FPS)
+# 모든 프레임을 추론 대상으로 선택 (작업자 사용 중에는 건너뜀)
 YoloDetect:
   inference_interval: 1
 
@@ -154,13 +170,13 @@ class MyResultStep(Step):
 ## 🔄 처리 흐름
 
 ```
-RTSPSource → RTSP 패킷
-    ↓ (frame_index % inference_interval == 0 인 경우만)
-NV12 → BGR 변환
+NvidiaDecode → GPU NV12 프레임
+    ↓ (선택 프레임이며 작업자가 비어 있을 때만 제출)
+GPU 복제 → 준비 이벤트 → 작업자 전용 CUDA 스트림
     ↓
-YOLO 모델 추론
-    ↓
-결과를 context.detections에 저장
+GPU RGB 변환 → 추론 → 원본 좌표 복원 → 완료 이벤트
+    ↓ (timeout 안에 준비된 결과만 해당 프레임에 연결)
+GPU 감지 결과 또는 detections=None
     ↓
 다음 Step으로 전달
 ```
@@ -269,7 +285,7 @@ assert model_path.exists(), f"모델 없음: {model_path}"
 
 ### "감지 결과가 None"
 
-에러 발생했지만 파이프라인은 계속 실행
+간격에 따른 건너뜀, 작업자 사용 중, 초기화·추론 시간 초과 또는 오류에서는 `None`이 정상입니다. 영상은 계속 전달됩니다. 오류는 로그를 확인하고, 정상 추론이 제한 시간을 넘는다면 모델 동명 YAML의 `timeout`을 조정합니다.
 
 **해결:**
 ```python
@@ -277,7 +293,7 @@ assert model_path.exists(), f"모델 없음: {model_path}"
 if context.detections is not None:
     # 감지 결과 처리
 else:
-    # 에러 발생한 프레임
+    # 감지 결과 없이 전달된 프레임
     pass
 ```
 

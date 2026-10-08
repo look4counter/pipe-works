@@ -8,7 +8,7 @@ from pipeworks.embedded import (
     StreamReport,
     Sink,
 )
-from pipeworks.embedded.yolo_detect_batch import YoloDetectBatch
+from pipeworks.embedded.yolo_detect import YoloDetect
 from step.box_overlay import BoxOverlay
 from step.metadata_from_db import MetadataFromDB
 from step.post_process import PostProcess
@@ -23,7 +23,7 @@ def build_pipeline() -> Pipeline:
         .step(RTSPSource("rtsp://210.99.70.120:1935/live/cctv001.stream"))
         .step(NvidiaDecode())
         .step(MetadataFromDB())
-        .step(YoloDetectBatch(Path(__file__).with_name("model") / "yolo11n.engine"))
+        .step(YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt"))
         .step(BoxOverlay())
         .step(NvidiaEncode())
         .step(Sink(PostProcess()))

@@ -18,11 +18,11 @@ RTSPPublish:
   timeout: 10
   packet_size: 1452
 
-YoloDetectBatch:
+YoloDetect:
   classes: [2]
   confidence: 0.25
   gpu_id: 0
-  inference_interval: 3
+  inference_interval: 1
 
 BoxOverlay:
   line_width: 2

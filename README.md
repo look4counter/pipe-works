@@ -141,11 +141,12 @@ RTSP 카메라에서 영상을 읽습니다.
 ### Processing Step (데이터 처리)
 
 #### **YoloDetect**
-각 프레임마다 YOLO로 객체 감지합니다 (동기).
+선택 프레임의 YOLO 감지를 비동기로 실행하며, 추론 지연·실패 시 결과 없이 영상을 전달합니다.
 
-- **역할**: 객체 감지 (동기 처리, GPU 활용)
+- **역할**: 객체 감지 (작업자 전용 CUDA 스트림, 영상·감지 결과의 CPU 복사 금지)
 - **사용**: `pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))`
 - **설정**: `classes`, `confidence`, `gpu_id`, `inference_interval`
+- **제한 시간**: 모델 동명 `.yml`의 `timeout` (밀리초, 기본 5). 시간 초과·작업자 사용 중에는 결과 없이 전달하고 늦은 결과는 폐기합니다.
 - **상세**: [docs/pipeworks/embedded/yolo_detect.md](docs/pipeworks/embedded/yolo_detect.md)
 
 #### **YoloDetectBatch**

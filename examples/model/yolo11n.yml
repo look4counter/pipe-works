@@ -1,2 +1,2 @@
-max_batch_size: 10
-timeout: 5
+max_batch_size: 1
+timeout: 20
