@@ -15,8 +15,8 @@
 - [x] T007 [US1] `tests/test_pipeline_config.py`에 사용자·내장 단계의 실행 중 설정 변경, 무관한 섹션 변경, 잘못된 YAML 복구를 검증한다. (FR-009~FR-011)
 - [x] T008 [US1] `src/pipeworks/pipeline.py`에 설정 파일 감시와 단계별 설정 공급을 구현한다. (FR-009, FR-011)
 - [x] T009 [US1] `src/pipeworks/hotswap.py`에 설정 변경 감지와 설정 실패 시 복구를 구현한다. (FR-010~FR-012)
-- [x] T010 [US1] `src/pipeworks/pipeline.py`에서 내장 Step 실행 래퍼와 `Sink` 내부 Step의 설정 감시를 연결한다. (FR-010, FR-012)
-- [x] T011 [US1] `tests/test_pipeline_config.py`와 `tests/test_central_process.py`에 소스·Sink·중앙 실행 설정 변경을 검증한다. (SC-006~SC-008)
+- [x] T010 [US1] `src/pipeworks/pipeline.py`에서 내장 Step 실행 래퍼와 `Tap` 내부 Step의 설정 감시를 연결한다. (FR-010, FR-012)
+- [x] T011 [US1] `tests/test_pipeline_config.py`와 `tests/test_central_process.py`에 소스·Tap·중앙 실행 설정 변경을 검증한다. (SC-006~SC-008)
 - [x] T012 `tests/test_pipeline_context.py`에서 미완료 T006의 컨텍스트 계약을 검증하고 관련 전체 테스트를 실행한다. (SC-004, SC-006~SC-008)
 
 ## 의존성
@@ -27,10 +27,20 @@
 
 - [x] T013 [US1] `tests/test_pipeline_config.py`에서 설정 변경 전후 Step 인스턴스와 처리 반복자가 유지되는지 검증하고 현재 실패를 확인한다. (FR-010, SC-009)
 - [x] T014 [US1] `src/pipeworks/hotswap.py`에서 기존 인스턴스에 `configure()`를 실행하고 오류 시 이전 최상위 속성을 복원한다. (FR-010, FR-011)
-- [x] T015 [US1] `tests/test_pipeline_config.py`의 소스·Sink·내장 단계 기대값을 재시작 없는 동작에 맞게 갱신한다. (SC-006~SC-009)
+- [x] T015 [US1] `tests/test_pipeline_config.py`의 소스·Tap·내장 단계 기대값을 재시작 없는 동작에 맞게 갱신한다. (SC-006~SC-009)
 - [x] T016 [US1] `tests/test_hotswap.py`에서 코드 변경과 설정 변경의 동시 적용 및 설정 오류 복구를 검증한다. (FR-011, FR-012)
 - [x] T017 `tests/test_central_process.py`와 관련 전체 테스트를 실행하고 `specs/003-step-yaml-config/quickstart.md`와 동작을 비교한다. (SC-006~SC-009)
 
 ## 추가 의존성
 
 - T013 실패를 확인한 뒤 T014를 구현한다. T015~T017은 T014 이후 수행한다.
+
+## 단계 4: RTSP 제한 시간 밀리초 통일
+
+- [x] T018 `specs/003-step-yaml-config/`의 명세·명확화·계획·작업과 RTSP 단위 계약의 일관성을 검토한다. (FR-013, FR-014)
+- [x] T019 [US2] `tests/test_rtsp_source.py`, `tests/test_rtsp_publish.py`에 기본값·0·소수 밀리초의 변환, 이전 옵션·잘못된 값 거부 테스트를 작성하고 구현 전 실패를 확인한다. (SC-010, SC-011)
+- [x] T020 [US2] `src/pipeworks/embedded/rtsp_source.py`, `src/pipeworks/embedded/rtsp_publish.py`에 `timeout_ms` 기본값·검증과 라이브러리 단위 변환을 구현한다. (FR-013, FR-014)
+- [x] T021 [US2] `examples/config/stream.yml`, `README.md`, `docs/pipeworks/pipeline.md`, `docs/pipeworks/embedded/rtsp_source.md`, `docs/pipeworks/embedded/rtsp_publish.md` 및 `specs/002-rtsp-packet-source/`, `specs/004-rtsp-publish/`의 제한 시간 계약을 갱신한다. (FR-014, SC-011)
+- [x] T022 `tests/test_pipeline_config.py`와 관련 RTSP·전체 회귀 검증을 실행하고 `specs/003-step-yaml-config/quickstart.md`에 결과를 기록한 뒤 수렴 점검을 완료한다. (SC-010, SC-011)
+
+T018 → T019 → T020 → T021 → T022 순서로 수행한다. 기존 사용자 변경을 보존하고 모델 YAML과 재연결 간격은 변경하지 않는다. 독립 검증은 두 RTSP 단계가 같은 밀리초 설정을 각각 올바른 연결 값으로 전달하는지 확인한다.

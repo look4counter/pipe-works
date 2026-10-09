@@ -14,7 +14,7 @@
 - 실제 RTSP 스트림 50개 동시 실행은 실환경 부하 검증이 필요하다. 현재 02 예제의 기본 영상 목록은 5개다.
 # Step 출력 확인
 
-`examples/01_single_stream_rtsp_style.py`를 콘솔에서 실행하면 `StreamReport`와 `Sink(PostProcess())`의 출력이 모두 해당 콘솔에 표시된다. 다른 콘솔에서 실행한 파이프라인 출력은 전달되지 않는다.
+`examples/01_single_stream_rtsp_style.py`를 콘솔에서 실행하면 `StreamReport`와 `Tap(PostProcess())`의 출력이 모두 해당 콘솔에 표시된다. 다른 콘솔에서 실행한 파이프라인 출력은 전달되지 않는다.
 ## GPU 배치 감지 확인
 
 `YoloDetectBatch`는 중앙 프로세스 내부에서 GPU NV12 프레임을 변환하고 같은 모델의 요청을 배치로 처리한다. 감지 결과의 좌표 텐서도 GPU에 남는다. 실제 `.pt`와 `.engine` 모델 및 GPU 검증은 `tests/test_local_yolo.py`에 포함되어 있다.

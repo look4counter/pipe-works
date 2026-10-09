@@ -27,6 +27,25 @@ class Container:
 
 
 class RTSPSourceTests(unittest.TestCase):
+    def test_timeout_ms_conversion(self):
+        for config, seconds in [({}, 5), ({"timeout_ms": 0}, 0), ({"timeout_ms": 250}, .25), ({"timeout_ms": 1250.5}, 1.2505), ({"timeout_ms": 10000}, 10)]:
+            with self.subTest(config=config):
+                source = RTSPSource("rtsp://input")
+                source.configure(SimpleNamespace(**config))
+                with patch("pipeworks.embedded.rtsp_source.av.open", return_value=Container()) as opened:
+                    iterator = source.process(iter(()))
+                    next(iterator)
+                    iterator.close()
+                self.assertEqual(opened.call_args.kwargs["timeout"], (seconds, seconds))
+                self.assertEqual(source.timeout_ms, config.get("timeout_ms", 5000))
+
+    def test_invalid_timeout_configuration(self):
+        configs = [{"timeout_ms": value} for value in [-1, True, "5000", None, float("nan"), float("inf")]]
+        configs += [{"timeout": 5}, {"timeout": 5, "timeout_ms": 5000}]
+        for config in configs:
+            with self.subTest(config=config), self.assertRaisesRegex(ValueError, "timeout_ms"):
+                RTSPSource("rtsp://input").configure(SimpleNamespace(**config))
+
     def test_valid_packets_and_generator_close(self):
         container = Container()
         source = RTSPSource("rtsp://input")

@@ -112,7 +112,7 @@ SectionName:
 
 RTSPSource:
   reconnect: true
-  timeout: 5
+  timeout_ms: 5000
 
 YoloDetect:
   confidence: 0.5
@@ -211,7 +211,7 @@ RTSPSource:
   reconnect: true
   reconnect_interval: 3
   transport: tcp
-  timeout: 5
+  timeout_ms: 5000
 
 YoloDetect:
   classes: null
@@ -260,7 +260,7 @@ class MyProcessor(Step):
 ```yaml
 RTSPSource:
   reconnect: true
-  timeout: 5
+  timeout_ms: 5000
 
 MyProcessor:
   enabled: true
@@ -348,7 +348,7 @@ from pipeworks.embedded import RTSPSource, RTSPPublish
 # 임시 config.yaml 생성
 config_content = """
 RTSPSource:
-  timeout: 5
+  timeout_ms: 5000
 RTSPPublish:
   bitrate: "5000k"
 """

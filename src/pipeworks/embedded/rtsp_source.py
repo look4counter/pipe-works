@@ -1,4 +1,5 @@
 import logging
+import math
 import time
 import av
 from pipeworks.embedded.stream_report import record_receive
@@ -14,10 +15,21 @@ class RTSPSource(Step):
         self.url = url
 
     def configure(self, config: SimpleNamespace) -> None:
+        if hasattr(config, "timeout"):
+            raise ValueError("timeout 대신 밀리초 단위의 timeout_ms를 사용하세요.")
+        timeout_ms = getattr(config, "timeout_ms", 5000)
+        if (
+            isinstance(timeout_ms, bool)
+            or not isinstance(timeout_ms, (int, float))
+            or not math.isfinite(timeout_ms)
+            or timeout_ms < 0
+        ):
+            raise ValueError("timeout_ms는 0 이상의 유한한 숫자여야 합니다.")
+
         self.reconnect = getattr(config, "reconnect", True)
         self.reconnect_interval = getattr(config, "reconnect_interval", 3)
         self.transport = getattr(config, "transport", "tcp")
-        self.timeout = getattr(config, "timeout", 5)
+        self.timeout_ms = timeout_ms
 
         if not isinstance(self.reconnect, bool):
             logger.error("RTSP 입력 설정에 잘못된 reconnect 값이 있습니다.")
@@ -28,9 +40,6 @@ class RTSPSource(Step):
         if self.transport not in ["tcp", "udp"]:
             logger.error("RTSP 입력 설정에 잘못된 transport 값이 있습니다.")
 
-        if self.timeout < 0:
-            logger.error("RTSP 입력 설정에 잘못된 timeout 값이 있습니다.")
-
     def process(self, _: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         stop = getattr(self, "_pipeworks_stop_event", None)
         while stop is None or not stop.is_set():
@@ -40,7 +49,7 @@ class RTSPSource(Step):
                     self.url,
                     mode="r",
                     options={"rtsp_transport": self.transport},
-                    timeout=(self.timeout, self.timeout),
+                    timeout=(self.timeout_ms / 1000, self.timeout_ms / 1000),
                 )
                 video_streams = container.streams.video
                 if not video_streams:

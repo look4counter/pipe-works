@@ -2,7 +2,7 @@ RTSPSource:
   reconnect: true
   reconnect_interval: 3
   transport: tcp
-  timeout: 10
+  timeout_ms: 10000
 
 NvidiaDecode:
   gpu_id: 0
@@ -15,7 +15,7 @@ RTSPPublish:
   reconnect: true
   reconnect_interval: 3
   transport: tcp
-  timeout: 10
+  timeout_ms: 10000
   packet_size: 1452
 
 YoloDetect:

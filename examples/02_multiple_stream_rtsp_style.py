@@ -7,7 +7,7 @@ from pipeworks.embedded import (
     NvidiaEncode,
     NvidiaDecode,
     StreamReport,
-    Sink,
+    Tap,
 )
 from pipeworks.embedded.yolo_detect_batch import YoloDetectBatch
 from step.box_overlay import BoxOverlay
@@ -27,7 +27,7 @@ def build_pipeline(video: str) -> Pipeline:
         .step(YoloDetectBatch(Path(__file__).with_name("model") / "yolo11n.engine"))
         .step(BoxOverlay())
         .step(NvidiaEncode())
-        .step(Sink(PostProcess()))
+        .step(Tap(PostProcess()))
         .step(RTSPPublish(f"rtsp://localhost:8554/{video}"))
         .step(StreamReport())
     )

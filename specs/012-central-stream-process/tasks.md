@@ -45,10 +45,10 @@
 - [x] T020 `src/pipeworks/local_yolo.py`에 GPU NV12 변환과 CPU 복사 없는 배치 추론을 구현한다. (FR-013~FR-015)
 - [x] T021 사용하지 않는 별도 YOLO 작업자 모듈과 전용 프로세스 테스트를 제거한다. (FR-012)
 - [x] T022 관련 테스트와 전체 테스트를 실행하고 남은 CPU 복사 경로를 점검한다. (FR-012~FR-015)
-## Sink 작업 스레드 출력
+## Tap 작업 스레드 출력
 
-- [x] T023 `tests/test_central_process.py`에 `Sink` 안의 출력 전달 및 동시 호출자 격리 테스트를 추가한다. (FR-016, FR-017)
-- [x] T024 `src/pipeworks/main.py`와 `src/pipeworks/embedded/sink.py`에서 작업 스레드로 출력 대상을 전달한다. (FR-016, FR-017)
+- [x] T023 `tests/test_central_process.py`에 `Tap` 안의 출력 전달 및 동시 호출자 격리 테스트를 추가한다. (FR-016, FR-017)
+- [x] T024 `src/pipeworks/main.py`와 `src/pipeworks/embedded/tap.py`에서 작업 스레드로 출력 대상을 전달한다. (FR-016, FR-017)
 - [x] T025 중앙 프로세스와 전체 테스트를 실행하고 출력·종료 동작을 확인한다. (SC-005)
 ## GPU 큐 동기화 보완
 

@@ -1,4 +1,5 @@
 import logging
+import math
 import time
 import av
 from pipeworks.embedded.stream_report import record_publish, record_stage
@@ -14,10 +15,21 @@ class RTSPPublish(Step):
         self.url = url
 
     def configure(self, config: SimpleNamespace) -> None:
+        if hasattr(config, "timeout"):
+            raise ValueError("timeout 대신 밀리초 단위의 timeout_ms를 사용하세요.")
+        timeout_ms = getattr(config, "timeout_ms", 5000)
+        if (
+            isinstance(timeout_ms, bool)
+            or not isinstance(timeout_ms, (int, float))
+            or not math.isfinite(timeout_ms)
+            or timeout_ms < 0
+        ):
+            raise ValueError("timeout_ms는 0 이상의 유한한 숫자여야 합니다.")
+
         self.reconnect = getattr(config, "reconnect", True)
         self.reconnect_interval = getattr(config, "reconnect_interval", 3)
         self.transport = getattr(config, "transport", "tcp")
-        self.timeout = getattr(config, "timeout", 5)
+        self.timeout_ms = timeout_ms
         self.packet_size = getattr(config, "packet_size", 1452)
 
         if not isinstance(self.reconnect, bool):
@@ -28,9 +40,6 @@ class RTSPPublish(Step):
 
         if self.transport not in ["tcp", "udp"]:
             logger.error("RTSP 입력 설정에 잘못된 transport 값이 있습니다.")
-
-        if self.timeout < 0:
-            logger.error("RTSP 입력 설정에 잘못된 timeout 값이 있습니다.")
 
         if self.packet_size <= 0:
             logger.error("RTSP 입력 설정에 잘못된 packet_size 값이 있습니다.")
@@ -84,7 +93,7 @@ class RTSPPublish(Step):
                             options={
                                 "rtsp_transport": self.transport,
                                 "pkt_size": str(self.packet_size),
-                                "timeout": str(int(self.timeout * 1_000_000)),
+                                "timeout": str(int(self.timeout_ms * 1000)),
                             },
                         )
                         output_stream = output.add_stream_from_template(video_stream)

@@ -155,12 +155,13 @@ def _start_server() -> None:
 def run_remote(pipeline) -> None:
     try:
         from pipeworks.hotswap import Hotswap
-        from pipeworks.embedded.sink import Sink
+        from pipeworks.embedded.tap import Tap
+        from pipeworks.embedded import Async
 
         def register_step(step) -> None:
             if isinstance(step, Hotswap):
                 register_step(step.wrapped_step)
-            if isinstance(step, Sink):
+            if isinstance(step, (Tap, Async)):
                 register_step(step.step)
             module_name = type(step).__module__
             if not module_name.startswith("pipeworks.") and module_name in sys.modules:

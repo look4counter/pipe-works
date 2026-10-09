@@ -61,7 +61,7 @@ RTSPSource:
   
   # 연결 설정
   transport: tcp                   # tcp 또는 udp (기본: tcp)
-  timeout: 5                       # 연결/패킷 수신 타임아웃 (초, 기본: 5)
+  timeout_ms: 5000                       # 연결/패킷 수신 타임아웃 (밀리초, 기본: 5000)
 ```
 
 ### 각 옵션 설명
@@ -95,17 +95,17 @@ RTSPSource:
   transport: udp
 ```
 
-#### timeout (float)
-연결 및 패킷 수신 타임아웃 (초)
+#### timeout_ms (float)
+연결 및 패킷 수신 타임아웃 (밀리초, 기본값 5000)
 
 ```yaml
 # 빠른 타임아웃 (긴 지연 환경에서 안 됨)
 RTSPSource:
-  timeout: 3
+  timeout_ms: 3000
 
 # 넉넉한 타임아웃 (느린 네트워크)
 RTSPSource:
-  timeout: 15
+  timeout_ms: 15000
 ```
 
 ---
@@ -179,13 +179,13 @@ reconnect=false → 파이프라인 중단 (RuntimeError)
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, StreamReport, Sink
+from pipeworks.embedded import RTSPSource, StreamReport, Tap
 
 # RTSP 소스에서 받아 로그에 기록만 함
 pipeline = Pipeline("rtsp-basic", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://192.168.1.100:554/stream1"))
 pipeline.step(StreamReport())
-pipeline.step(Sink(step=MyLogStep()))
+pipeline.step(Tap(step=MyLogStep()))
 pipeline.run()
 ```
 
@@ -194,7 +194,7 @@ pipeline.run()
 RTSPSource:
   reconnect: true
   reconnect_interval: 3
-  timeout: 5
+  timeout_ms: 5000
 ```
 
 ### 예제 2: 느린 네트워크 설정
@@ -204,7 +204,7 @@ RTSPSource:
   reconnect: true
   reconnect_interval: 10        # 10초 대기
   transport: tcp                # TCP 안정성
-  timeout: 15                   # 15초 타임아웃
+  timeout_ms: 15000                   # 15초 타임아웃
 ```
 
 ### 예제 3: RTSP → YOLO → 결과 전송
@@ -226,7 +226,7 @@ pipeline.run()
 RTSPSource:
   reconnect: true
   reconnect_interval: 3
-  timeout: 5
+  timeout_ms: 5000
 
 YoloDetect:
   confidence: 0.5
@@ -257,7 +257,7 @@ RTSPPublish:
 **해결:**
 ```yaml
 RTSPSource:
-  timeout: 15           # 타임아웃 증가
+  timeout_ms: 15000           # 타임아웃 증가
   reconnect_interval: 5 # 재연결 간격 증가
 ```
 
@@ -289,6 +289,8 @@ RTSPSource:
 ## 💡 TIP
 
 1. **URL 형식**: `rtsp://IP:PORT/path` (기본 포트: 554)
-2. **실시간 지연 최소화**: `transport: tcp` + 짧은 `timeout`
+2. **실시간 지연 최소화**: `transport: tcp` + 짧은 `timeout_ms`
 3. **안정성 우선**: `reconnect: true` + 긴 `reconnect_interval`
 4. **다중 카메라**: 각 카메라마다 별도의 `RTSPSource` Step 사용
+
+제한 시간은 `timeout_ms`로 지정하며 기본값은 5000밀리초입니다. 기존 `timeout: 5`는 `timeout_ms: 5000`으로 변경해야 합니다. 0 이상의 유한한 숫자를 허용하며 이전 `timeout` 키는 오류로 처리합니다. `reconnect_interval`은 계속 초 단위입니다.

@@ -34,6 +34,22 @@ class Output:
 
 
 class RTSPPublishTests(unittest.TestCase):
+    def test_timeout_ms_conversion(self):
+        for config, microseconds in [({}, "5000000"), ({"timeout_ms": 0}, "0"), ({"timeout_ms": 250}, "250000"), ({"timeout_ms": 1250.5}, "1250500")]:
+            with self.subTest(config=config):
+                publisher = self.publisher(**config)
+                with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=Output()) as opened:
+                    list(publisher.process(iter([self.bypass_input(0)])))
+                self.assertEqual(opened.call_args.kwargs["options"]["timeout"], microseconds)
+                self.assertEqual(publisher.timeout_ms, config.get("timeout_ms", 5000))
+
+    def test_invalid_timeout_configuration(self):
+        configs = [{"timeout_ms": value} for value in [-1, True, "5000", None, float("nan"), float("inf")]]
+        configs += [{"timeout": 5}, {"timeout": 5, "timeout_ms": 5000}]
+        for config in configs:
+            with self.subTest(config=config), self.assertRaisesRegex(ValueError, "timeout_ms"):
+                self.publisher(**config)
+
     def publisher(self, **config):
         publisher = RTSPPublish("rtsp://output")
         publisher.configure(SimpleNamespace(**config))
@@ -80,7 +96,7 @@ class RTSPPublishTests(unittest.TestCase):
 
     def test_output_options_follow_configuration(self):
         output = Output()
-        publisher = self.publisher(transport="udp", timeout=10, packet_size=1200)
+        publisher = self.publisher(transport="udp", timeout_ms=10000, packet_size=1200)
         with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output) as open_mock:
             list(publisher.process(iter([self.bypass_input(0)])))
         self.assertEqual(open_mock.call_args.kwargs["options"], {

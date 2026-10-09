@@ -86,7 +86,7 @@ class Pipeline:
 
     def _run_local(self, stop_event=None):
         from pipeworks.embedded.stream_report import report_scope
-        from pipeworks.embedded.sink import Sink
+        from pipeworks.embedded.tap import Tap
 
         with report_scope():
             watcher = _LiveConfig(self.config_path, vars(self.config), self._config_digest)
@@ -96,7 +96,7 @@ class Pipeline:
                     setattr(step, "_pipeworks_stop_event", stop_event)
                 section = type(step.wrapped_step).__name__ if isinstance(step, Hotswap) else type(step).__name__
                 provider = lambda name=section: watcher.section(name)
-                if isinstance(step, Sink):
+                if isinstance(step, Tap):
                     inner = step.step
                     if not isinstance(inner, Hotswap):
                         inner = Hotswap(inner, watch_code=False, recover_errors=False)

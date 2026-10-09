@@ -1,4 +1,4 @@
-# 작업 목록: 비동기 GPU YOLO 감지
+# 작업 목록: 동기 GPU YOLO 감지
 
 **명세**: [spec.md](spec.md)
 **계획**: [plan.md](plan.md)
@@ -57,3 +57,31 @@ T007 → T008 → T009 → T010 → T011 → T012 → T013 순서로 수행한�
 ## 8단계: 수렴 보완
 
 - [x] T020 `src/pipeworks/embedded/yolo_detect.py`와 `tests/test_yolo_detect.py`에서 실패한 실제 추론의 실행 시간도 제출 문맥의 통계에 기록하고 검증한다. FR-007의 부분 충족을 보완한다.
+
+## 9단계: 동기 처리 명세와 기반
+
+앞선 완료 항목은 이전 구현의 이력이다. 현재 요구사항은 갱신한 명세·계획을 기준으로 T021 이후에서 검증한다.
+
+- [x] T021 `specs/011-yolo-detect-sync/`의 명세·명확화·설계·계약과 작업 목록을 동기 처리로 갱신하고 일관성을 분석한다. (FR-001~FR-011)
+- [x] T022 [US1] `tests/test_yolo_detect.py`에 동기 대기·호출 스레드·오류 전파·모델 재사용·GPU 결과·통계 테스트를 작성하여 구현 전 실패를 확인한다. (SC-001~SC-004)
+
+## 10단계: US1 기본 동기 추론
+
+독립 검증: 이벤트 차단 해제 전에는 프레임이 반환되지 않고 원본 객체와 GPU 결과를 유지해야 한다.
+
+- [x] T023 [US1] `src/pipeworks/embedded/yolo_detect.py`에서 내부 작업자·요청·시간 제한과 오류 통과를 제거하고 호출 스레드의 동기 GPU 추론을 구현한다. (FR-001~FR-010)
+- [x] T024 [US1] `src/pipeworks/embedded/tensor_rt_inference.py`의 슬롯 관리 메서드를 자체 작업자에 옮겨 YOLO 내부 클래스 의존성을 제거하고 기존 TensorRT 검증을 실행한다. (FR-011)
+
+## 11단계: US2 선택적 비동기와 문서
+
+독립 검증: 공통 Async로 감싼 모델은 지연·오류 시 원본을 통과시켜야 한다.
+
+- [x] T025 [US2] `tests/test_yolo_detect.py`에서 공통 Async의 지연·오류·늦은 결과 격리와 통계 귀속을 검증한다. (FR-010, SC-005)
+- [x] T026 [US2] `README.md`, `docs/pipeworks/embedded/yolo_detect.md`, `docs/pipeworks/embedded/async.md`에 동기 기본 동작과 선택적 조합을 반영한다. (FR-003, FR-006, FR-010)
+
+## 12단계: 검증과 수렴
+
+- [x] T027 `tests/`의 관련 GPU·배치·Async·TensorRT 회귀와 전체 검증을 실행하고 `specs/011-yolo-detect-sync/quickstart.md`에 결과를 기록한다.
+- [x] T028 `specs/011-yolo-detect-sync/`의 현재 명세·계획·작업 대비 코드 수렴을 점검하고 남은 작업을 완료한다.
+
+의존성: T021 → T022 → T023 → T024 → T025 → T026 → T027 → T028. T023·T024는 가져오기 의존성을 함께 바꾸므로 순차로 처리하되 두 파일을 모두 수정한 뒤 실행한다. 이후 문서 작성과 관련 회귀 실행은 독립적으로 수행할 수 있다.

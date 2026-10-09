@@ -1,25 +1,32 @@
-# 구현 계획: 비동기 GPU YOLO 감지
+# 구현 계획: 동기 GPU YOLO 감지
 
-**기준**: [명세](spec.md)
+**작성일**: 2026-10-09 · **명세**: [spec.md](spec.md)
 
-## 기술 구성 및 규칙 점검
+## 기술 환경과 규칙
 
-Python, PyTorch CUDA 및 설치된 Ultralytics를 사용한다. 헌법은 미작성 템플릿이므로 구체적인 원칙 검사는 적용하지 않는다. 프로젝트 지시에 따라 모든 문서는 한글로 작성하고 speckit 단계를 순서대로 수행한다.
+Python 3.11.9, 기존 PyTorch CUDA와 Ultralytics를 사용한다. 추가 의존성은 없다. 헌장은 미작성 템플릿이므로 원칙 검증을 생략한다. 모든 문서는 한글로 작성하고 speckit 순서를 준수한다. 사용자 변경과 이전 Async 구현을 보존한다.
 
-## 구현 설계
+## 설계
 
-`src/pipeworks/embedded/yolo_detect.py`에 단일 데몬 작업자와 최대 1개의 요청 슬롯을 둔다. 슬롯이 사용 중이면 복제와 요청 제출을 하지 않고 프레임을 즉시 전달한다. 모델 로드·변환·추론·결과 복원은 작업자에서 수행한다. `src/pipeworks/local_yolo.py`의 GPU 변환·패딩·예측기를 재사용하며 공유 배치 큐는 호출하지 않는다. 표시·저장 기능을 끄고 CPU 영상·결과 복사를 금지한다.
+yolo_detect.py에서 요청 자료형, 데몬 작업자, 시간 제한 설정과 대기를 제거한다. 모델은 process 입력 스트림의 첫 선택 프레임에서 지연 로드하고 재사용한다. 입력 CUDA 스트림에서 준비 이벤트를 기록하고 별도 추론 CUDA 스트림이 이를 기다린 뒤 GPU NV12 변환·추론·좌표 복원·결과 완료를 수행한다. Python 실행은 호출 스레드에서 동기 진행하지만 원본 영상 CUDA 스트림에 추론 작업을 제출하지 않는다. 동기 처리 중에는 원본을 보관하므로 별도 GPU 입력 복제가 필요하지 않다.
 
-영상 스레드는 입력 장치·자료형·형식·크기를 검증한 뒤 입력 CUDA 스트림에서 NV12를 GPU 복제하고 준비 이벤트를 기록한다. 원본 표면의 소유자와 DLPack 텐서를 요청 완료까지 보관한다. 작업자는 별도 CUDA 스트림에서 준비 이벤트를 기다린 뒤 복제 영상을 읽는다. 변환·추론·좌표 복원과 GPU 완료 대기는 작업자 스트림에서만 수행한다. 결과가 실제 준비된 후 CPU 완료 이벤트를 설정하므로 영상 스레드는 GPU 완료를 따로 기다리지 않는다.
+예측 헬퍼는 요청 객체 대신 텐서·옵션·스트림을 직접 받는다. 추론 시작부터 GPU 완료까지 시간을 호출자의 StreamReport 문맥에 기록한다. 변환·로드 오류는 추론 통계에서 제외하며 모델 예측 오류는 예외를 전파하면서 실제 추론 시간을 기록한다. 예외 시 이미 제출한 CUDA 작업은 해당 스트림에서 정리하고 원래 오류를 전파한다.
 
-동명 `.yml`의 `timeout`을 실행 시작에 읽어 밀리초를 초로 변환한다. 파일·항목 부재는 5ms, 0은 완료 확인만 수행하며 불리언·음수·비유한 값·문자열은 거부한다. `max_batch_size`는 무시한다. 요청 제출 시각부터 남은 시간만 `Event.wait`로 대기한다. 초과·실패는 `detections=None`이다. 늦은 결과는 폐기하고 원래 컨텍스트를 비동기로 수정하지 않는다.
+TensorRTInference는 기존 _AsyncWorker를 상속하므로 필요한 슬롯 초기화·예약·제출·종료 메서드를 자체 _InferenceWorker로 옮긴다. TensorRT의 추론 코드·시간 제한·결과·통계 계약은 변경하지 않는다.
 
-작업자 사용 중에는 추론 요청을 늘리지 않는다. 입력 종료·반복자 닫기는 작업자 종료 신호만 보내고 무제한 join하지 않는다. 같은 단계 인스턴스의 기존 작업자가 살아 있으면 새 작업자를 만들지 않아 재실행에서도 영구 정지 작업자가 누적되지 않는다. 종료 신호를 받은 작업자는 현재 호출이 끝나면 자료를 해제하고 종료한다. 요청별 옵션은 제출 시 복사한다.
+공통 Async로 감싸는 경우 기존 입력 복사·시간 제한·오류 원본 통과 정책을 적용한다. 모델 동명 YAML은 단일 YoloDetect에서 더 이상 읽지 않는다. 구성·간격·GPU 결과 계약은 유지한다.
 
-요청에 `copy_context()`를 보관하고 해당 실행 문맥에서 추론 통계를 기록한다. 제한 시간을 초과한 완료 추론도 실제 실행 시간만 기록한다. 입력 변환·모델 로드 실패는 추론 건수에 포함하지 않는다. GPU 예외가 발생해도 이미 제출한 GPU 연산의 수명을 보장하고 슬롯을 반환한다.
+## 파일과 검증
 
-## 구현 대상과 검증
+- src/pipeworks/embedded/yolo_detect.py: 동기 처리와 GPU 수명.
+- src/pipeworks/embedded/tensor_rt_inference.py: 작업자 의존성 분리.
+- tests/test_yolo_detect.py: 호출 스레드, 초기화·추론 대기, 간격·오류 전파·GPU 결과·통계·Async 조합 검증.
+- tests/test_tensor_rt_inference.py, tests/test_async.py, tests/test_local_yolo.py, tests/test_yolo_detect_batch.py: 기존 경로 회귀 검증.
+- README.md와 docs/pipeworks/embedded/yolo_detect.md, docs/pipeworks/embedded/async.md: 현재 동작 안내.
+- specs/011-yolo-detect-sync/: 현재 명세와 계약, 검증 기록.
 
-`tests/test_yolo_detect.py`를 비동기 계약에 맞추고, 이벤트로 지연·실패·초기화 정지·늦은 완료·종료·재실행을 통제해 영상 진행과 자원 상한을 검증한다. CUDA 스트림 분리, GPU 복사 금지, 원본 좌표, 제한 시간 YAML과 통계 문맥도 확인한다. 실제 모델 검증은 임시 동명 YAML에 충분한 제한 시간을 설정한다. 모델이 없는 환경에서는 실제 모델 검증을 조건부 건너뛴다. 기존 배치·공유 변환 회귀를 실행한다. `docs/pipeworks/embedded/yolo_detect.md`와 README를 갱신하고 사용자가 변경한 예제·공유 YAML은 유지한다.
+집중 테스트를 먼저 작성하여 구현 전 실패를 확인한다. 이벤트로 대기를 제어하고 실제 모델을 CPU 복사 금지 상태에서 실행한다. 이후 관련 회귀와 전체 검증을 수행하고 수렴 점검한다. GPU 변경과 프레임 간격, 빈 결과도 확인한다.
 
-연구·데이터·계약·실행 안내는 각각 [research.md](research.md), [data-model.md](data-model.md), [contracts/detection.md](contracts/detection.md), [quickstart.md](quickstart.md)에 있다. 설계 후 규칙 위반과 미해결 사항은 없다.
+## 헌장 재확인
+
+설계 후 충돌이나 미해결 질문은 없다. TensorRT 작업자 분리는 기존 사용자를 깨뜨리지 않기 위한 최소 통합 변경이다.

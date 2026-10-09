@@ -47,7 +47,7 @@ class _InputSlot(Iterator[PipelineContext]):
             self._condition.notify_all()
 
 
-class Sink(Step):
+class Tap(Step):
     def __init__(self, step: Step) -> None:
         self.step = step if isinstance(step, Hotswap) or is_embedded_step(step) else Hotswap(step)
 
@@ -72,11 +72,11 @@ class Sink(Step):
                         if callable(close):
                             close()
                 except Exception:
-                    logger.exception("Sink 작업이 실패했습니다.")
+                    logger.exception("Tap 작업이 실패했습니다.")
                 finally:
                     slot.close()
 
-        worker = Thread(target=consume, name="pipeworks-sink", daemon=True)
+        worker = Thread(target=consume, name="pipeworks-tap", daemon=True)
         worker.start()
         exhausted = False
         try:

@@ -34,18 +34,24 @@ pipeline.run()
 
 ```yaml
 RTSPPublish:
-  bitrate: "5000k"           # 비트레이트 (기본: "5000k")
-  framerate: 30              # 프레임 레이트 (기본: 30)
-  codec: "h264"              # 코덱 (기본: "h264")
+  reconnect: true
+  reconnect_interval: 3  # 초
+  transport: tcp
+  timeout_ms: 5000       # 밀리초
+  packet_size: 1452
 ```
 
 ### 옵션 설명
 
 | 옵션 | 설명 | 예제 |
 |------|------|------|
-| bitrate | 인코딩 비트레이트 | "2000k", "5000k", "10000k" |
-| framerate | 출력 FPS | 15, 24, 30, 60 |
-| codec | 비디오 코덱 | "h264", "hevc" |
+| reconnect | 재연결 여부 | true |
+| reconnect_interval | 재연결 간격(초) | 3 |
+| transport | 전송 방식 | tcp, udp |
+| timeout_ms | 제한 시간(밀리초, 기본값 5000) | 250, 5000, 10000 |
+| packet_size | 패킷 크기 | 1452 |
+
+기존 `timeout: 5`는 `timeout_ms: 5000`으로 변경해야 합니다. 0 이상의 유한한 숫자를 허용하며 이전 키는 오류로 처리합니다. 내부 FFmpeg 옵션에는 마이크로초로 변환하여 전달합니다.
 
 ---
 

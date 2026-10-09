@@ -6,7 +6,8 @@ from pipeworks.embedded import (
     NvidiaEncode,
     NvidiaDecode,
     StreamReport,
-    Sink,
+    Tap,
+    Async,
 )
 from pipeworks.embedded.yolo_detect import YoloDetect
 from step.box_overlay import BoxOverlay
@@ -23,10 +24,10 @@ def build_pipeline() -> Pipeline:
         .step(RTSPSource("rtsp://210.99.70.120:1935/live/cctv001.stream"))
         .step(NvidiaDecode())
         .step(MetadataFromDB())
-        .step(YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt"))
+        .step(Async(YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt"), timeout_ms=20))
         .step(BoxOverlay())
+        .step(Tap(PostProcess()))
         .step(NvidiaEncode())
-        .step(Sink(PostProcess()))
         .step(RTSPPublish("rtsp://localhost:8554/cctv001"))
         .step(StreamReport())
     )

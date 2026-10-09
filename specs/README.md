@@ -13,7 +13,7 @@
 | [005 NVIDIA 인코딩](005-nvidia-encode/spec.md) | GPU 프레임을 PyAV 패킷으로 변환 | 직접 모의 테스트 및 실장비 송출 검증 미완료 |
 | [006 NVIDIA 디코딩](006-nvidia-decode/spec.md) | 압축 패킷을 GPU 프레임으로 변환 | 직접 모의 테스트 및 실장비 디코딩 검증 미완료 |
 | [007 Step 핫스왑](007-step-hotswap/spec.md) | 사용자 정의 Step만 자동 감시·교체 | 모의 단계 테스트 있음 |
-| [009 배경 Sink](009-background-sink/spec.md) | 처리 중이면 새 작업을 버리는 단일 작업자 | 모의 단계 테스트 있음 |
+| [009 배경 Tap](009-background-sink/spec.md) | 처리 중이면 새 작업을 버리는 단일 작업자 | 모의 단계 테스트 있음 |
 | [010 프레임 보고](010-stream-report/spec.md) | 실행별 FPS·추론·단계별 지연을 두 줄로 출력 | 보고 테스트 있음 |
 | [011 동기식 YOLO](011-yolo-detect-sync/spec.md) | 선택 프레임을 CPU BGR로 변환해 단일 추론 | 단계 테스트 있음. 현재 예제에서는 사용하지 않음 |
 | [012 중앙 스트림 프로세스](012-central-stream-process/spec.md) | 파이프라인을 중앙 프로세스에서 실행하고 모델별 GPU 배치를 공유 | 통합 테스트 있음. 예제 5개 스트림의 실부하 검증은 별도 필요 |
@@ -22,7 +22,7 @@
 
 ## 현재 예제 흐름
 
-`RTSPSource → NvidiaDecode → YoloDetectBatch → BoxOverlay → NvidiaEncode → Sink → RTSPPublish → StreamReport`
+`RTSPSource → NvidiaDecode → YoloDetectBatch → BoxOverlay → NvidiaEncode → Tap → RTSPPublish → StreamReport`
 
 01 예제는 한 영상, 02 예제는 다섯 영상을 각각 실행한다. 두 예제 모두 `YoloDetectBatch`와 공유 YAML의 해당 섹션을 사용한다. `YoloDetect`는 공개 단계로 남아 있지만 예제에 등록되어 있지 않다.
 

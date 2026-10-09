@@ -6,7 +6,7 @@
 
 `Pipeline.step(Hotswap(step))`도 사용할 수 있으며 중복으로 감싸지 않는다.
 
-`Sink` 내부 Step에도 같은 자동 포장 규칙을 적용한다.
+`Tap` 내부 Step에도 같은 자동 포장 규칙을 적용한다.
 
 설정 객체는 `Hotswap`이 보관하고 내부 Step의 `configure()`에 전달한다. 코드 교체나 상류 변경으로 새 Step이 만들어지면 동일한 설정 객체를 다시 전달한다. 일반 Step에 `config` 속성을 보관할 의무는 없다.
 

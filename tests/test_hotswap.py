@@ -16,7 +16,7 @@ from pipeworks.pipeline import Pipeline
 from pipeworks.embedded.nvidia_decode import NvidiaDecode
 from pipeworks.embedded.rtsp_source import RTSPSource
 from pipeworks.embedded.rtsp_publish import RTSPPublish
-from pipeworks.embedded.sink import Sink as BackgroundSink
+from pipeworks.embedded.tap import Tap as BackgroundTap
 
 
 def load_step(path: Path, class_name: str, *args):
@@ -349,13 +349,13 @@ class HotswapTests(unittest.TestCase):
             self.assertFalse(source.reconnect)
             self.assertIsInstance(pipeline.steps[1], Hotswap)
 
-    def test_sink_excludes_embedded_child_and_keeps_user_step_hotswap(self):
+    def test_tap_excludes_embedded_child_and_keeps_user_step_hotswap(self):
         publish = RTSPPublish("rtsp://example.invalid/output")
-        self.assertIs(BackgroundSink(publish).step, publish)
-        self.assertIsInstance(BackgroundSink(Accumulator()).step, Hotswap)
+        self.assertIs(BackgroundTap(publish).step, publish)
+        self.assertIsInstance(BackgroundTap(Accumulator()).step, Hotswap)
 
         explicit = Hotswap(publish)
-        self.assertIs(BackgroundSink(explicit).step, explicit)
+        self.assertIs(BackgroundTap(explicit).step, explicit)
 
     def test_pipeline_keeps_explicit_hotswap_for_embedded_step(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,16 +1,25 @@
-# 작업 목록: 단일 작업자 Sink
+# 작업 목록: 단일 작업자 Tap
+
+## 단계 5: Tap 이름 변경
+
+- [x] T008 명세·명확화·계획·작업의 일관성을 확인한다. (FR-010, FR-011)
+- [x] T009 `sink.py`를 `tap.py`로 변경하고 공개 클래스·import·설정 감시·중앙 실행 등록을 갱신한다. (FR-010, FR-011)
+- [x] T010 예제·문서·명세 참조·관련 테스트를 Tap 이름으로 갱신한다. (SC-006)
+- [x] T011 관련 회귀 테스트와 참조 검사를 수행하고 수렴 점검한다. (SC-007)
+
+T008 → T009 → T010 → T011 순서로 수행한다.
 
 **명세**: [spec.md](spec.md)  
 **계획**: [plan.md](plan.md)
 
 ## 단계 1: 계약 준비
 
-- [x] T001 [US1] `src/pipeworks/embedded/sink.py`의 Step 반복자와 `Hotswap` 연결 계약을 확인한다. (FR-001, FR-002)
+- [x] T001 [US1] `src/pipeworks/embedded/tap.py`의 Step 반복자와 `Hotswap` 연결 계약을 확인한다. (FR-001, FR-002)
 
 ## 단계 2: 구현
 
-- [x] T002 [US1] `src/pipeworks/embedded/sink.py`에 단일 입력 슬롯과 지속 작업자를 구현한다. (FR-001~FR-005)
-- [x] T003 [US1] `src/pipeworks/embedded/sink.py`에 오류 기록과 종료 처리를 구현한다. (FR-006, FR-007)
+- [x] T002 [US1] `src/pipeworks/embedded/tap.py`에 단일 입력 슬롯과 지속 작업자를 구현한다. (FR-001~FR-005)
+- [x] T003 [US1] `src/pipeworks/embedded/tap.py`에 오류 기록과 종료 처리를 구현한다. (FR-006, FR-007)
 
 ## 단계 3: 검증
 
@@ -19,5 +28,5 @@
 
 ## 단계 4: 내부 Step 핫스왑
 
-- [x] T006 [US3] `src/pipeworks/embedded/sink.py`에서 내부 Step을 핫스왑으로 감싸고 중복 감싸기를 방지한다. (FR-008, FR-009)
+- [x] T006 [US3] `src/pipeworks/embedded/tap.py`에서 내부 Step을 핫스왑으로 감싸고 중복 감싸기를 방지한다. (FR-008, FR-009)
 - [x] T007 [US3] 실제 파일 변경을 이용해 작업 완료 후 새 구현 적용과 주 스트림 유지를 확인한다. (SC-005)

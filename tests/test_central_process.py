@@ -16,7 +16,7 @@ from io import BytesIO, StringIO
 from unittest.mock import patch
 
 from pipeworks import Pipeline
-from pipeworks.embedded import Sink, StreamReport
+from pipeworks.embedded import Tap, StreamReport
 from pipeworks.main import _ADDRESS, _KEY, _connect, _server_executable, _start_server, _user_sid
 from pipeworks.models import PipelineContext, Step
 
@@ -170,13 +170,13 @@ def _run_print(directory_name: str, message: str, result) -> None:
     result.put(output.getvalue())
 
 
-def _run_sink_print(directory_name: str, message: str, result) -> None:
+def _run_tap_print(directory_name: str, message: str, result) -> None:
     directory = Path(directory_name)
     config = directory / f"sink-{message}.yml"
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
     with redirect_stdout(output):
-        Pipeline(message, config=config).step(PrintingSource("report output")).step(Sink(PrintingStep(message))).run()
+        Pipeline(message, config=config).step(PrintingSource("report output")).step(Tap(PrintingStep(message))).run()
     result.put(output.getvalue())
 
 
@@ -346,22 +346,22 @@ class CentralProcessTests(unittest.TestCase):
         with patch("pipeworks.main.Path.is_file", return_value=False):
             self.assertEqual(_server_executable(), sys.executable)
 
-    def test_sink_step_output_reaches_calling_stdout(self):
+    def test_tap_step_output_reaches_calling_stdout(self):
         with TemporaryDirectory() as temporary:
             config = Path(temporary) / "sink.yml"
             config.write_text("{}", encoding="utf-8")
-            pipeline = Pipeline("sink", config=config).step(PrintingSource("report output")).step(Sink(PrintingStep("post output")))
+            pipeline = Pipeline("sink", config=config).step(PrintingSource("report output")).step(Tap(PrintingStep("post output")))
             output = StringIO()
             with redirect_stdout(output):
                 pipeline.run()
             self.assertIn("report output\n", output.getvalue())
             self.assertIn("post output\n", output.getvalue())
 
-    def test_concurrent_sink_outputs_stay_with_their_callers(self):
+    def test_concurrent_tap_outputs_stay_with_their_callers(self):
         with TemporaryDirectory() as temporary:
             context = get_context("spawn")
             result = context.Queue()
-            processes = [context.Process(target=_run_sink_print, args=(temporary, message, result))
+            processes = [context.Process(target=_run_tap_print, args=(temporary, message, result))
                          for message in ("first sink", "second sink")]
             for process in processes:
                 process.start()

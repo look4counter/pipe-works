@@ -49,7 +49,7 @@ RTSPSource:
   reconnect: true
   reconnect_interval: 3
   transport: tcp
-  timeout: 5
+  timeout_ms: 5000
 
 YoloDetect:
   classes: null  # null = 모든 클래스
@@ -83,7 +83,8 @@ class Step(ABC):
 **Step의 종류:**
 - **Source Step** (RTSPSource): 영상을 읽어들임
 - **Processing Step** (YoloDetect, CustomProcessor): 데이터 처리
-- **Sink Step** (RTSPPublish, Sink): 결과를 출력/저장
+- **Sink Step** (RTSPPublish): 결과를 출력/저장
+- **Tap Step** (Tap): 원본을 전달하면서 배경 후처리 실행
 
 ### PipelineContext
 스트림의 각 "프레임" 또는 "패킷" 단위 데이터입니다.
@@ -133,21 +134,38 @@ RTSP 카메라에서 영상을 읽습니다.
 
 - **역할**: RTSP 스트림 수신 및 디코딩
 - **사용**: `pipeline.step(RTSPSource(url="rtsp://camera/main"))`
-- **설정**: `reconnect`, `reconnect_interval`, `transport`, `timeout`
+- **설정**: `reconnect`, `reconnect_interval`, `transport`, `timeout_ms`
 - **상세**: [docs/pipeworks/embedded/rtsp_source.md](docs/pipeworks/embedded/rtsp_source.md)
 
 ---
 
 ### Processing Step (데이터 처리)
 
-#### **YoloDetect**
-선택 프레임의 YOLO 감지를 비동기로 실행하며, 추론 지연·실패 시 결과 없이 영상을 전달합니다.
+#### **Async**
+다른 처리 단계를 비동기로 실행하고 시간 초과·오류·작업자 사용 중에는 원본을 전달합니다.
 
-- **역할**: 객체 감지 (작업자 전용 CUDA 스트림, 영상·감지 결과의 CPU 복사 금지)
+- **사용**: `pipeline.step(Async(processor, timeout_ms=5))`
+- **설정**: `timeout_ms`, 감싼 단계 설정의 `step` 매핑
+- **지원**: 입력 하나당 출력 하나인 단계. 늦은 결과는 폐기하고 작업용 데이터는 복사합니다.
+- **상세**: [Async 안내](docs/pipeworks/embedded/async.md)
+
+#### **YoloDetect**
+선택 프레임의 YOLO 감지를 동기로 실행하고 GPU 결과 준비까지 기다립니다. 오류는 호출자에게 전파합니다.
+
+- **역할**: 객체 감지 (별도 CUDA 스트림에서 동기 처리, 영상·감지 결과의 CPU 복사 금지)
 - **사용**: `pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))`
 - **설정**: `classes`, `confidence`, `gpu_id`, `inference_interval`
-- **제한 시간**: 모델 동명 `.yml`의 `timeout` (밀리초, 기본 5). 시간 초과·작업자 사용 중에는 결과 없이 전달하고 늦은 결과는 폐기합니다.
+- **선택적 비동기**: `pipeline.step(Async(YoloDetect(model_path), timeout_ms=5))`. 단일 감지는 모델 동명 `.yml`의 `timeout`을 읽지 않습니다.
 - **상세**: [docs/pipeworks/embedded/yolo_detect.md](docs/pipeworks/embedded/yolo_detect.md)
+
+#### **TensorRTInference**
+전처리 단계의 `context.model_input` GPU 텐서를 TensorRT로 추론하고 `context.model_output`에 원시 GPU 출력을 저장합니다.
+
+- **입출력**: 단일 텐서 또는 입력 이름별 GPU 텐서 사전 → 출력 이름별 GPU 텐서 사전. 바인딩 이름은 엔진에서 읽습니다.
+- **사용**: `pipeline.step(TensorRTInference(Path("models/model.engine")))`
+- **설정**: 클래스명 YAML의 `gpu_id`, `inference_interval`; 모델 동명 `.yml`의 `timeout`, `plugins`
+- **동작**: 전처리·후처리·CPU 텐서 복사 없이 비동기 추론. 시간 초과·실패·사용 중에는 결과 없이 입력을 전달합니다.
+- **상세**: [TensorRTInference 안내](docs/pipeworks/embedded/tensor_rt_inference.md)
 
 #### **YoloDetectBatch**
 여러 프레임을 묶어 배치 YOLO 처리합니다.
@@ -193,13 +211,13 @@ NVIDIA GPU를 이용해 영상을 인코딩합니다.
 - **설정**: `bitrate`, `framerate`, `codec`
 - **상세**: [docs/pipeworks/embedded/nvidia_encode.md](docs/pipeworks/embedded/nvidia_encode.md)
 
-#### **Sink**
-처리된 데이터를 수신하고 최종 처리합니다.
+#### **Tap**
+원본을 다음 단계로 전달하면서 별도 작업자에서 후처리를 실행합니다.
 
-- **역할**: 파이프라인 종료점 (커스텀 후처리)
-- **사용**: `pipeline.step(Sink(step=MyFinalStep()))`
+- **역할**: 배경 후처리, 작업 중 새 입력은 후처리에서 건너뛰기
+- **사용**: `pipeline.step(Tap(step=MyFinalStep()))`
 - **설정**: Step별로 상이
-- **상세**: [docs/pipeworks/embedded/sink.md](docs/pipeworks/embedded/sink.md)
+- **상세**: [docs/pipeworks/embedded/tap.md](docs/pipeworks/embedded/tap.md)
 
 ---
 
@@ -285,13 +303,14 @@ pipeline.run()
 
 | Step | 문서 |
 |------|------|
+| Async | [Async 안내](docs/pipeworks/embedded/async.md) |
 | RTSPSource | [docs/pipeworks/embedded/rtsp_source.md](docs/pipeworks/embedded/rtsp_source.md) |
 | YoloDetect | [docs/pipeworks/embedded/yolo_detect.md](docs/pipeworks/embedded/yolo_detect.md) |
 | YoloDetectBatch | [docs/pipeworks/embedded/yolo_detect_batch.md](docs/pipeworks/embedded/yolo_detect_batch.md) |
 | RTSPPublish | [docs/pipeworks/embedded/rtsp_publish.md](docs/pipeworks/embedded/rtsp_publish.md) |
 | NvidiaDecode | [docs/pipeworks/embedded/nvidia_decode.md](docs/pipeworks/embedded/nvidia_decode.md) |
 | NvidiaEncode | [docs/pipeworks/embedded/nvidia_encode.md](docs/pipeworks/embedded/nvidia_encode.md) |
-| Sink | [docs/pipeworks/embedded/sink.md](docs/pipeworks/embedded/sink.md) |
+| Tap | [docs/pipeworks/embedded/tap.md](docs/pipeworks/embedded/tap.md) |
 | StreamReport | [docs/pipeworks/embedded/stream_report.md](docs/pipeworks/embedded/stream_report.md) |
 
 ---
@@ -473,7 +492,7 @@ except KeyboardInterrupt:
 RTSPSource:
   reconnect: true
   reconnect_interval: 5  # 초 단위
-  timeout: 10
+  timeout_ms: 10000
 ```
 
 ### Q3: YOLO 모델은 어디서 받나?

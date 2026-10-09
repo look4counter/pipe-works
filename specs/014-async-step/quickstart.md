@@ -1,0 +1,21 @@
+# 검증 안내
+
+```powershell
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_async.py -v
+.venv/Scripts/python.exe -m unittest discover -s tests -v
+```
+
+성공 결과, 원본 식별, 상태 유지, 입력 격리, 실패 재시도, 지연·사용 중 통과, 종료와 설정을 확인한다. CUDA가 없으면 GPU 검증을 건너뛴다. 기존 모델의 동작은 유지한다.
+
+## 2026-10-09 검증 결과
+
+- 최종 집중 검증: 19개 모두 통과. 실제 CUDA 텐서와 DLPack 공급자 복사, 비리프 텐서와 별칭 보존, 종료 후 인스턴스 재사용과 직렬화를 포함한다.
+- 전체 회귀 검증: 152개 실행, 실패 1개·오류 1개·건너뜀 3개. 마지막 실행 이후 추가한 4개 집중 검증도 통과했다.
+- 전체 오류: `test_example_places_configured_overlay_before_encoder`가 현재 예제의 `YoloDetect` 대신 `YoloDetectBatch`를 기대하여 실패한다. 이번 작업에서는 예제를 변경하지 않았다.
+- 전체 실패: `test_server_exits_after_last_pipeline_disconnects`의 중앙 서버 종료 기대가 충족되지 않았다. 이 테스트는 Async를 등록하지 않으며 종료 구현은 이번 변경 범위에 포함하지 않았다.
+- 전체 테스트는 Windows 명명된 파이프 접근 제한 때문에 샌드박스 밖에서 실행했다.
+- `git diff --check`는 통과했다.
+
+## 모듈 파일명 변경 검증
+
+`async_step.py`로 변경한 뒤 Async 19개와 YoloDetect 14개 테스트를 실행했다. 실패 없이 통과했고 실제 YOLO 엔진 부재로 1개를 건너뛰었다. 직접 가져오기·패키지 공개 가져오기·직렬화·오류 로그 경로를 확인했다. 처리 로직은 변경하지 않았으며 수렴 점검에서 추가 작업은 없다.
