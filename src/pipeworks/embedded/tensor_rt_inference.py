@@ -1,13 +1,10 @@
 """Execute raw GPU tensors with TensorRT using engine-discovered I/O names."""
 
-from contextvars import Context, copy_context
-from dataclasses import dataclass, field
+from contextvars import copy_context
 import json
 import logging
 import math
 from pathlib import Path
-from queue import Empty, Queue
-from threading import Event, Lock, Thread
 import time
 from types import SimpleNamespace
 from typing import Iterator
@@ -195,107 +192,11 @@ class _EngineSession:
                 for name, allocator in self.allocators.items()}
 
 
-@dataclass
-class _Request:
-    inputs: object
-    source_owner: object
-    ready_event: torch.cuda.Event
-    gpu_id: int
-    submitted_at: float
-    context: Context = field(default_factory=copy_context)
-    done: Event = field(default_factory=Event)
-    expired: Event = field(default_factory=Event)
-    completed_at: float | None = None
-    result: object = None
-
-
-class _InferenceWorker:
-    def __init__(self, model_path, plugins):
-        self.model_path = model_path
-        self.plugins = plugins
-        self.requests: Queue[_Request] = Queue(maxsize=1)
-        self.lock = Lock()
-        self.stopped = Event()
-        self.busy = False
-        self.current: _Request | None = None
-        self.thread = Thread(target=self._run, name=f"pipeworks-tensorrt-{model_path.stem}", daemon=True)
-        self.thread.start()
-
-    def reserve(self):
-        with self.lock:
-            if self.stopped.is_set() or self.busy:
-                return False
-            self.busy = True
-            return True
-
-    def release(self):
-        with self.lock:
-            self.busy = False
-
-    def submit(self, request):
-        with self.lock:
-            self.current = request
-            self.requests.put_nowait(request)
-
-    def close(self):
-        self.stopped.set()
-
-    def _run(self):
-        session = stream = gpu_id = None
-        while True:
-            try:
-                request = self.requests.get(timeout=0.05)
-            except Empty:
-                if self.stopped.is_set():
-                    return
-                continue
-            try:
-                if not self.stopped.is_set():
-                    if gpu_id != request.gpu_id:
-                        gpu_id = request.gpu_id
-                        stream = torch.cuda.Stream(device=gpu_id)
-                        session = None
-                    with torch.cuda.stream(stream):
-                        stream.wait_event(request.ready_event)
-                        # 형상 추론이 입력 값을 조회할 수 있어 작업자에서도 준비를 확인한다.
-                        request.ready_event.synchronize()
-                        tensors = request.inputs.values() if isinstance(request.inputs, dict) else (request.inputs,)
-                        for tensor in tensors:
-                            tensor.record_stream(stream)
-                        if session is None:
-                            session = _EngineSession(self.model_path, self.plugins)
-                        request.result = session.infer(request.inputs, stream, request.context)
-            except Exception:
-                logger.exception("TensorRT 추론에 실패하여 결과 없이 입력을 전달합니다.")
-                if stream is not None:
-                    try:
-                        stream.synchronize()
-                    except Exception:
-                        logger.exception("TensorRT 작업자 CUDA 정리에 실패했습니다.")
-            finally:
-                try:
-                    request.ready_event.synchronize()
-                except Exception:
-                    logger.exception("TensorRT 입력 복제 정리에 실패했습니다.")
-                request.inputs = request.source_owner = request.ready_event = None
-                with self.lock:
-                    if request.expired.is_set() or self.stopped.is_set():
-                        request.result = None
-                    request.completed_at = time.monotonic()
-                    self.current = None
-                    self.busy = False
-                    request.done.set()
-                request = tensors = tensor = None
-            if self.stopped.is_set():
-                return
-
-
 class TensorRTInference(Step):
     def __init__(self, model_path: Path):
         self.model_path = Path(model_path)
         self.gpu_id = 0
         self.inference_interval = 1
-        self._worker = None
 
     def configure(self, config: SimpleNamespace):
         gpu_id = getattr(config, "gpu_id", 0)
@@ -309,7 +210,7 @@ class TensorRTInference(Step):
     def _model_settings(self):
         path = self.model_path.with_suffix(".yml")
         if not path.is_file():
-            return 0.005, ()
+            return ()
         try:
             with path.open(encoding="utf-8") as config_file:
                 config = yaml.safe_load(config_file)
@@ -317,72 +218,63 @@ class TensorRTInference(Step):
             raise ValueError(f"TensorRT 모델 설정이 잘못되었습니다: {path}") from error
         if not isinstance(config, dict):
             raise ValueError("TensorRT 모델 설정은 객체여야 합니다.")
-        timeout = config.get("timeout", 5)
-        if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
-                or not math.isfinite(timeout) or timeout < 0):
-            raise ValueError("timeout은 유한한 0 이상의 밀리초여야 합니다.")
         plugins = config.get("plugins", [])
         if not isinstance(plugins, list) or any(not isinstance(plugin, str) or not plugin for plugin in plugins):
             raise ValueError("plugins는 공유 라이브러리 경로 문자열 목록이어야 합니다.")
-        return timeout / 1000, tuple(path.parent / plugin for plugin in plugins)
+        return tuple(path.parent / plugin for plugin in plugins)
 
-    def _copy_inputs(self, item):
+    def _prepare_inputs(self, item):
         inputs = getattr(item, "model_input", None)
         if isinstance(inputs, torch.Tensor):
             tensors = {None: inputs}
         elif isinstance(inputs, dict) and inputs and all(isinstance(name, str) for name in inputs):
             tensors = inputs
         else:
-            raise ValueError("model_input은 GPU 텐서 또는 입력 이름별 GPU 텐서 사전이어야 합니다.")
-        for name, tensor in tensors.items():
+            raise ValueError("model_input must be a GPU tensor or a named tensor mapping.")
+        for tensor in tensors.values():
             if not isinstance(tensor, torch.Tensor) or not tensor.is_cuda or tensor.device.index != self.gpu_id:
-                raise ValueError(f"model_input은 gpu_id와 일치하는 GPU 텐서여야 합니다: {name}")
-        stream = getattr(item, "cuda_stream", None)
-        if stream is None:
-            stream = torch.cuda.current_stream(self.gpu_id)
-        if stream.device.index != self.gpu_id:
-            raise ValueError("입력 CUDA 스트림의 GPU는 gpu_id와 일치해야 합니다.")
-        with torch.cuda.stream(stream):
-            copies = {name: tensor.clone(memory_format=torch.contiguous_format) for name, tensor in tensors.items()}
-            ready_event = torch.cuda.Event()
-            ready_event.record(stream)
-        return copies[None] if isinstance(inputs, torch.Tensor) else copies, ready_event, tuple(tensors.values())
+                raise ValueError("model_input GPU must match gpu_id.")
+        producer = getattr(item, "model_cuda_stream", None)
+        if producer is None:
+            producer = getattr(item, "cuda_stream", None)
+        if producer is None:
+            producer = torch.cuda.current_stream(self.gpu_id)
+        if producer.device.index != self.gpu_id:
+            raise ValueError("Input CUDA stream GPU must match gpu_id.")
+        ready = torch.cuda.Event()
+        ready.record(producer)
+        ready.synchronize()
+        return inputs
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
-        timeout, plugins = self._model_settings()
-        worker = None
+        plugins = self._model_settings()
+        session = stream = None
+        gpu_id = None
         try:
             for index, item in enumerate(inputs):
                 item.model_output = None
                 if index % self.inference_interval == 0:
-                    if self._worker is None or not self._worker.thread.is_alive():
-                        self._worker = _InferenceWorker(self.model_path, plugins)
-                    worker = self._worker
-                    if worker.reserve():
-                        submitted = False
-                        request = None
+                    tensors = self._prepare_inputs(item)
+                    if gpu_id != self.gpu_id:
+                        if stream is not None:
+                            stream.synchronize()
+                        if session is not None:
+                            session.close()
+                        session = None
+                        gpu_id = self.gpu_id
+                        stream = torch.cuda.Stream(device=gpu_id)
+                    with torch.cuda.stream(stream):
                         try:
-                            submitted_at = time.monotonic()
-                            tensors, ready_event, owner = self._copy_inputs(item)
-                            request = _Request(tensors, owner, ready_event, self.gpu_id, submitted_at)
-                            worker.submit(request)
-                            submitted = True
-                            tensors = owner = ready_event = None
-                            deadline = submitted_at + timeout
-                            ready = request.done.wait(max(0.0, deadline - time.monotonic()))
-                            if ready and request.completed_at <= deadline:
-                                item.model_output = request.result
-                            else:
-                                request.expired.set()
-                                request.result = None
-                        except Exception:
-                            if request is not None:
-                                request.expired.set()
-                            logger.exception("TensorRT 요청에 실패하여 결과 없이 입력을 전달합니다.")
+                            tensors = ({name: tensor.contiguous() for name, tensor in tensors.items()}
+                                       if isinstance(tensors, dict) else tensors.contiguous())
+                            if session is None:
+                                session = _EngineSession(self.model_path, plugins)
+                            item.model_output = session.infer(tensors, stream, copy_context())
                         finally:
-                            if not submitted:
-                                worker.release()
+                            stream.synchronize()
                 yield item
         finally:
-            if worker is not None:
-                worker.close()
+            if stream is not None:
+                stream.synchronize()
+            if session is not None:
+                session.close()

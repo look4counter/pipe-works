@@ -145,7 +145,7 @@ RTSP 카메라에서 영상을 읽습니다.
 다른 처리 단계를 비동기로 실행하고 시간 초과·오류·작업자 사용 중에는 원본을 전달합니다.
 
 - **사용**: `pipeline.step(Async(processor, timeout_ms=5))`
-- **설정**: `timeout_ms`, 감싼 단계 설정의 `step` 매핑
+- **설정**: `timeout_ms`. 내부 단계는 각 클래스명 최상위 YAML 섹션을 사용합니다.
 - **지원**: 입력 하나당 출력 하나인 단계. 공유 입력은 읽기 전용이며 타임아웃 때만 후속 전달용 데이터를 복사합니다. 선택적 입력 사용 종료 신호가 완료되면 이 복사도 생략합니다. 늦은 결과는 폐기합니다.
 - **상세**: [Async 안내](docs/pipeworks/embedded/async.md)
 
@@ -164,8 +164,8 @@ RTSP 카메라에서 영상을 읽습니다.
 
 - **입출력**: 단일 텐서 또는 입력 이름별 GPU 텐서 사전 → 출력 이름별 GPU 텐서 사전. 바인딩 이름은 엔진에서 읽습니다.
 - **사용**: `pipeline.step(TensorRTInference(Path("models/model.engine")))`
-- **설정**: 클래스명 YAML의 `gpu_id`, `inference_interval`; 모델 동명 `.yml`의 `timeout`, `plugins`
-- **동작**: 전처리·후처리·CPU 텐서 복사 없이 비동기 추론. 시간 초과·실패·사용 중에는 결과 없이 입력을 전달합니다.
+- **설정**: 클래스명 YAML의 `gpu_id`, `inference_interval`; 모델 동명 `.yml`의 `plugins`
+- **동작**: 전처리·후처리 없이 동기 추론하며 GPU 완료 후 결과를 전달합니다. 연속 입력은 복제하지 않고 오류는 전파합니다. 시간 제한·오류 통과는 공통 Async로 적용합니다.
 - **상세**: [TensorRTInference 안내](docs/pipeworks/embedded/tensor_rt_inference.md)
 
 #### **NvidiaDecode**

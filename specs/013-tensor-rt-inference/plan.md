@@ -38,3 +38,6 @@ GPU 입력을 생산자 스트림에서 연속 복제하고 준비 이벤트를 
 - `docs/pipeworks/embedded/tensor_rt_inference.md`, `README.md`: 단계 사용·설정·제약 안내.
 
 검증은 새 단계와 기존 YOLO·배치·공유 GPU 경로에 한정한다. 설계 문서는 [연구](research.md), [데이터](data-model.md), [계약](contracts/inference.md), [실행 안내](quickstart.md)로 나눈다. 설계 후 규칙 위반이나 미해결 사항은 없다.
+## 동기 실행 계획
+
+내부 _Request·_InferenceWorker를 제거한다. process별 별도 CUDA 스트림과 지연 생성 엔진 세션을 보관하고 GPU·플러그인 변경 경계에서 재생성한다. 입력 장치 검증 후 생산자 완료 이벤트를 기록·확인하고 연속화가 필요한 입력만 복사한다. _EngineSession.infer의 완료 동기화와 통계를 유지한다. finally에서 스트림 완료 후 세션을 닫는다. 실패는 Async 또는 호출자에 전달한다. tests/test_tensor_rt_inference.py의 비동기 전용 검증은 Async 조합·동기 실행 검증으로 이전하고 나머지 엔진 회귀를 보존한다. 실제 예제 plan 검증과 문서·README·Async 안내를 갱신한다.

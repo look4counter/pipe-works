@@ -4,12 +4,12 @@ from typing import Iterator
 import time
 
 
-class PostProcess(Step):
+class SaveInferenceResultToDB(Step):
     def configure(self, config: SimpleNamespace) -> None:
         pass
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for input in inputs:
-            # print(f"PostProcess: {input.detections}")
+            # print(f"SaveInferenceResultToDB: {input.detections}")
             time.sleep(5)
             yield input

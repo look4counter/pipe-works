@@ -161,8 +161,11 @@ def run_remote(pipeline) -> None:
         def register_step(step) -> None:
             if isinstance(step, Hotswap):
                 register_step(step.wrapped_step)
-            if isinstance(step, (Tap, Async)):
+            if isinstance(step, Tap):
                 register_step(step.step)
+            if isinstance(step, Async):
+                for inner in step.steps:
+                    register_step(inner)
             module_name = type(step).__module__
             if not module_name.startswith("pipeworks.") and module_name in sys.modules:
                 cloudpickle.register_pickle_by_value(sys.modules[module_name])

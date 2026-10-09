@@ -151,10 +151,9 @@ class SettingsTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "model.engine"
             step = TensorRTInference(path)
-            self.assertEqual(step._model_settings(), (0.005, ()))
+            self.assertEqual(step._model_settings(), ())
             path.with_suffix(".yml").write_text("timeout: 25\nplugins: [custom.dll]\nmax_batch_size: 10", encoding="utf-8")
-            timeout, plugins = step._model_settings()
-            self.assertEqual(timeout, 0.025)
+            plugins = step._model_settings()
             self.assertEqual(plugins, (Path(directory) / "custom.dll",))
             step.configure(SimpleNamespace(gpu_id=1, inference_interval=3))
             self.assertEqual((step.gpu_id, step.inference_interval), (1, 3))
@@ -164,8 +163,7 @@ class SettingsTests(unittest.TestCase):
             path = Path(directory) / "model.engine"
             for value in ("true", "-1", ".inf", ".nan", '"5"', "null"):
                 path.with_suffix(".yml").write_text(f"timeout: {value}", encoding="utf-8")
-                with self.assertRaises(ValueError):
-                    TensorRTInference(path)._model_settings()
+                self.assertEqual(TensorRTInference(path)._model_settings(), ())
             for content in ("[]", "timeout: [", "plugins: wrong", "plugins: [3]"):
                 path.with_suffix(".yml").write_text(content, encoding="utf-8")
                 with self.assertRaises(ValueError):
@@ -203,9 +201,6 @@ class TensorRTInferenceTests(unittest.TestCase):
 
     def stop_worker(self):
         self.api.release.set()
-        if self.step._worker is not None:
-            self.step._worker.close()
-            self.step._worker.thread.join(5)
 
     def item(self, value=1):
         stream = torch.cuda.Stream()
@@ -246,29 +241,29 @@ class TensorRTInferenceTests(unittest.TestCase):
         torch.testing.assert_close(item.model_output["raw_scores"], item.model_input + 1)
         self.assertFalse(item.model_input.is_contiguous())
 
-    def test_engine_initialization_delay_and_close_do_not_block_video(self):
-        self.path.with_suffix(".yml").write_text("timeout: 5", encoding="utf-8")
+    def test_async_owns_timeout_during_engine_initialization(self):
+        from pipeworks.embedded import Async
         entered, release = Event(), Event()
+        self.addCleanup(release.set)
 
         def load(*arguments):
             entered.set()
             release.wait(5)
             return _EngineSession(*arguments)
 
+        wrapper = Async(self.step, timeout_ms=20)
         with patch("pipeworks.embedded.tensor_rt_inference._EngineSession", side_effect=load):
             items = [self.item(), self.item()]
-            outputs = self.step.process(iter(items))
+            outputs = wrapper.process(iter(items))
             try:
                 self.assertIs(next(outputs), items[0])
                 self.assertTrue(entered.wait(2))
-                started = time.monotonic()
                 self.assertIs(next(outputs), items[1])
-                outputs.close()
-                self.assertLess(time.monotonic() - started, 0.2)
-                self.assertTrue(all(item.model_output is None for item in items))
             finally:
+                outputs.close()
                 release.set()
-                self.step._worker.thread.join(3)
+                self.assertTrue(wrapper._session_lock.acquire(timeout=3))
+                wrapper._session_lock.release()
 
     def test_multiple_inputs_dynamic_outputs_and_empty_outputs(self):
         self.api.inputs.append("another_tensor")
@@ -278,7 +273,6 @@ class TensorRTInferenceTests(unittest.TestCase):
         item.model_input = {name: item.model_input for name in self.api.inputs}
         self.assertEqual(list(self.step.process(iter((item,)))), [item])
         torch.testing.assert_close(item.model_output["raw_scores"], item.model_input[self.api.inputs[0]] * 2 + 1)
-        self.step._worker.thread.join(1)
         self.api.empty = True
         second = self.item()
         second.model_input = {name: second.model_input for name in self.api.inputs}
@@ -326,36 +320,28 @@ class TensorRTInferenceTests(unittest.TestCase):
                         return context
 
                     self.api.engine.create_execution_context = create
-                with self.assertLogs("pipeworks.embedded.tensor_rt_inference", level="ERROR"):
-                    outputs = self.step.process(iter((first, second)))
-                    next(outputs)
-                    self.assertIsNone(first.model_output)
-                    self.api.host = self.api.vectorized = False
-                    next(outputs)
-                    outputs.close()
+                with self.assertRaises((ValueError, RuntimeError)):
+                    list(self.step.process(iter((first,))))
+                self.api.host = self.api.vectorized = False
+                if invalid == "execution":
+                    self.api.engine.create_execution_context = original_create
+                list(self.step.process(iter((second,))))
                 self.assertIsNotNone(second.model_output)
 
-    def test_timeout_busy_late_results_and_restart_remain_bounded(self):
-        self.path.with_suffix(".yml").write_text("timeout: 5", encoding="utf-8")
-        self.api.block = True
-        items = [self.item() for _ in range(20)]
-        outputs = self.step.process(iter(items))
-        first = next(outputs)
-        self.assertTrue(self.api.entered.wait(2))
-        worker = self.step._worker
-        request = worker.current
-        started = time.monotonic()
-        self.assertEqual([first, *outputs], items)
-        self.assertLess(time.monotonic() - started, 0.2)
-        self.assertEqual(self.api.contexts[0].executions, 1)
-        self.assertTrue(all(item.model_output is None for item in items))
-        list(self.step.process(iter((self.item(),))))
-        self.assertIs(self.step._worker, worker)
-        self.api.release.set()
-        self.assertTrue(request.done.wait(3))
-        self.assertIsNone(request.result)
-        self.assertIsNone(request.inputs)
-        self.assertTrue(all(item.model_output is None for item in items))
+    def test_contiguous_input_is_not_cloned_and_runs_on_caller_thread(self):
+        from threading import get_ident
+        caller = get_ident()
+        original = _EngineSession.infer
+        observed = []
+        item = self.item()
+
+        def infer(session, tensors, stream, context):
+            observed.append((get_ident(), tensors.data_ptr()))
+            return original(session, tensors, stream, context)
+
+        with patch.object(_EngineSession, "infer", infer), patch.object(torch.Tensor, "clone", side_effect=AssertionError("unexpected clone")):
+            list(self.step.process(iter((item,))))
+        self.assertEqual(observed, [(caller, item.model_input.data_ptr())])
 
     def test_interval_and_request_scope_statistics(self):
         self.step.inference_interval = 3
@@ -387,14 +373,10 @@ class RealTensorRTTests(unittest.TestCase):
             path.with_suffix(".yml").write_text("timeout: 10000", encoding="utf-8")
             step = TensorRTInference(path)
             item = PipelineContext(model_input=torch.ones((2, 2), device="cuda"))
-            try:
-                list(step.process(iter((item,))))
-                self.assertIsNotNone(item.model_output)
-                torch.testing.assert_close(item.model_output["unfixed_output_name"], item.model_input * 2)
-            finally:
-                if step._worker is not None:
-                    step._worker.close()
-                    step._worker.thread.join(5)
+            list(step.process(iter((item,))))
+            self.assertIsNotNone(item.model_output)
+            torch.testing.assert_close(item.model_output["unfixed_output_name"], item.model_input * 2)
+
 
 
 if __name__ == "__main__":

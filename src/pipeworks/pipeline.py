@@ -14,6 +14,35 @@ from pipeworks.models import Step
 logger = logging.getLogger(__name__)
 
 
+def _configure_async_children(step, sections):
+    from pipeworks.embedded.async_step import Async
+
+    original = step.wrapped_step if isinstance(step, Hotswap) else step
+    if isinstance(original, Async):
+        for inner in original._hot_steps:
+            child = inner.wrapped_step if isinstance(inner, Hotswap) else inner
+            inner.configure(SimpleNamespace(**sections.get(type(child).__name__, {})))
+            _configure_async_children(inner, sections)
+
+
+def _watch_async_children(step, watcher, sections):
+    from pipeworks.embedded.async_step import Async
+
+    original = step.wrapped_step if isinstance(step, Hotswap) else step
+    if isinstance(original, Async):
+        running = []
+        for inner in original._hot_steps:
+            child = inner.wrapped_step if isinstance(inner, Hotswap) else inner
+            section = type(child).__name__
+            if not isinstance(inner, Hotswap):
+                inner = Hotswap(inner, watch_code=False, recover_errors=False)
+                inner._config = SimpleNamespace(**sections.get(section, {}))
+            inner._config_provider = lambda name=section: watcher.section(name)
+            _watch_async_children(inner, watcher, sections)
+            running.append(inner)
+        original._hot_steps = tuple(running)
+
+
 def _load_config(source: bytes) -> dict:
     loaded = yaml.safe_load(source)
     if loaded is None:
@@ -74,6 +103,7 @@ class Pipeline:
         if not isinstance(step_config, dict):
             raise ValueError(f"{section} 설정은 매핑이어야 합니다.")
         registered.configure(SimpleNamespace(**step_config))
+        _configure_async_children(registered, vars(self.config))
         if not self.steps and isinstance(registered, Hotswap):
             registered.source = True
         self.steps.append(registered)
@@ -92,6 +122,7 @@ class Pipeline:
             watcher = _LiveConfig(self.config_path, vars(self.config), self._config_digest)
             inputs = iter(())
             for index, step in enumerate(self.steps):
+                _watch_async_children(step, watcher, vars(self.config))
                 if stop_event is not None:
                     setattr(step, "_pipeworks_stop_event", stop_event)
                 section = type(step.wrapped_step).__name__ if isinstance(step, Hotswap) else type(step).__name__

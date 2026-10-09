@@ -40,8 +40,9 @@ class BoxOverlay(Step):
                 previous_boxes = []
                 previous_size = (width, height)
 
-            if item.detections is not None:
-                boxes = getattr(item.detections, "boxes", None)
+            detections = getattr(item, "detections", None)
+            if detections is not None:
+                boxes = getattr(detections, "boxes", None)
                 xyxy = getattr(boxes, "xyxy", None)
                 previous_boxes = [] if xyxy is None else xyxy.detach().to("cpu").tolist()
                 current_boxes = previous_boxes

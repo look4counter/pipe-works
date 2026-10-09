@@ -28,3 +28,13 @@ BoxOverlay:
   line_width: 2
   line_color: "#00ff00"
   keep_previous: true
+
+TensorRTInference:
+  gpu_id: 0
+  inference_interval: 1
+
+TensorRTPostProcess:
+  classes: [2]
+  confidence: 0.25
+  iou: 0.7
+  max_det: 300

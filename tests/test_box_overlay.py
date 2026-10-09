@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import torch
 
-from pipeworks.embedded import Async, NvidiaEncode, YoloDetect
+from pipeworks.embedded import Async, NvidiaEncode, TensorRTInference
 from pipeworks.models import PipelineContext
 
 
@@ -20,12 +20,16 @@ class BoxOverlayTests(unittest.TestCase):
 
     def test_example_places_configured_overlay_before_encoder(self):
         pipeline = self.example["build_pipeline"]()
-        steps = [getattr(step, "wrapped_step", step) for step in pipeline.steps]
+        steps = []
+        for registered in pipeline.steps:
+            step = getattr(registered, "wrapped_step", registered)
+            steps.extend(step.steps if isinstance(step, Async) else [step])
         overlay = next(step for step in steps if isinstance(step, self.example["BoxOverlay"]))
-        detect = next(step for step in steps if isinstance(step.step if isinstance(step, Async) else step, YoloDetect))
+        detect = next(step for step in steps if isinstance(step, TensorRTInference))
         self.assertLess(steps.index(detect), steps.index(overlay))
         self.assertLess(steps.index(overlay), steps.index(next(step for step in steps if isinstance(step, NvidiaEncode))))
-        self.assertEqual((overlay.line_width, overlay.line_color, overlay.keep_previous), (2, "#00ff00", True))
+        config = pipeline.config.BoxOverlay
+        self.assertEqual((overlay.line_width, overlay.line_color, overlay.keep_previous), (config["line_width"], config["line_color"], config["keep_previous"]))
 
     def test_rejects_invalid_overlay_options(self):
         for settings in (

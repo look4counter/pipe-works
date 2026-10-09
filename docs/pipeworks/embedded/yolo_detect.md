@@ -63,11 +63,11 @@ pipeline.step(Async(YoloDetect(model_path, batch=True), timeout_ms=5))
 ```yaml
 Async:
   timeout_ms: 5
-  step:
-    classes: [2]
-    confidence: 0.4
-    gpu_id: 0
-    inference_interval_frame: 1
+YoloDetect:
+  classes: [2]
+  confidence: 0.4
+  gpu_id: 0
+  inference_interval_frame: 1
 ```
 
 공통 `Async`가 제한 시간·오류·사용 중 원본 통과와 늦은 결과 폐기를 담당한다. 정상 완료에는 데이터를 복사하지 않고 공유 입력을 읽기 전용으로 사용한다. 개별 모드는 타임아웃에 후속 전달용 입력을 복사한다. 실행 중 추론을 강제로 취소하지 않는다.

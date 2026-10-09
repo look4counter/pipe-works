@@ -15,6 +15,7 @@ import torch
 
 from pipeworks.models import PipelineContext, Step
 from pipeworks.execution import _input_scope
+from pipeworks.hotswap import Hotswap, is_embedded_step
 
 
 logger = logging.getLogger(__name__)
@@ -200,12 +201,58 @@ def _close(outputs):
             logger.exception("Async 처리 스트림 정리에 실패했습니다.")
 
 
+class _StageInput(Iterator[PipelineContext]):
+    def __init__(self):
+        self.item = None
+        self.consumed = False
+
+    def __next__(self):
+        if self.consumed:
+            raise RuntimeError("Async 단계는 입력마다 정확히 한 번 출력해야 합니다.")
+        self.consumed = True
+        return self.item
+
+
+class _Stage(Iterator[PipelineContext]):
+    def __init__(self, step, upstream, slot):
+        self.step, self.upstream, self.slot = step, upstream, slot
+        self.inputs = _StageInput()
+        self.outputs = None
+
+    def __next__(self):
+        item = next(self.upstream)
+        request = self.slot.request
+        if isinstance(self.upstream, _Stage) and (request.expired.is_set() or time.monotonic() >= request.deadline):
+            return item
+        self.inputs.item, self.inputs.consumed = item, False
+        try:
+            if self.outputs is None:
+                self.outputs = iter(self.step.process(self.inputs))
+            output = next(self.outputs)
+            if not self.inputs.consumed or not isinstance(output, PipelineContext):
+                raise RuntimeError("Async 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다.")
+            return output
+        finally:
+            self.inputs.item = None
+
+    def close(self):
+        _close(self.outputs)
+        if isinstance(self.upstream, _Stage):
+            self.upstream.close()
+
+
 class Async(Step):
-    def __init__(self, step: Step, *, timeout_ms: float = 5) -> None:
-        if not isinstance(step, Step):
+    def __init__(self, *steps: Step, timeout_ms: float = 5) -> None:
+        if not steps or any(not isinstance(step, Step) for step in steps):
             raise TypeError("Async가 감싸는 객체는 Step이어야 합니다.")
         self._validate_timeout(timeout_ms)
-        self.step = step
+        self.steps = steps
+        self.step = steps[0]
+        self._hot_steps = tuple(
+            step if isinstance(step, Hotswap) or is_embedded_step(step)
+            else Hotswap(step, recover_errors=False)
+            for step in steps
+        )
         self.timeout_ms = timeout_ms
         self._session_lock = Lock()
 
@@ -227,12 +274,8 @@ class Async(Step):
     def configure(self, config: SimpleNamespace) -> None:
         timeout = getattr(config, "timeout_ms", self.timeout_ms)
         self._validate_timeout(timeout)
-        settings = getattr(config, "step", None)
-        if hasattr(config, "step") and not isinstance(settings, dict):
-            raise ValueError("Async의 step 설정은 매핑이어야 합니다.")
-        if settings is None:
-            settings = {key: value for key, value in vars(config).items() if key != "timeout_ms"}
-        self.step.configure(SimpleNamespace(**settings))
+        if any(key != "timeout_ms" for key in vars(config)):
+            raise ValueError("Async는 timeout_ms만 받습니다. 내부 Step은 최상위 클래스명 섹션으로 설정하세요.")
         self.timeout_ms = timeout
 
     def _consume(self, slot):
@@ -252,10 +295,16 @@ class Async(Step):
                         return None
                     stream = getattr(request.item, "cuda_stream", None)
                     try:
-                        with _input_scope(lambda event, current=request: slot.release_input(current, event)):
+                        callback = (lambda event, current=request: slot.release_input(current, event)) if len(self.steps) == 1 else (lambda event: None)
+                        with _input_scope(callback):
                             with torch.cuda.stream(stream) if stream is not None else nullcontext():
                                 if outputs is None:
-                                    outputs = iter(self.step.process(slot))
+                                    if len(self.steps) == 1 and not isinstance(self._hot_steps[0], Hotswap):
+                                        outputs = iter(self.step.process(slot))
+                                    else:
+                                        outputs = slot
+                                        for step in self._hot_steps:
+                                            outputs = _Stage(step, outputs, slot)
                                 output = next(outputs)
                     finally:
                         if stream is not None:
@@ -265,6 +314,8 @@ class Async(Step):
                                 torch.cuda.current_stream(tensor.device).synchronize()
                     if not request.consumed or not isinstance(output, PipelineContext):
                         raise RuntimeError("Async 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다.")
+                    if getattr(output, "_pipeworks_hotswap_epoch", None) == ():
+                        del output._pipeworks_hotswap_epoch
                     return output
 
                 try:

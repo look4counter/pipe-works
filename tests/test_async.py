@@ -32,6 +32,194 @@ class FunctionStep(Step):
 
 
 class AsyncTests(unittest.TestCase):
+    def test_pipeline_internal_class_settings_change_independently(self):
+        from pipeworks import Pipeline
+        from pipeworks.pipeline import _LiveConfig, _watch_async_children
+        from pipeworks.embedded import YoloDetect
+
+        first = FunctionStep(lambda item, index: PipelineContext(value=inner_value(item)))
+
+        def inner_value(item):
+            return item.value + first.config.offset
+
+        class Other(FunctionStep):
+            def configure(self, config):
+                if config.offset < 0:
+                    raise ValueError("invalid offset")
+                super().configure(config)
+
+        second = Other(lambda item, index: PipelineContext(value=item.value + second.config.offset))
+        nested = Async(second, timeout_ms=1000)
+        wrapper = Async(first, nested, timeout_ms=1000)
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.yml"
+
+            def save(a, b):
+                path.write_text(f"FunctionStep:\n  offset: {a}\nOther:\n  offset: {b}\nYoloDetect:\n  confidence: 0.4\n", encoding="utf-8")
+
+            save(1, 2)
+            pipeline = Pipeline("nested", config=path).step(wrapper)
+            self.assertEqual(first.config.offset, 1)
+            self.assertEqual(second.config.offset, 2)
+            watcher = _LiveConfig(path, vars(pipeline.config), pipeline._config_digest)
+            _watch_async_children(wrapper, watcher, vars(pipeline.config))
+            for step in (wrapper._hot_steps[0], nested._hot_steps[0]):
+                step.check_interval = 0
+            outputs = wrapper.process(iter([PipelineContext(value=10) for _ in range(4)]))
+            try:
+                self.assertEqual(next(outputs).value, 13)
+                save(3, 2)
+                watcher.last_check = float("-inf")
+                self.assertEqual(next(outputs).value, 15)
+                save(4, -1)
+                watcher.last_check = float("-inf")
+                with self.assertLogs("pipeworks.hotswap", level="ERROR"):
+                    self.assertEqual(next(outputs).value, 16)
+                save(4, 5)
+                watcher.last_check = float("-inf")
+                self.assertEqual(next(outputs).value, 19)
+            finally:
+                outputs.close()
+                self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+                wrapper._session_lock.release()
+
+            yolo = YoloDetect(Path("model.pt"))
+            embedded = Async(yolo)
+            Pipeline("embedded", config=path).step(embedded)
+            self.assertEqual(yolo.confidence, .4)
+            _watch_async_children(embedded, watcher, vars(pipeline.config))
+            embedded._hot_steps[0].check_interval = 0
+            path.write_text("YoloDetect:\n  confidence: 0.6\n", encoding="utf-8")
+            watcher.last_check = float("-inf")
+            embedded._hot_steps[0]._check_for_update(force=True)
+            self.assertEqual(yolo.confidence, .6)
+
+    def test_internal_hotswap_reloads_code_and_preserves_settings(self):
+        import sys
+        from types import ModuleType
+        from pipeworks.hotswap import Hotswap
+
+        def code(extra):
+            return (
+                "from pipeworks.models import Step\n"
+                "class Changing(Step):\n"
+                "    def configure(self, config):\n"
+                "        self.offset = config.offset\n"
+                "    def process(self, inputs):\n"
+                "        for item in inputs:\n"
+                f"            item.value += self.offset + {extra}\n"
+                "            yield item\n"
+            )
+
+        for multiple in (False, True):
+            with self.subTest(multiple=multiple), TemporaryDirectory() as directory:
+                path = Path(directory) / "changing.py"
+                path.write_text(code(0), encoding="utf-8")
+                module = ModuleType("async_changing_test")
+                module.__file__ = str(path)
+                sys.modules[module.__name__] = module
+                self.addCleanup(sys.modules.pop, module.__name__, None)
+                exec(compile(code(0), str(path), "exec"), module.__dict__)
+                first = module.Changing()
+                steps = (first, FunctionStep(lambda item, index: item)) if multiple else (first,)
+                wrapper = Async(*steps, timeout_ms=1000)
+                self.assertIsInstance(wrapper._hot_steps[0], Hotswap)
+                wrapper._hot_steps[0].check_interval = 0
+                wrapper._hot_steps[0].configure(SimpleNamespace(offset=10))
+                outputs = wrapper.process(iter([PipelineContext(value=1) for _ in range(4)]))
+                try:
+                    self.assertEqual(next(outputs).value, 11)
+                    path.write_text(code(100), encoding="utf-8")
+                    self.assertEqual(next(outputs).value, 111)
+                    path.write_text("invalid syntax!", encoding="utf-8")
+                    with self.assertLogs("pipeworks.hotswap", level="ERROR"):
+                        self.assertEqual(next(outputs).value, 111)
+                    path.write_text(code(200), encoding="utf-8")
+                    self.assertEqual(next(outputs).value, 211)
+                finally:
+                    outputs.close()
+                    self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+                    wrapper._session_lock.release()
+
+    def test_multiple_steps_keep_order_state_and_settings(self):
+        first = FunctionStep(lambda item, index: PipelineContext(value=item.value + 1, index=index))
+        second = FunctionStep(lambda item, index: PipelineContext(value=item.value * 2, index=item.index, second=index))
+        wrapper = Async(first, second, timeout_ms=1000)
+        wrapper._hot_steps[0].configure(SimpleNamespace(offset=1))
+        wrapper._hot_steps[1].configure(SimpleNamespace(scale=2))
+        frames = [PipelineContext(value=n) for n in range(3)]
+        self.assertEqual([item.value for item in wrapper.process(iter(frames))], [2, 4, 6])
+        self.assertEqual([item.second for item in frames], [0, 1, 2])
+        self.assertEqual((first.starts, second.starts), (1, 1))
+        self.assertEqual(vars(first.config), {"offset": 1})
+        self.assertIs(wrapper.step, first)
+        for config in (SimpleNamespace(steps=[]), SimpleNamespace(steps=[{}, None]), SimpleNamespace(step={}), SimpleNamespace(confidence=.5)):
+            with self.assertRaises(ValueError):
+                wrapper.configure(config)
+        with self.assertRaises(TypeError):
+            Async()
+        with self.assertRaises(TypeError):
+            Async(first, object())
+
+    def test_multiple_timeout_skips_remaining_and_ignores_early_release(self):
+        from pipeworks.execution import release_input
+        entered, release, finished = Event(), Event(), Event()
+        self.addCleanup(release.set)
+
+        def slow(item, index):
+            release_input()
+            entered.set()
+            release.wait(5)
+            finished.set()
+            return item
+
+        final = FunctionStep(lambda item, index: item)
+        wrapper = Async(FunctionStep(slow), final, timeout_ms=50)
+        module = import_module("pipeworks.embedded.async_step")
+        with patch.object(module, "_snapshot", wraps=module._snapshot) as snapshot:
+            outputs = wrapper.process(iter([PipelineContext(data=[1])]))
+            next(outputs)
+            self.assertTrue(entered.wait(1))
+            snapshot.assert_called_once()
+            outputs.close()
+            release.set()
+            self.assertTrue(finished.wait(1))
+            self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+            wrapper._session_lock.release()
+        self.assertEqual(final.starts, 0)
+
+    def test_multiple_steps_serialization(self):
+        import cloudpickle
+        wrapper = Async(FunctionStep(lambda item, index: item), FunctionStep(lambda item, index: item), timeout_ms=1000)
+        restored = cloudpickle.loads(cloudpickle.dumps(wrapper))
+        self.assertEqual(len(restored.steps), 2)
+        self.assertIs(restored.step, restored.steps[0])
+        self.assertEqual(len(list(restored.process(iter([PipelineContext()])))), 1)
+
+    def test_multiple_error_recovers_and_closes_all_stages(self):
+        closed = []
+
+        class Tracked(Step):
+            def process(self, inputs):
+                try:
+                    for item in inputs:
+                        yield item
+                finally:
+                    closed.append("first")
+
+        def fail(item, index):
+            if item.fail:
+                raise ValueError("failed")
+            item.success = True
+            return item
+
+        wrapper = Async(Tracked(), FunctionStep(fail), timeout_ms=1000)
+        with self.assertLogs("pipeworks.embedded.async_step", level="ERROR"):
+            outputs = list(wrapper.process(iter([PipelineContext(fail=True), PipelineContext(fail=False)])))
+        self.assertFalse(hasattr(outputs[0], "success"))
+        self.assertTrue(outputs[1].success)
+        self.assertTrue(closed)
+
     def test_release_input_outside_async_is_optional(self):
         from pipeworks.execution import release_input
         self.assertIsNone(release_input())
@@ -195,17 +383,15 @@ class AsyncTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 Async(FunctionStep(lambda item, _: item), timeout_ms=value)
 
-    def test_configure_forwards_inner_settings(self):
+    def test_configure_only_applies_timeout(self):
         inner = FunctionStep(lambda item, _: item)
-        step = Async(inner, timeout_ms=25)
-        step.configure(SimpleNamespace(step={"inference_interval_frame": 3}))
-        self.assertEqual(step.timeout_ms, 25)
-        self.assertEqual(vars(inner.config), {"inference_interval_frame": 3})
-        step.configure(SimpleNamespace(timeout_ms=10, confidence=0.4))
-        self.assertEqual(step.timeout_ms, 10)
-        self.assertEqual(vars(inner.config), {"confidence": 0.4})
-        with self.assertRaises(ValueError):
-            step.configure(SimpleNamespace(step=[]))
+        wrapper = Async(inner, timeout_ms=25)
+        wrapper.configure(SimpleNamespace(timeout_ms=10))
+        self.assertEqual(wrapper.timeout_ms, 10)
+        self.assertIsNone(inner.config)
+        for config in (SimpleNamespace(step={}), SimpleNamespace(steps=[{}]), SimpleNamespace(confidence=.4)):
+            with self.assertRaises(ValueError):
+                wrapper.configure(config)
 
     def test_success_preserves_identity_order_and_stream_state(self):
         def process(item, index):
@@ -519,7 +705,7 @@ class AsyncTests(unittest.TestCase):
 
         with TemporaryDirectory() as directory:
             config = Path(directory) / "stream.yml"
-            config.write_text("Async:\n  timeout_ms: 100\n  step:\n    confidence: 0.4\n", encoding="utf-8")
+            config.write_text("Async:\n  timeout_ms: 100\nFunctionStep:\n  confidence: 0.4\n", encoding="utf-8")
             inner = FunctionStep(lambda item, _: item)
             wrapper = Async(inner)
             pipeline = Pipeline("async", config=config).step(wrapper)
@@ -563,6 +749,44 @@ class AsyncTests(unittest.TestCase):
                 patch.object(main.cloudpickle, "dumps", return_value=b"pipeline"):
             main.run_remote(pipeline)
         register.assert_called_once_with(sys.modules[FunctionStep.__module__])
+
+    def test_remote_serializes_all_nested_user_steps_without_modules(self):
+        import sys
+        from types import ModuleType
+        import pipeworks.main as main
+        from pipeworks.embedded import Tap
+
+        modules = [ModuleType("async_remote_first"), ModuleType("async_remote_second")]
+        for module in modules:
+            exec("from pipeworks.models import Step\nclass Custom(Step):\n    def process(self, inputs):\n        yield from inputs\n", module.__dict__)
+            sys.modules[module.__name__] = module
+        payloads = []
+
+        class Connection:
+            def send_bytes(self, payload):
+                payloads.append(payload)
+
+            def recv(self):
+                return ("ok", None)
+
+            def close(self):
+                pass
+
+        try:
+            pipeline = SimpleNamespace(steps=[Tap(Async(modules[0].Custom(), Async(modules[1].Custom())))])
+            with patch.object(main, "_connect", return_value=Connection()):
+                main.run_remote(pipeline)
+            for module in modules:
+                sys.modules.pop(module.__name__)
+            restored = main.cloudpickle.loads(payloads[0])
+            self.assertEqual(len(restored.steps[0].step.steps), 2)
+        finally:
+            for module in modules:
+                try:
+                    main.cloudpickle.unregister_pickle_by_value(module)
+                except ValueError:
+                    pass
+                sys.modules.pop(module.__name__, None)
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
     def test_gpu_success_uses_dlpack_without_copy(self):

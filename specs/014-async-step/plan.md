@@ -49,3 +49,17 @@ PyNvVideoCodec 2.2 공식 DLPack 문서에 따르면 텐서가 파괴될 때까�
 후속 기능 011의 FR-013~015에 따라 execution.release_input과 요청 실행 범위를 연결한다. 콜백은 현재 요청을 값으로 캡처하고 슬롯 잠금 아래 신호를 저장하여 이전 요청의 실행 문맥이 다음 요청을 해제하지 못하게 한다. 타임아웃에 이벤트 완료를 query로 확인한 경우에만 snapshot을 생략한다. 미제공·미완료·조회 실패는 기존 복사 경로를 유지하며 호스트 완료 대기를 추가하지 않는다.
 
 모듈 파일명을 `src/pipeworks/embedded/async_step.py`로 정규화한다. 패키지 공개 가져오기, 테스트의 모듈·로그 참조, 현재 문서의 경로를 갱신한다. `tests/test_async.py`와 `tests/test_yolo_detect.py`를 실행하여 가져오기와 직렬화, 오류 로그 경로를 검증한다. 처리 로직과 클래스 이름은 유지한다.
+## 복수 Step 구현 계획
+
+Async 생성자를 *steps로 변경하고 steps 튜플과 기존 step 첫 항목 속성을 보관한다. 작업자에서 각 단계마다 단일 입력 슬롯과 영속 출력 반복자를 가진 연결 반복자를 구성한다. 상류 결과를 받은 다음 기한을 검사하여 만료면 후속 Step을 호출하지 않는다. 단계별 입력 소비·출력 형식을 검증하고 오류 시 연결 전체를 닫아 다음 요청에서 재생성한다. 정상 요청과 타임아웃 생략에서는 기존 단계 상태를 보존한다. 종료 시 모든 반복자를 역순으로 닫는다. 복수 모드 _input_scope는 무동작 콜백으로 입력 종료 신호를 차단한다. 기존 단일 경로는 유지한다.
+
+configure는 단일 설정 호환성을 유지하고 복수 모드는 steps의 단계별 매핑 목록을 검증한 뒤 전달한다. tests/test_async.py에서 순서·상태·중간 타임아웃·중간 신호·오류 복구·종료·설정·직렬화를 확인한다. docs/pipeworks/embedded/async.md와 공개 계약·자료 모델을 갱신하고 Async·YOLO 회귀를 실행한다.
+## 중앙 전달 회귀 수정 계획
+
+src/pipeworks/main.py의 register_step에서 Tap은 기존 step을, Async는 steps 전체를 재귀 탐색한다. tests/test_async.py는 기존 단일 등록 검증과 별도로 임시 사용자 모듈 2개를 중첩 래퍼에 넣고 실제 cloudpickle 직렬화 후 모듈 제거 상태에서 역직렬화하는 회귀 검증을 추가한다. Async 관련 테스트 후 수렴 점검한다.
+## 내부 핫스왑 계획
+
+Async는 공개 steps·step 원본 참조를 보존하고 실행용 _hot_steps에 사용자 Step의 Hotswap 래퍼를 보관한다. 내장 Step과 명시적 Hotswap은 그대로 사용한다. configure는 실행 래퍼에 전달하여 교체 시 최신 설정을 재적용한다. 자동 래퍼는 recover_errors=False로 오류를 Async에 전달한다. 단일 사용자 Step도 _Stage의 입력 슬롯을 통해 실행하여 Hotswap 정리가 공통 요청 슬롯을 닫지 않도록 한다. 내장 단일 경로와 입력 종료 신호는 유지한다. tests/test_async.py에 실제 임시 파일 수정 검증을 추가하고 Async·Hotswap·YOLO·예제 테스트를 실행한다.
+## 설정 독립 전달 계획
+
+Async.configure는 timeout_ms만 검증하고 내부 설정은 전달하지 않는다. Pipeline.step의 초기 등록에 내부 _hot_steps 재귀 설정을 추가한다. _run_local에서는 각 내부 래퍼의 _config_provider를 클래스명 watcher.section에 연결하며 내장 Step도 코드 감시 없는 Hotswap으로 실행해 독립 설정 경계를 제공한다. 중첩 Async도 재귀 연결한다. 초기 래퍼 설정을 보존하고 설정 변경은 해당 Hotswap의 기존 복원 정책을 사용한다. tests/test_async.py의 구 설정 검증과 핫스왑 검증을 클래스명 설정으로 옮기고 실제 YAML 변경 회귀를 추가한다. 공개 문서·계약을 정정하고 Async·구성·핫스왑·예제 회귀를 실행한다.
