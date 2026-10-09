@@ -12,6 +12,7 @@ import time
 import torch
 import torch.nn.functional as F
 import yaml
+from pipeworks.detection_profile import Profile, span, use
 
 
 _workers: dict[Path, "_ModelWorker"] = {}
@@ -31,6 +32,8 @@ class _InferenceRequest:
     response: tuple[str, object] | None = None
     completion_event: torch.cuda.Event | None = None
     inference_seconds: float | None = None
+    profile_enabled: bool = False
+    profile: object = None
 
     @property
     def options(self) -> tuple[tuple[int, ...] | None, float, int]:
@@ -99,15 +102,24 @@ class _GpuDetectionPredictor:
         from ultralytics.utils import nms
 
         class Predictor(DetectionPredictor):
+            def preprocess(self, im):
+                with span("preprocess", torch.cuda.current_stream(self.device)):
+                    return super().preprocess(im)
+
+            def inference(self, im, *args, **kwargs):
+                with span("inference", torch.cuda.current_stream(im.device)):
+                    return super().inference(im, *args, **kwargs)
+
             def postprocess(self, preds, img, orig_imgs, **kwargs):
-                boxes = nms.non_max_suppression(
-                    preds, self.args.conf, kwargs.pop("iou", self.args.iou),
-                    self.args.classes, self.args.agnostic_nms,
-                    max_det=self.args.max_det,
-                    nc=0 if self.args.task == "detect" else len(self.model.names),
-                    end2end=getattr(self.model, "end2end", False),
-                )
-                return self.construct_results(boxes, img, orig_imgs.permute(0, 2, 3, 1))
+                with span("postprocess", torch.cuda.current_stream(img.device)):
+                    boxes = nms.non_max_suppression(
+                        preds, self.args.conf, kwargs.pop("iou", self.args.iou),
+                        self.args.classes, self.args.agnostic_nms,
+                        max_det=self.args.max_det,
+                        nc=0 if self.args.task == "detect" else len(self.model.names),
+                        end2end=getattr(self.model, "end2end", False),
+                    )
+                    return self.construct_results(boxes, img, orig_imgs.permute(0, 2, 3, 1))
 
         return Predictor
 
@@ -125,16 +137,26 @@ class _ModelWorker:
         while True:
             batch = collect_batch(self.requests, deferred, self.max_batch_size, self.timeout,
                                   key=lambda request: request.options, received_at=lambda request: request.received_at)
+            dequeued_at = time.monotonic()
+            profile = Profile("YOLO") if any(r.profile_enabled for r in batch) else None
+            scope = use(profile)
+            scope.__enter__()
             try:
-                for request in batch:
-                    if request.ready_event is not None:
-                        request.ready_event.wait(torch.cuda.current_stream(request.image.device))
+                stream = torch.cuda.current_stream(batch[0].image.device)
+                with span("input_wait"):
+                    for request in batch:
+                        if request.ready_event is not None:
+                            request.ready_event.wait(torch.cuda.current_stream(request.image.device))
                 if model is None:
                     from ultralytics import YOLO
 
-                    model = YOLO(str(self.model_path))
-                originals = [_as_rgb(request.image) for request in batch]
-                images = torch.stack([_prepare_image(rgb) for rgb in originals])
+                    with span("prepare"):
+                        model = YOLO(str(self.model_path))
+                with span("preprocess", stream):
+                    originals = [_as_rgb(request.image) for request in batch]
+                    prepared = [_prepare_image(rgb) for rgb in originals]
+                with span("input_copy", stream):
+                    images = torch.stack(prepared)
                 first = batch[0]
                 prediction_started_at = time.perf_counter()
                 results = model.predict(
@@ -144,7 +166,8 @@ class _ModelWorker:
                 )
                 prediction_event = torch.cuda.Event()
                 prediction_event.record(torch.cuda.current_stream(first.image.device))
-                prediction_event.synchronize()
+                with span("completion_wait"):
+                    prediction_event.synchronize()
                 inference_seconds = time.perf_counter() - prediction_started_at
                 for request in batch:
                     request.inference_seconds = inference_seconds
@@ -154,11 +177,14 @@ class _ModelWorker:
                 from ultralytics.utils import ops
 
                 for request, result, rgb in zip(batch, results, originals):
-                    boxes = result.boxes.data.clone()
-                    boxes[:, :4] = ops.scale_boxes((_INPUT_SIZE, _INPUT_SIZE), boxes[:, :4], rgb.shape[-2:])
-                    detection = Results(rgb.permute(1, 2, 0), path=result.path, names=result.names, boxes=boxes)
-                    detection.orig_shape = tuple(rgb.shape[-2:])
-                    detection.boxes.orig_shape = detection.orig_shape
+                    own = Profile("YOLO") if request.profile_enabled else None
+                    with use(own), span("postprocess", stream):
+                        boxes = result.boxes.data.clone()
+                        boxes[:, :4] = ops.scale_boxes((_INPUT_SIZE, _INPUT_SIZE), boxes[:, :4], rgb.shape[-2:])
+                        detection = Results(rgb.permute(1, 2, 0), path=result.path, names=result.names, boxes=boxes)
+                        detection.orig_shape = tuple(rgb.shape[-2:])
+                        detection.boxes.orig_shape = detection.orig_shape
+                    request.profile = own
                     request.response = (
                         "ok",
                         detection,
@@ -171,12 +197,18 @@ class _ModelWorker:
                 for request in batch:
                     request.response = ("error", f"{type(error).__name__}: {error}")
             finally:
+                scope.__exit__(None, None, None)
                 for request in batch:
+                    if request.profile_enabled:
+                        own = request.profile or Profile("YOLO")
+                        own.merge(profile)
+                        own.add("queue", dequeued_at - request.received_at)
+                        request.profile = own
                     request.image = None
                     request.done.set()
 
 
-def infer(model_path: Path, image: torch.Tensor, classes, confidence: float, gpu_id: int, *, ready_event=None, on_inference_complete=None):
+def infer(model_path: Path, image: torch.Tensor, classes, confidence: float, gpu_id: int, *, ready_event=None, on_inference_complete=None, on_profile_complete=None):
     model_path = model_path.resolve()
     if not model_path.is_file():
         raise FileNotFoundError(model_path)
@@ -186,8 +218,11 @@ def infer(model_path: Path, image: torch.Tensor, classes, confidence: float, gpu
             worker = _ModelWorker(model_path)
             _workers[model_path] = worker
     request = _InferenceRequest(image, classes, confidence, gpu_id, ready_event)
+    request.profile_enabled = on_profile_complete is not None
     worker.requests.put(request)
     request.done.wait()
+    if on_profile_complete is not None and request.profile is not None:
+        on_profile_complete(request.profile)
     status, value = request.response
     if status == "error":
         raise RuntimeError(value)

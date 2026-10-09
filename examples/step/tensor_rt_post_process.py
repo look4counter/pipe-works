@@ -8,6 +8,7 @@ from ultralytics.utils.nms import non_max_suppression
 
 from pipeworks.models import Step
 from pipeworks.execution import current_model_stream
+from pipeworks.detection_profile import span, use
 
 
 class TensorRTPostProcess(Step):
@@ -34,6 +35,8 @@ class TensorRTPostProcess(Step):
 
     def process(self, inputs):
         for item in inputs:
+            profile = vars(item).pop("_tensor_rt_profile", None)
+            state = "completed" if getattr(item, "model_output", None) is not None else "skipped"
             item.detections = None
             stream = current_model_stream() or getattr(item, "model_cuda_stream", item.cuda_stream)
             outputs = prediction = boxes = None
@@ -46,7 +49,7 @@ class TensorRTPostProcess(Step):
                             or prediction.ndim != 3 or prediction.shape[0] != 1 or prediction.shape[1] != 84):
                         raise ValueError("YOLO11 출력은 같은 GPU의 FP32 (1, 84, N) 텐서여야 합니다.")
                     transform = item.tensor_rt_transform
-                    with torch.cuda.stream(stream), torch.no_grad():
+                    with use(profile), span("postprocess", stream), torch.cuda.stream(stream), torch.no_grad():
                         # Consume the raw output in-place; only detections survive.
                         boxes = non_max_suppression(prediction, self.confidence, self.iou, classes=self.classes, max_det=self.max_det, nc=80)[0]
                         boxes[:, [0, 2]] = (boxes[:, [0, 2]] - transform.left) / transform.ratio
@@ -55,8 +58,14 @@ class TensorRTPostProcess(Step):
                         boxes[:, [0, 2]] = boxes[:, [0, 2]].clamp(0, width)
                         boxes[:, [1, 3]] = boxes[:, [1, 3]].clamp(0, height)
                         item.detections = SimpleNamespace(boxes=Boxes(boxes, transform.shape), names=self.names, orig_shape=transform.shape)
+            except Exception:
+                state = "error"
+                raise
             finally:
-                stream.synchronize()
+                with use(profile), span("completion_wait"):
+                    stream.synchronize()
+                if profile is not None:
+                    profile.finish(state)
                 for name in ("model_input", "model_output", "tensor_rt_transform", "model_cuda_stream"):
                     vars(item).pop(name, None)
                 outputs = prediction = boxes = None

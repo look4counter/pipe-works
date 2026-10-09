@@ -15,6 +15,7 @@ import torch
 from pipeworks.models import PipelineContext, Step
 from pipeworks.execution import _input_scope, _frame_scope, _model_stream_scope
 from pipeworks.hotswap import Hotswap, is_embedded_step
+from pipeworks.detection_profile import status
 
 
 logger = logging.getLogger(__name__)
@@ -310,6 +311,9 @@ class CudaAsync(Step):
                     request.context.run(_close, outputs)
                     outputs = None
                 finally:
+                    profile = getattr(request.item, "_tensor_rt_profile", None)
+                    if profile is not None and not profile.finished:
+                        profile.finish("error" if result is None else "partial")
                     slot.finish(request, result)
                 request = result = None
         finally:
@@ -323,6 +327,14 @@ class CudaAsync(Step):
         worker = None
         acquired = False
         output_writer = _current_output_writer()
+        kinds = set()
+        for step in self.steps:
+            original = step.wrapped_step if isinstance(step, Hotswap) else step
+            names = {cls.__name__ for cls in type(original).__mro__}
+            if "YoloDetect" in names:
+                kinds.add("YOLO")
+            elif names & {"TensorRTPreProcess", "TensorRTInference", "TensorRTPostProcess"}:
+                kinds.add("TensorRT")
 
         def consume():
             try:
@@ -336,6 +348,8 @@ class CudaAsync(Step):
                 if not acquired:
                     acquired = self._session_lock.acquire(blocking=False)
                     if not acquired:
+                        for kind in kinds:
+                            status(kind, "busy")
                         yield item
                         continue
                 request = _Request(item, time.monotonic() + self.timeout_ms / 1000)
@@ -344,6 +358,8 @@ class CudaAsync(Step):
                         _prepare(request)
                     except Exception as error:
                         request.error = error
+                        for kind in kinds:
+                            status(kind, "error")
                         logger.exception("CudaAsync 입력 준비에 실패하여 원본을 전달합니다.")
                     request.prepared.set()
                     if worker is None:
@@ -363,11 +379,17 @@ class CudaAsync(Step):
                             vars(item).update(fields)
                         else:
                             request.expired.set()
+                            if not request.done.is_set() or request.completed_at > request.deadline:
+                                for kind in kinds:
+                                    status(kind, "timeout")
                             input_finished = request.done.is_set() and request.input_drained
                             drop_frame = not input_finished and not slot.input_released(request)
                         request.result = None
                     if drop_frame:
                         continue
+                else:
+                    for kind in kinds:
+                        status(kind, "busy")
                 yield item
         finally:
             slot.close()

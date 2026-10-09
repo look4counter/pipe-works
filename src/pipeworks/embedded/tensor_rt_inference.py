@@ -15,6 +15,7 @@ import yaml
 from pipeworks.embedded.stream_report import record_inference
 from pipeworks.models import PipelineContext, Step
 from pipeworks.execution import current_model_stream
+from pipeworks.detection_profile import _current, begin, span
 
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,21 @@ class _EngineSession:
         self.close()
 
     def infer(self, tensors, stream, report_context):
+        with span("prepare"):
+            self._bind(tensors, stream)
+        started_at = time.perf_counter()
+        try:
+            with span("inference", stream):
+                if not self.context.execute_async_v3(stream_handle=stream.cuda_stream):
+                    raise RuntimeError("TensorRT 추론 실행에 실패했습니다.")
+        finally:
+            with span("completion_wait"):
+                stream.synchronize()
+            report_context.run(record_inference, time.perf_counter() - started_at)
+        return {name: allocator.output(tuple(self.context.get_tensor_strides(name)))
+                for name, allocator in self.allocators.items()}
+
+    def _bind(self, tensors, stream):
         if isinstance(tensors, torch.Tensor):
             if len(self.inputs) != 1:
                 raise ValueError("다중 입력 엔진에는 입력 이름별 GPU 텐서 사전이 필요합니다.")
@@ -182,15 +198,6 @@ class _EngineSession:
             address = allocator.buffer.data_ptr() if allocator.buffer is not None else 0
             if not self.context.set_tensor_address(name, address):
                 raise RuntimeError(f"TensorRT 출력 주소 설정 실패: {name}")
-        started_at = time.perf_counter()
-        try:
-            if not self.context.execute_async_v3(stream_handle=stream.cuda_stream):
-                raise RuntimeError("TensorRT 추론 실행에 실패했습니다.")
-        finally:
-            stream.synchronize()
-            report_context.run(record_inference, time.perf_counter() - started_at)
-        return {name: allocator.output(tuple(self.context.get_tensor_strides(name)))
-                for name, allocator in self.allocators.items()}
 
 
 class TensorRTInference(Step):
@@ -247,10 +254,44 @@ class TensorRTInference(Step):
             raise ValueError("Input CUDA stream GPU must match gpu_id.")
         ready = torch.cuda.Event()
         ready.record(producer)
-        ready.synchronize()
+        with span("input_wait"):
+            ready.synchronize()
         return inputs
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
+        # 원래 생성기를 유지하여 엔진/스트림 수명을 바꾸지 않는다.
+        current = [None, None, False]
+
+        def profiled_inputs():
+            for item in inputs:
+                inherited = getattr(item, "_tensor_rt_profile", None)
+                profile = inherited or begin("TensorRT")
+                current[:] = item, profile, inherited is None
+                _current.set(profile)
+                yield item
+
+        outputs = self._process(profiled_inputs())
+        try:
+            while True:
+                token = _current.set(None)
+                try:
+                    item = next(outputs)
+                except StopIteration:
+                    break
+                finally:
+                    _current.reset(token)
+                profile = current[1]
+                if profile is not None and current[2]:
+                    profile.finish("completed" if item.model_output is not None else "skipped")
+                yield item
+        except Exception:
+            if current[1] is not None:
+                current[1].finish("error")
+            raise
+        finally:
+            outputs.close()
+
+    def _process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         if self.batch:
             from pipeworks.local_tensor_rt import infer
 
@@ -265,9 +306,11 @@ class TensorRTInference(Step):
                         producer = torch.cuda.current_stream(self.gpu_id)
                     ready_event = torch.cuda.Event()
                     ready_event.record(producer)
+                    profile = _current.get()
+                    options = {"on_profile_complete": profile.merge} if profile is not None else {}
                     item.model_output = infer(
                         self.model_path, tensors, self.gpu_id,
-                        ready_event=ready_event, on_inference_complete=record_inference,
+                        ready_event=ready_event, on_inference_complete=record_inference, **options,
                     )
                 yield item
             return
@@ -292,10 +335,12 @@ class TensorRTInference(Step):
                             tensors = ({name: tensor.contiguous() for name, tensor in tensors.items()}
                                        if isinstance(tensors, dict) else tensors.contiguous())
                             if session is None:
-                                session = _EngineSession(self.model_path, plugins)
+                                with span("prepare"):
+                                    session = _EngineSession(self.model_path, plugins)
                             item.model_output = session.infer(tensors, stream, copy_context())
                         finally:
-                            stream.synchronize()
+                            with span("completion_wait"):
+                                stream.synchronize()
                 yield item
         finally:
             if stream is not None:

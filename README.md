@@ -184,6 +184,14 @@ NVIDIA GPU를 이용해 RTSP 패킷을 디코딩합니다.
 - **설정**: 없음 (자동 수집)
 - **상세**: [docs/pipeworks/embedded/stream_report.md](docs/pipeworks/embedded/stream_report.md)
 
+#### **YoloDetectReport / TensorRTReport**
+감지 경로의 전처리, 배치 큐 대기, 입력 결합, 모델 실행, 후처리, 출력 복사와 전체 지연을 비교합니다.
+
+- **사용**: 감지 단계 뒤에 `pipeline.step(YoloDetectReport())` 또는 `pipeline.step(TensorRTReport())`. CudaAsync 사용 시 래퍼 바깥에 둡니다.
+- **출력**: 구간별 CPU/GPU 시간, 1초·최근 10초 평균과 표본 수, 완료·건너뜀·바쁨·타임아웃·오류 건수.
+- **측정**: 모델 실행은 NMS를 제외합니다. 측정 때문에 추가 GPU 동기화를 넣지 않습니다.
+- **상세**: [감지 성능 리포트 안내](docs/pipeworks/embedded/detection_report.md)
+
 ---
 
 ### Sink Step (결과 출력)

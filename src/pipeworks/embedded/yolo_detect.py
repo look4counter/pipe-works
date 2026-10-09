@@ -11,6 +11,7 @@ import torch
 from pipeworks.embedded.stream_report import record_inference, record_stage
 from pipeworks.execution import release_frame, current_model_stream
 from pipeworks.models import PipelineContext, Step
+from pipeworks.detection_profile import begin, span, status, use
 from pipeworks.local_yolo import _GpuDetectionPredictor, _INPUT_SIZE, _nv12_to_rgb, _prepare_image, infer
 
 
@@ -18,12 +19,13 @@ logger = logging.getLogger(__name__)
 
 
 def _predict(model, image, classes, confidence, gpu_id, stream):
-    rgb = _nv12_to_rgb(image)
-    frame_done = torch.cuda.Event()
-    frame_done.record(stream)
-    release_frame(ready_event=frame_done)
-    height, width = rgb.shape[-2:]
-    prepared = _prepare_image(rgb).unsqueeze(0)
+    with span("preprocess", stream):
+        rgb = _nv12_to_rgb(image)
+        frame_done = torch.cuda.Event()
+        frame_done.record(stream)
+        release_frame(ready_event=frame_done)
+        height, width = rgb.shape[-2:]
+        prepared = _prepare_image(rgb).unsqueeze(0)
     started_at = time.perf_counter()
     try:
         results = model.predict(
@@ -35,7 +37,8 @@ def _predict(model, image, classes, confidence, gpu_id, stream):
     finally:
         prediction_event = torch.cuda.Event()
         prediction_event.record(stream)
-        prediction_event.synchronize()
+        with span("completion_wait"):
+            prediction_event.synchronize()
         record_inference(time.perf_counter() - started_at)
 
     from ultralytics.utils import ops
@@ -43,15 +46,17 @@ def _predict(model, image, classes, confidence, gpu_id, stream):
     result = results[0]
     if result.boxes.data.device != image.device:
         raise ValueError("YOLO 감지 결과는 입력과 같은 GPU에 있어야 합니다.")
-    boxes = result.boxes.data.clone()
-    boxes[:, :4] = ops.scale_boxes((_INPUT_SIZE, _INPUT_SIZE), boxes[:, :4], (height, width))
-    result.orig_img = rgb.permute(1, 2, 0)
-    result.orig_shape = (height, width)
-    result.boxes.data = boxes
-    result.boxes.orig_shape = result.orig_shape
+    with span("postprocess", stream):
+        boxes = result.boxes.data.clone()
+        boxes[:, :4] = ops.scale_boxes((_INPUT_SIZE, _INPUT_SIZE), boxes[:, :4], (height, width))
+        result.orig_img = rgb.permute(1, 2, 0)
+        result.orig_shape = (height, width)
+        result.boxes.data = boxes
+        result.boxes.orig_shape = result.orig_shape
     completion_event = torch.cuda.Event()
     completion_event.record(stream)
-    completion_event.synchronize()
+    with span("completion_wait"):
+        completion_event.synchronize()
     return result
 
 
@@ -126,17 +131,27 @@ class YoloDetect(Step):
             item.detections = None
             if frame_index % self.inference_interval_frame == 0:
                 try:
-                    image, ready_event = self._prepare_rgb(item)
-                    release_frame(ready_event=ready_event)
-                    item.detections = infer(
-                        self.model_path, image, self.classes, self.confidence, self.gpu_id,
-                        ready_event=ready_event, on_inference_complete=record_inference,
-                    )
+                    profile = begin("YOLO")
+                    with use(profile):
+                        with span("preprocess", current_model_stream() or item.cuda_stream):
+                            image, ready_event = self._prepare_rgb(item)
+                            release_frame(ready_event=ready_event)
+                        options = {"on_profile_complete": profile.merge} if profile is not None else {}
+                        item.detections = infer(
+                            self.model_path, image, self.classes, self.confidence, self.gpu_id,
+                            ready_event=ready_event, on_inference_complete=record_inference, **options,
+                        )
+                    if profile is not None:
+                        profile.finish()
                 except Exception:
+                    if profile is not None:
+                        profile.finish("error")
                     logger.exception("YOLO 배치 감지에 실패하여 원본 프레임을 전달합니다.")
             emitted_at = time.perf_counter()
             record_stage("batch_queue", dequeued_at - processing_started_at)
             record_stage("batch_wait", emitted_at - dequeued_at)
+            if frame_index % self.inference_interval_frame:
+                status("YOLO", "skipped")
             yield item
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
@@ -150,6 +165,7 @@ class YoloDetect(Step):
         for frame_index, item in enumerate(inputs):
             item.detections = None
             if frame_index % self.inference_interval_frame == 0:
+                profile = begin("YOLO")
                 try:
                     with torch.cuda.stream(item.cuda_stream):
                         image = self._prepare_frame(item)
@@ -168,11 +184,13 @@ class YoloDetect(Step):
                         if model is None or model_gpu != self.gpu_id:
                             from ultralytics import YOLO
 
-                            model = YOLO(str(self.model_path))
-                            model_gpu = self.gpu_id
-                        item.detections = _predict(
-                            model, image, self.classes, self.confidence, self.gpu_id, stream,
-                        )
+                            with use(profile), span("prepare"):
+                                model = YOLO(str(self.model_path))
+                                model_gpu = self.gpu_id
+                        with use(profile):
+                            item.detections = _predict(
+                                model, image, self.classes, self.confidence, self.gpu_id, stream,
+                            )
                 except Exception:
                     # Finish submitted CUDA work before releasing the original frame.
                     try:
@@ -181,5 +199,12 @@ class YoloDetect(Step):
                         item.cuda_stream.synchronize()
                     except Exception:
                         logger.exception("YOLO 실패 후 CUDA 정리에 실패했습니다.")
+                    if profile is not None:
+                        profile.finish("error")
                     raise
+                else:
+                    if profile is not None:
+                        profile.finish()
+            else:
+                status("YOLO", "skipped")
             yield item

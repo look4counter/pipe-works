@@ -14,6 +14,7 @@ import yaml
 
 from pipeworks.batch_collector import collect_batch
 from pipeworks.embedded.tensor_rt_inference import _EngineSession
+from pipeworks.detection_profile import Profile, span, use
 
 
 _workers = {}
@@ -31,6 +32,8 @@ class _Request:
     result: object = None
     error: str | None = None
     inference_seconds: float | None = None
+    profile_enabled: bool = False
+    profile: object = None
 
 
 def _settings(path):
@@ -64,6 +67,10 @@ class _ModelWorker:
         while True:
             batch = collect_batch(self.requests, deferred, self.size, self.timeout,
                                   key=lambda r: r.key, received_at=lambda r: r.received_at)
+            dequeued_at = time.monotonic()
+            profile = Profile("TensorRT") if any(r.profile_enabled for r in batch) else None
+            scope = use(profile)
+            scope.__enter__()
             stream = None
             try:
                 gpu_id = batch[0].gpu_id
@@ -71,14 +78,17 @@ class _ModelWorker:
                     streams[gpu_id] = torch.cuda.Stream(device=gpu_id)
                 stream = streams[gpu_id]
                 with torch.cuda.stream(stream), torch.no_grad():
-                    for request in batch:
-                        request.ready_event.synchronize()
-                    if isinstance(batch[0].inputs, dict):
-                        tensors = {name: torch.cat([r.inputs[name] for r in batch], dim=0) for name in batch[0].inputs}
-                    else:
-                        tensors = torch.cat([r.inputs for r in batch], dim=0)
+                    with span("input_wait"):
+                        for request in batch:
+                            request.ready_event.synchronize()
+                    with span("input_copy", stream):
+                        if isinstance(batch[0].inputs, dict):
+                            tensors = {name: torch.cat([r.inputs[name] for r in batch], dim=0) for name in batch[0].inputs}
+                        else:
+                            tensors = torch.cat([r.inputs for r in batch], dim=0)
                     if gpu_id not in sessions:
-                        sessions[gpu_id] = _EngineSession(self.path, self.plugins)
+                        with span("prepare"):
+                            sessions[gpu_id] = _EngineSession(self.path, self.plugins)
                     started = time.perf_counter()
                     # Use an isolated stats context: callers record their own completed requests.
                     from pipeworks.embedded.stream_report import report_scope
@@ -89,9 +99,13 @@ class _ModelWorker:
                            or t.ndim < 1 or t.shape[0] != len(batch) for t in outputs.values()):
                         raise ValueError("TensorRT outputs must have leading batch axis matching request count.")
                     for index, request in enumerate(batch):
-                        request.result = {name: t[index:index + 1].clone() for name, t in outputs.items()}
+                        own = Profile("TensorRT") if request.profile_enabled else None
+                        with use(own), span("output_copy", stream):
+                            request.result = {name: t[index:index + 1].clone() for name, t in outputs.items()}
+                        request.profile = own
                         request.inference_seconds = elapsed
-                    stream.synchronize()
+                    with span("completion_wait"):
+                        stream.synchronize()
             except Exception as error:
                 for request in batch:
                     request.result = None
@@ -110,14 +124,20 @@ class _ModelWorker:
                         except Exception:
                             pass
             finally:
+                scope.__exit__(None, None, None)
                 tensors = outputs = None
                 for request in batch:
+                    if request.profile_enabled:
+                        own = request.profile or Profile("TensorRT")
+                        own.merge(profile)
+                        own.add("queue", dequeued_at - request.received_at)
+                        request.profile = own
                     request.inputs = request.ready_event = None
                     request.done.set()
                 batch = request = None
 
 
-def infer(model_path: Path, inputs, gpu_id: int = 0, *, ready_event=None, on_inference_complete=None):
+def infer(model_path: Path, inputs, gpu_id: int = 0, *, ready_event=None, on_inference_complete=None, on_profile_complete=None):
     """Collect batch-one inputs and return batch-one GPU output mappings."""
     path = Path(model_path).resolve()
     if not path.is_file():
@@ -138,12 +158,15 @@ def infer(model_path: Path, inputs, gpu_id: int = 0, *, ready_event=None, on_inf
         ready_event = torch.cuda.Event()
         ready_event.record(torch.cuda.current_stream(gpu_id))
     request = _Request(inputs.copy() if isinstance(inputs, dict) else inputs, gpu_id, key, ready_event)
+    request.profile_enabled = on_profile_complete is not None
     with _workers_lock:
         worker = _workers.get(path)
         if worker is None:
             worker = _workers[path] = _ModelWorker(path)
     worker.requests.put(request)
     request.done.wait()
+    if on_profile_complete is not None and request.profile is not None:
+        on_profile_complete(request.profile)
     if request.error is not None:
         raise RuntimeError(request.error)
     if on_inference_complete is not None:

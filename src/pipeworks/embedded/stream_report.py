@@ -14,6 +14,7 @@ from pipeworks.models import PipelineContext, Step
 
 @dataclass
 class _ReportStats:
+    detection_stats: object | None = None
     lock: Lock = field(default_factory=Lock)
     window_started_at: float | None = None
     completed_frames: int = 0

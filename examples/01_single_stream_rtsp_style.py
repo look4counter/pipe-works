@@ -6,11 +6,13 @@ from pipeworks.embedded import (
     NvidiaEncode,
     NvidiaDecode,
     StreamReport,
+    TensorRTReport,
     Tap,
     CudaAsync,
 )
 from pipeworks.embedded.tensor_rt_inference import TensorRTInference
 from pipeworks.embedded.yolo_detect import YoloDetect
+from pipeworks.embedded.yolo_detect_report import YoloDetectReport
 from step.metadata_from_db import MetadataFromDB
 from step.box_overlay import BoxOverlay
 from step.save_inference_result_to_db import SaveInferenceResultToDB
@@ -33,6 +35,7 @@ def build_pipeline() -> Pipeline:
                 timeout_ms=20,
             ),
         )
+        .step(YoloDetectReport())
         .step(BoxOverlay())
         .step(Tap(SaveInferenceResultToDB()))
         .step(NvidiaEncode())
