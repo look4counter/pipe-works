@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import torch
 
-from pipeworks.embedded import Async, NvidiaEncode, TensorRTInference
+from pipeworks.embedded import CudaAsync, NvidiaEncode, TensorRTInference
 from pipeworks.models import PipelineContext
 
 
@@ -23,7 +23,7 @@ class BoxOverlayTests(unittest.TestCase):
         steps = []
         for registered in pipeline.steps:
             step = getattr(registered, "wrapped_step", registered)
-            steps.extend(step.steps if isinstance(step, Async) else [step])
+            steps.extend(step.steps if isinstance(step, CudaAsync) else [step])
         overlay = next(step for step in steps if isinstance(step, self.example["BoxOverlay"]))
         detect = next(step for step in steps if isinstance(step, TensorRTInference))
         self.assertLess(steps.index(detect), steps.index(overlay))

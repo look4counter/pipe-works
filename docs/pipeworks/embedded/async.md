@@ -1,14 +1,14 @@
-# Async: 대기를 제한하는 공통 비동기 단계
+# CudaAsync: 대기를 제한하는 공통 비동기 단계
 
-`Async`는 다른 처리 단계를 별도 작업 스레드에서 실행한다. 기한 안에 완료되면 결과를 원본 컨텍스트에 반영하고, 시간 초과나 오류가 발생하면 원본을 그대로 전달한다. 기본 제한 시간은 5ms이다.
+`CudaAsync`는 다른 처리 단계를 별도 작업 스레드에서 실행한다. 기한 안에 완료되면 결과를 원본 컨텍스트에 반영하고, 시간 초과나 오류가 발생하면 원본을 그대로 전달한다. 기본 제한 시간은 5ms이다.
 
 ```python
-from pipeworks.embedded import Async, YoloDetect
+from pipeworks.embedded import CudaAsync, YoloDetect
 
-pipeline.step(Async(YoloDetect(model_path, batch=True), timeout_ms=10))
+pipeline.step(CudaAsync(YoloDetect(model_path, batch=True), timeout_ms=10))
 ```
 
-일반 사용자 `Step`도 같은 방식으로 감쌀 수 있다. 공개 가져오기는 `from pipeworks.embedded import Async`를 사용한다. 모듈에서 직접 가져올 때는 `from pipeworks.embedded.async_step import Async`를 사용한다. 구현 파일은 `src/pipeworks/embedded/async_step.py`이다.
+일반 사용자 `Step`도 같은 방식으로 감쌀 수 있다. 공개 가져오기는 `from pipeworks.embedded import CudaAsync`를 사용한다. 모듈에서 직접 가져올 때는 `from pipeworks.embedded.cuda_async import CudaAsync`를 사용한다. 구현 파일은 `src/pipeworks/embedded/cuda_async.py`이다.
 
 ## 처리 규칙
 
@@ -24,7 +24,7 @@ pipeline.step(Async(YoloDetect(model_path, batch=True), timeout_ms=10))
 ## 설정
 
 ```yaml
-Async:
+CudaAsync:
   timeout_ms: 10
 YoloDetect:
   classes: [2]
@@ -60,19 +60,19 @@ release_input()  # 공유 입력 사용이 이미 끝난 경우
 release_input(ready_event=copy_done_event)  # 원본을 읽는 GPU 작업의 완료 이벤트
 ```
 
-CUDA 이벤트를 전달하면 `Async`가 타임아웃 시 `query()`로 완료를 확인한다. 이벤트 완료를 기다리느라 제한 시간을 늘리지는 않는다. 조회 실패는 로그와 기존 복사로 처리한다. 신호는 현재 요청에만 적용되며 `Async` 밖에서 호출하면 아무 동작도 하지 않는다. 신호 이후에는 이벤트 이전에 제출한 GPU 읽기 외에 공유 입력을 다시 읽거나 수정하면 안 된다. 별도 작업 컨텍스트의 결과 속성을 갱신하는 것은 가능하다.
+CUDA 이벤트를 전달하면 `CudaAsync`가 타임아웃 시 `query()`로 완료를 확인한다. 이벤트 완료를 기다리느라 제한 시간을 늘리지는 않는다. 조회 실패는 로그와 기존 복사로 처리한다. 신호는 현재 요청에만 적용되며 `CudaAsync` 밖에서 호출하면 아무 동작도 하지 않는다. 신호 이후에는 이벤트 이전에 제출한 GPU 읽기 외에 공유 입력을 다시 읽거나 수정하면 안 된다. 별도 작업 컨텍스트의 결과 속성을 갱신하는 것은 가능하다.
 
-`YoloDetect(model_path, batch=True)`는 배치용 GPU 복사 완료 이벤트를 전달한다. 완료가 확인된 타임아웃에는 `Async`의 추가 복사가 없다. 단일 `YoloDetect`는 기존 타임아웃 복사 정책을 유지한다.
+`YoloDetect(model_path, batch=True)`는 배치용 GPU 복사 완료 이벤트를 전달한다. 완료가 확인된 타임아웃에는 `CudaAsync`의 추가 복사가 없다. 단일 `YoloDetect`는 기존 타임아웃 복사 정책을 유지한다.
 
-`YoloDetect`는 동기로 실행하며 모델 동명 YAML의 제한 시간을 읽지 않는다. `Async(YoloDetect(model_path), timeout_ms=5)`로 감싸면 공통 래퍼가 비동기 실행·시간 제한·오류 통과를 적용한다. 실패하거나 시간 초과한 요청은 원본을 그대로 전달하므로 원본에 `detections`가 없었다면 이후에도 없을 수 있다. 결과 확인에는 `getattr(context, "detections", None)`을 사용할 수 있다.
+`YoloDetect`는 동기로 실행하며 모델 동명 YAML의 제한 시간을 읽지 않는다. `CudaAsync(YoloDetect(model_path), timeout_ms=5)`로 감싸면 공통 래퍼가 비동기 실행·시간 제한·오류 통과를 적용한다. 실패하거나 시간 초과한 요청은 원본을 그대로 전달하므로 원본에 `detections`가 없었다면 이후에도 없을 수 있다. 결과 확인에는 `getattr(context, "detections", None)`을 사용할 수 있다.
 
 `TensorRTInference`는 동기 실행하고 자체 시간 제한이 없다. 전처리·추론·후처리를 Async로 감싸면 전체 요청에 공통 제한 시간을 적용한다.
 
-`YoloDetect(batch=True)`는 공유 배치 결과를 기다리는 동안 바깥 `Async`가 원본을 통과시킬 수 있다. 모델 설정의 `timeout`은 배치를 모으는 시간이고, `Async.timeout_ms`는 요청 결과를 기다리는 시간이다. 내부 배치 입력 복사는 유지하며, 바깥 `Async`의 타임아웃 복사는 원본 사용 종료가 확인되면 생략한다.
+`YoloDetect(batch=True)`는 공유 배치 결과를 기다리는 동안 바깥 `CudaAsync`가 원본을 통과시킬 수 있다. 모델 설정의 `timeout`은 배치를 모으는 시간이고, `CudaAsync.timeout_ms`는 요청 결과를 기다리는 시간이다. 내부 배치 입력 복사는 유지하며, 바깥 `CudaAsync`의 타임아웃 복사는 원본 사용 종료가 확인되면 생략한다.
 ## 여러 Step 순서대로 실행
 
 ```python
-Async(
+CudaAsync(
     PreProcess(),
     TensorRTInference(model_path),
     PostProcess(),
@@ -87,7 +87,7 @@ Async(
 단일·복수·중첩 모두 각 Step의 최상위 클래스명 섹션을 사용한다. 섹션이 없으면 빈 설정을 전달하며 같은 클래스의 인스턴스는 동일 섹션을 공유한다. 잘못된 설정 변경은 해당 단계의 이전 값을 유지한다.
 
 ```yaml
-Async:
+CudaAsync:
   timeout_ms: 20
 PreProcess: {}
 TensorRTInference:

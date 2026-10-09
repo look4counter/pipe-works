@@ -242,7 +242,7 @@ class TensorRTInferenceTests(unittest.TestCase):
         self.assertFalse(item.model_input.is_contiguous())
 
     def test_async_owns_timeout_during_engine_initialization(self):
-        from pipeworks.embedded import Async
+        from pipeworks.embedded import CudaAsync
         entered, release = Event(), Event()
         self.addCleanup(release.set)
 
@@ -251,7 +251,7 @@ class TensorRTInferenceTests(unittest.TestCase):
             release.wait(5)
             return _EngineSession(*arguments)
 
-        wrapper = Async(self.step, timeout_ms=20)
+        wrapper = CudaAsync(self.step, timeout_ms=20)
         with patch("pipeworks.embedded.tensor_rt_inference._EngineSession", side_effect=load):
             items = [self.item(), self.item()]
             outputs = wrapper.process(iter(items))

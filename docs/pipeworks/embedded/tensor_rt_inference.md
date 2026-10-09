@@ -46,7 +46,7 @@ plugins: [] # 예: [custom.dll] 또는 [libcustom.so]
 
 호출 스레드에서 입력 생산 완료를 확인하고 별도 CUDA 스트림에서 엔진을 실행합니다. 연속 GPU 입력은 복제하지 않으며 비연속 입력만 연속화합니다. 전처리는 `context.cuda_stream`에서 입력을 준비하거나 준비 완료를 보장해야 합니다.
 
-GPU 완료 후 결과를 전달하며 간격으로 건너뛴 입력은 `model_output=None`입니다. 입력과 영상은 보존하고 오류는 호출자에 전파합니다. 시간 제한·오류 통과가 필요하면 전처리·추론·후처리를 공통 `Async(..., timeout_ms=20)`로 감쌉니다. 이미 실행 중인 GPU 작업은 강제 취소하지 않습니다.
+GPU 완료 후 결과를 전달하며 간격으로 건너뛴 입력은 `model_output=None`입니다. 입력과 영상은 보존하고 오류는 호출자에 전파합니다. 시간 제한·오류 통과가 필요하면 전처리·추론·후처리를 공통 `CudaAsync(..., timeout_ms=20)`로 감쌉니다. 이미 실행 중인 GPU 작업은 강제 취소하지 않습니다.
 
 ## 엔진과 플러그인
 
@@ -58,4 +58,4 @@ GPU 위치의 LINEAR 바인딩만 지원합니다. CPU 형상 바인딩, 벡터�
 
 ## 검증
 
-`tests/test_tensor_rt_inference.py`는 모의 TensorRT API와 실제 CUDA 텐서로 GPU 값·이름·자료형·동적 출력·플러그인 로딩·동기 실행·무복제 입력과 Async 조합을 확인합니다. 실제 TensorRT 엔진 생성·실행 및 예제 YOLO plan 검증도 통과했습니다.
+`tests/test_tensor_rt_inference.py`는 모의 TensorRT API와 실제 CUDA 텐서로 GPU 값·이름·자료형·동적 출력·플러그인 로딩·동기 실행·무복제 입력과 CudaAsync 조합을 확인합니다. 실제 TensorRT 엔진 생성·실행 및 예제 YOLO plan 검증도 통과했습니다.

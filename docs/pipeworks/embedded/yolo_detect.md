@@ -53,15 +53,15 @@ timeout: 20  # 배치를 모으는 최대 시간, 밀리초
 ## 선택적 비동기 실행
 
 ```python
-from pipeworks.embedded import Async, YoloDetect
+from pipeworks.embedded import CudaAsync, YoloDetect
 
-pipeline.step(Async(YoloDetect(model_path), timeout_ms=5))
+pipeline.step(CudaAsync(YoloDetect(model_path), timeout_ms=5))
 # 배치 처리와 시간 제한을 함께 사용
-pipeline.step(Async(YoloDetect(model_path, batch=True), timeout_ms=5))
+pipeline.step(CudaAsync(YoloDetect(model_path, batch=True), timeout_ms=5))
 ```
 
 ```yaml
-Async:
+CudaAsync:
   timeout_ms: 5
 YoloDetect:
   classes: [2]
@@ -70,9 +70,9 @@ YoloDetect:
   inference_interval_frame: 1
 ```
 
-공통 `Async`가 제한 시간·오류·사용 중 원본 통과와 늦은 결과 폐기를 담당한다. 정상 완료에는 데이터를 복사하지 않고 공유 입력을 읽기 전용으로 사용한다. 개별 모드는 타임아웃에 후속 전달용 입력을 복사한다. 실행 중 추론을 강제로 취소하지 않는다.
+공통 `CudaAsync`가 제한 시간·오류·사용 중 원본 통과와 늦은 결과 폐기를 담당한다. 정상 완료에는 데이터를 복사하지 않고 공유 입력을 읽기 전용으로 사용한다. 개별 모드는 타임아웃에 후속 전달용 입력을 복사한다. 실행 중 추론을 강제로 취소하지 않는다.
 
-배치 모드는 추론용 GPU 입력을 복제한 뒤 `release_input(ready_event=...)`으로 원본 사용 종료를 알린다. `Async`는 타임아웃 시 복사 완료 이벤트가 완료된 경우에만 추가 복사를 생략한다. 복사 준비 전이나 이벤트 완료 전이면 기존 타임아웃 복사를 유지한다. 신호가 없어도 일반 Step을 사용할 수 있다.
+배치 모드는 추론용 GPU 입력을 복제한 뒤 `release_input(ready_event=...)`으로 원본 사용 종료를 알린다. `CudaAsync`는 타임아웃 시 복사 완료 이벤트가 완료된 경우에만 추가 복사를 생략한다. 복사 준비 전이나 이벤트 완료 전이면 기존 타임아웃 복사를 유지한다. 신호가 없어도 일반 Step을 사용할 수 있다.
 
 원본 통과는 기존 속성을 그대로 보존한다. 원래 `detections`가 없던 입력은 시간 초과 후에도 이 속성이 없을 수 있다. 사용 중 통과한 입력은 감싼 모델 단계가 보지 않으므로 모델의 간격 카운터는 실제 제출된 입력을 기준으로 증가한다.
 
@@ -90,10 +90,10 @@ if result is not None:
 
 ## 오류 처리
 
-지원하지 않는 형식, 홀수·0 해상도, 잘못된 자료형·프레임 크기, GPU 번호 불일치는 예외이다. 직접 사용할 때 예외는 처리 반복자를 끝낸다. 지연·오류가 있어도 영상을 통과시키려면 공통 `Async`를 조합한다.
+지원하지 않는 형식, 홀수·0 해상도, 잘못된 자료형·프레임 크기, GPU 번호 불일치는 예외이다. 직접 사용할 때 예외는 처리 반복자를 끝낸다. 지연·오류가 있어도 영상을 통과시키려면 공통 `CudaAsync`를 조합한다.
 
 ## 관련 문서
 
-- [Async](async.md): 공통 비동기 실행과 원본 통과 정책.
+- [CudaAsync](async.md): 공통 비동기 실행과 원본 통과 정책.
 - [TensorRTInference](tensor_rt_inference.md): 원시 GPU 텐서 추론.
 - [파이프라인](../pipeline.md): 단계 조립과 구성.

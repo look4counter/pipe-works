@@ -156,14 +156,14 @@ def run_remote(pipeline) -> None:
     try:
         from pipeworks.hotswap import Hotswap
         from pipeworks.embedded.tap import Tap
-        from pipeworks.embedded import Async
+        from pipeworks.embedded import CudaAsync
 
         def register_step(step) -> None:
             if isinstance(step, Hotswap):
                 register_step(step.wrapped_step)
             if isinstance(step, Tap):
                 register_step(step.step)
-            if isinstance(step, Async):
+            if isinstance(step, CudaAsync):
                 for inner in step.steps:
                     register_step(inner)
             module_name = type(step).__module__

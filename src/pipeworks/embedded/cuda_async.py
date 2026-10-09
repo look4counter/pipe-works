@@ -149,9 +149,9 @@ class _InputSlot(Iterator[PipelineContext]):
             if request is None:
                 if self.closed:
                     raise StopIteration
-                raise RuntimeError("Async 단계는 출력 전에 추가 입력을 요구할 수 없습니다.")
+                raise RuntimeError("CudaAsync 단계는 출력 전에 추가 입력을 요구할 수 없습니다.")
             if request.consumed:
-                raise RuntimeError("Async 단계는 입력마다 정확히 한 번 출력해야 합니다.")
+                raise RuntimeError("CudaAsync 단계는 입력마다 정확히 한 번 출력해야 합니다.")
             request.consumed = True
             return request.item
 
@@ -183,7 +183,7 @@ class _InputSlot(Iterator[PipelineContext]):
         try:
             return bool(request.release_event.query())
         except Exception:
-            logger.exception("Async 입력 사용 종료 이벤트를 확인하지 못해 복사합니다.")
+            logger.exception("CudaAsync 입력 사용 종료 이벤트를 확인하지 못해 복사합니다.")
             return False
 
     def close(self):
@@ -198,7 +198,7 @@ def _close(outputs):
         try:
             close()
         except Exception:
-            logger.exception("Async 처리 스트림 정리에 실패했습니다.")
+            logger.exception("CudaAsync 처리 스트림 정리에 실패했습니다.")
 
 
 class _StageInput(Iterator[PipelineContext]):
@@ -208,7 +208,7 @@ class _StageInput(Iterator[PipelineContext]):
 
     def __next__(self):
         if self.consumed:
-            raise RuntimeError("Async 단계는 입력마다 정확히 한 번 출력해야 합니다.")
+            raise RuntimeError("CudaAsync 단계는 입력마다 정확히 한 번 출력해야 합니다.")
         self.consumed = True
         return self.item
 
@@ -230,7 +230,7 @@ class _Stage(Iterator[PipelineContext]):
                 self.outputs = iter(self.step.process(self.inputs))
             output = next(self.outputs)
             if not self.inputs.consumed or not isinstance(output, PipelineContext):
-                raise RuntimeError("Async 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다.")
+                raise RuntimeError("CudaAsync 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다.")
             return output
         finally:
             self.inputs.item = None
@@ -241,7 +241,7 @@ class _Stage(Iterator[PipelineContext]):
             self.upstream.close()
 
 
-class Async(Step):
+class CudaAsync(Step):
     def __init__(self, *steps: Step, timeout_ms: float = 5) -> None:
         if not steps or any(not isinstance(step, Step) for step in steps):
             raise TypeError("Async가 감싸는 객체는 Step이어야 합니다.")
@@ -313,7 +313,7 @@ class Async(Step):
                             if tensor.is_cuda:
                                 torch.cuda.current_stream(tensor.device).synchronize()
                     if not request.consumed or not isinstance(output, PipelineContext):
-                        raise RuntimeError("Async 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다.")
+                        raise RuntimeError("CudaAsync 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다.")
                     if getattr(output, "_pipeworks_hotswap_epoch", None) == ():
                         del output._pipeworks_hotswap_epoch
                     return output
@@ -321,7 +321,7 @@ class Async(Step):
                 try:
                     result = request.context.run(execute)
                 except Exception:
-                    logger.exception("Async 처리에 실패하여 원본을 전달합니다.")
+                    logger.exception("CudaAsync 처리에 실패하여 원본을 전달합니다.")
                     request.context.run(_close, outputs)
                     outputs = None
                 finally:
@@ -359,7 +359,7 @@ class Async(Step):
                         _prepare(request)
                     except Exception as error:
                         request.error = error
-                        logger.exception("Async 입력 준비에 실패하여 원본을 전달합니다.")
+                        logger.exception("CudaAsync 입력 준비에 실패하여 원본을 전달합니다.")
                     request.prepared.set()
                     if worker is None:
                         worker = Thread(target=consume, name="pipeworks-async", daemon=True)
@@ -389,7 +389,7 @@ class Async(Step):
                             vars(item).clear()
                             vars(item).update(vars(fallback))
                         except Exception:
-                            logger.exception("Async 시간 초과 복사에 실패하여 작업 완료를 기다립니다.")
+                            logger.exception("CudaAsync 시간 초과 복사에 실패하여 작업 완료를 기다립니다.")
                             request.done.wait()
                 yield item
         finally:

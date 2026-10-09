@@ -7,7 +7,7 @@ from pipeworks.embedded import (
     NvidiaDecode,
     StreamReport,
     Tap,
-    Async,
+    CudaAsync,
 )
 from pipeworks.embedded.tensor_rt_inference import TensorRTInference
 from pipeworks.embedded.yolo_detect import YoloDetect
@@ -28,8 +28,10 @@ def build_pipeline() -> Pipeline:
         .step(NvidiaDecode())
         .step(MetadataFromDB())
         .step(
-            Async(
-                YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt"),
+            CudaAsync(
+                TensorRTPreProcess(),
+                TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan"),
+                TensorRTPostProcess(),
                 timeout_ms=20,
             ),
         )

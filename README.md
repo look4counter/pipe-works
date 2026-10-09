@@ -141,13 +141,13 @@ RTSP 카메라에서 영상을 읽습니다.
 
 ### Processing Step (데이터 처리)
 
-#### **Async**
+#### **CudaAsync**
 다른 처리 단계를 비동기로 실행하고 시간 초과·오류·작업자 사용 중에는 원본을 전달합니다.
 
-- **사용**: `pipeline.step(Async(processor, timeout_ms=5))`
+- **사용**: `pipeline.step(CudaAsync(processor, timeout_ms=5))`
 - **설정**: `timeout_ms`. 내부 단계는 각 클래스명 최상위 YAML 섹션을 사용합니다.
 - **지원**: 입력 하나당 출력 하나인 단계. 공유 입력은 읽기 전용이며 타임아웃 때만 후속 전달용 데이터를 복사합니다. 선택적 입력 사용 종료 신호가 완료되면 이 복사도 생략합니다. 늦은 결과는 폐기합니다.
-- **상세**: [Async 안내](docs/pipeworks/embedded/async.md)
+- **상세**: [CudaAsync 안내](docs/pipeworks/embedded/async.md)
 
 #### **YoloDetect**
 선택 프레임의 YOLO 감지를 동기로 실행하고 GPU 결과 준비까지 기다립니다. 오류는 호출자에게 전파합니다.
@@ -156,7 +156,7 @@ RTSP 카메라에서 영상을 읽습니다.
 - **사용**: `pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))`
 - **선택적 배치**: `YoloDetect(model_path, batch=True)`. 기본값은 `False`이며 True는 GPU 입력 복제와 사용 종료 신호를 직접 처리하고 `local_yolo.infer()`에 제출합니다. 배치 수집은 모델 동명 `.yml`의 `max_batch_size`, 밀리초 `timeout`으로 설정합니다.
 - **설정**: `classes`, `confidence`, `gpu_id`, `inference_interval_frame`
-- **선택적 비동기**: `pipeline.step(Async(YoloDetect(model_path), timeout_ms=5))`. 단일 감지는 모델 동명 `.yml`의 `timeout`을 읽지 않습니다.
+- **선택적 비동기**: `pipeline.step(CudaAsync(YoloDetect(model_path), timeout_ms=5))`. 단일 감지는 모델 동명 `.yml`의 `timeout`을 읽지 않습니다.
 - **상세**: [docs/pipeworks/embedded/yolo_detect.md](docs/pipeworks/embedded/yolo_detect.md)
 
 #### **TensorRTInference**
@@ -296,7 +296,7 @@ pipeline.run()
 
 | Step | 문서 |
 |------|------|
-| Async | [Async 안내](docs/pipeworks/embedded/async.md) |
+| CudaAsync | [CudaAsync 안내](docs/pipeworks/embedded/async.md) |
 | RTSPSource | [docs/pipeworks/embedded/rtsp_source.md](docs/pipeworks/embedded/rtsp_source.md) |
 | YoloDetect | [docs/pipeworks/embedded/yolo_detect.md](docs/pipeworks/embedded/yolo_detect.md) |
 | RTSPPublish | [docs/pipeworks/embedded/rtsp_publish.md](docs/pipeworks/embedded/rtsp_publish.md) |

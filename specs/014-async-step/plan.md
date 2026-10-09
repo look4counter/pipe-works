@@ -63,3 +63,6 @@ Async는 공개 steps·step 원본 참조를 보존하고 실행용 _hot_steps�
 ## 설정 독립 전달 계획
 
 Async.configure는 timeout_ms만 검증하고 내부 설정은 전달하지 않는다. Pipeline.step의 초기 등록에 내부 _hot_steps 재귀 설정을 추가한다. _run_local에서는 각 내부 래퍼의 _config_provider를 클래스명 watcher.section에 연결하며 내장 Step도 코드 감시 없는 Hotswap으로 실행해 독립 설정 경계를 제공한다. 중첩 Async도 재귀 연결한다. 초기 래퍼 설정을 보존하고 설정 변경은 해당 Hotswap의 기존 복원 정책을 사용한다. tests/test_async.py의 구 설정 검증과 핫스왑 검증을 클래스명 설정으로 옮기고 실제 YAML 변경 회귀를 추가한다. 공개 문서·계약을 정정하고 Async·구성·핫스왑·예제 회귀를 실행한다.
+## 이름 변경 계획
+
+구현 파일을 cuda_async.py로 이동하고 클래스·import·로그 경로·예제 및 YAML 섹션과 테스트 참조를 CudaAsync로 변경한다. Pipeline의 내부 설정 연결과 중앙 등록도 새 클래스명을 사용한다. 공개 문서는 새 이름으로 정규화하고 기존 명세 이력은 보존한다. 관련 테스트와 남은 실행 참조를 검사한다.

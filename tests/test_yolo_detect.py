@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import torch
 from ultralytics.engine.results import Results
 
-from pipeworks.embedded import Async, YoloDetect
+from pipeworks.embedded import CudaAsync, YoloDetect
 from pipeworks.embedded.stream_report import _stats, report_scope
 from pipeworks.models import PipelineContext
 
@@ -134,9 +134,9 @@ class YoloDetectTests(unittest.TestCase):
                     cleaned.set()
 
         with patch("pipeworks.embedded.yolo_detect.infer", side_effect=infer), patch(
-            "pipeworks.embedded.async_step._snapshot"
+            "pipeworks.embedded.cuda_async._snapshot"
         ) as snapshot:
-            outputs = Async(ObservedYolo(self.model_path, batch=True), timeout_ms=100).process(iter([frame]))
+            outputs = CudaAsync(ObservedYolo(self.model_path, batch=True), timeout_ms=100).process(iter([frame]))
             self.assertIs(next(outputs), frame)
             self.assertTrue(entered.wait(1))
             snapshot.assert_not_called()
@@ -151,7 +151,7 @@ class YoloDetectTests(unittest.TestCase):
             self.assertFalse(hasattr(frame, "detections"))
 
     def test_async_batch_timeout_before_copy_keeps_fallback_copy(self):
-        from pipeworks.embedded import async_step
+        from pipeworks.embedded import cuda_async
 
         entered, release, cleaned = Event(), Event(), Event()
         self.releases.append(release)
@@ -173,8 +173,8 @@ class YoloDetectTests(unittest.TestCase):
 
         with patch.object(YoloDetect, "_copy_frame", blocked_copy), patch(
             "pipeworks.embedded.yolo_detect.infer", return_value="late"
-        ), patch.object(async_step, "_snapshot", wraps=async_step._snapshot) as snapshot:
-            outputs = Async(ObservedYolo(self.model_path, batch=True), timeout_ms=50).process(iter([frame]))
+        ), patch.object(cuda_async, "_snapshot", wraps=cuda_async._snapshot) as snapshot:
+            outputs = CudaAsync(ObservedYolo(self.model_path, batch=True), timeout_ms=50).process(iter([frame]))
             self.assertIs(next(outputs), frame)
             self.assertTrue(entered.wait(1))
             snapshot.assert_called_once()
@@ -385,7 +385,7 @@ class YoloDetectTests(unittest.TestCase):
         model.predict.side_effect = predict
         with patch("ultralytics.YOLO", return_value=model), report_scope():
             stats = _stats()
-            outputs = Async(ObservedYolo(self.model_path), timeout_ms=10).process(iter([item, context()]))
+            outputs = CudaAsync(ObservedYolo(self.model_path), timeout_ms=10).process(iter([item, context()]))
             self.assertIs(next(outputs), item)
             self.assertTrue(entered.wait(2))
             self.assertFalse(release.is_set())
@@ -402,8 +402,8 @@ class YoloDetectTests(unittest.TestCase):
     def test_async_wrapper_handles_prediction_failure(self):
         item, model = context(), self.mock_model()
         model.predict.side_effect = RuntimeError("추론 실패")
-        with patch("ultralytics.YOLO", return_value=model), self.assertLogs("pipeworks.embedded.async_step", level="ERROR"):
-            output = list(Async(self.step, timeout_ms=1000).process(iter([item])))[0]
+        with patch("ultralytics.YOLO", return_value=model), self.assertLogs("pipeworks.embedded.cuda_async", level="ERROR"):
+            output = list(CudaAsync(self.step, timeout_ms=1000).process(iter([item])))[0]
         self.assertIs(output, item)
         self.assertFalse(hasattr(item, "detections"))
 

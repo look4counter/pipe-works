@@ -1,4 +1,4 @@
-"""Run individual or shared-batch GPU YOLO inference with optional Async."""
+"""Run individual or shared-batch GPU YOLO inference with optional CudaAsync."""
 
 import logging
 from pathlib import Path

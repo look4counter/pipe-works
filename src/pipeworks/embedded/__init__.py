@@ -1,4 +1,4 @@
-from pipeworks.embedded.async_step import Async
+from pipeworks.embedded.cuda_async import CudaAsync
 from pipeworks.embedded.rtsp_source import RTSPSource
 from pipeworks.embedded.rtsp_publish import RTSPPublish
 from pipeworks.embedded.nvidia_encode import NvidiaEncode
@@ -9,7 +9,7 @@ from pipeworks.embedded.tap import Tap
 from pipeworks.embedded.stream_report import StreamReport
 
 __all__ = [
-    "Async",
+    "CudaAsync",
     "RTSPSource",
     "RTSPPublish",
     "NvidiaEncode",

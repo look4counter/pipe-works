@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 def _configure_async_children(step, sections):
-    from pipeworks.embedded.async_step import Async
+    from pipeworks.embedded.cuda_async import CudaAsync
 
     original = step.wrapped_step if isinstance(step, Hotswap) else step
-    if isinstance(original, Async):
+    if isinstance(original, CudaAsync):
         for inner in original._hot_steps:
             child = inner.wrapped_step if isinstance(inner, Hotswap) else inner
             inner.configure(SimpleNamespace(**sections.get(type(child).__name__, {})))
@@ -26,10 +26,10 @@ def _configure_async_children(step, sections):
 
 
 def _watch_async_children(step, watcher, sections):
-    from pipeworks.embedded.async_step import Async
+    from pipeworks.embedded.cuda_async import CudaAsync
 
     original = step.wrapped_step if isinstance(step, Hotswap) else step
-    if isinstance(original, Async):
+    if isinstance(original, CudaAsync):
         running = []
         for inner in original._hot_steps:
             child = inner.wrapped_step if isinstance(inner, Hotswap) else inner
