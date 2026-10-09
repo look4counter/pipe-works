@@ -146,7 +146,7 @@ RTSP 카메라에서 영상을 읽습니다.
 
 - **사용**: `pipeline.step(Async(processor, timeout_ms=5))`
 - **설정**: `timeout_ms`, 감싼 단계 설정의 `step` 매핑
-- **지원**: 입력 하나당 출력 하나인 단계. 늦은 결과는 폐기하고 작업용 데이터는 복사합니다.
+- **지원**: 입력 하나당 출력 하나인 단계. 공유 입력은 읽기 전용이며 타임아웃 때만 후속 전달용 데이터를 복사합니다. 늦은 결과는 폐기합니다.
 - **상세**: [Async 안내](docs/pipeworks/embedded/async.md)
 
 #### **YoloDetect**
