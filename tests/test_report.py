@@ -76,10 +76,10 @@ class ReportTests(unittest.TestCase):
         runner.start()
         try:
             deadline = time.monotonic() + 3
-            while "추론 5.0ms" not in output.getvalue() and time.monotonic() < deadline:
+            while "추론 5.0ms/1s" not in output.getvalue() and time.monotonic() < deadline:
                 time.sleep(0.02)
-            self.assertIn("프레임 처리 시간 20.0ms", output.getvalue())
-            self.assertIn("추론 5.0ms (1건)", output.getvalue())
+            self.assertIn("프레임처리 20.0ms/1s, 20.0ms/10s", output.getvalue())
+            self.assertIn("추론 5.0ms/1s, 5.0ms/10s (1건)", output.getvalue())
             self.assertIn("인코딩 10.0ms", output.getvalue())
             self.assertEqual(output.getvalue().count("\n"), 2)
         finally:
@@ -145,11 +145,39 @@ class ReportTests(unittest.TestCase):
         with patch.object(report.time, "perf_counter", side_effect=[10.0, 10.1, 11.0]):
             report.record_frame(0.01)
             report.record_frame(0.02)
-            fps, average_ms, inference_count, average_inference_ms = report._take_report()
+            fps, average_ms, inference_count, average_inference_ms, _, _ = report._take_report()
         self.assertAlmostEqual(fps, 2.0)
         self.assertAlmostEqual(average_ms, 15.0)
         self.assertEqual(inference_count, 0)
         self.assertIsNone(average_inference_ms)
+
+    def test_recent_ten_seconds_weights_samples_and_expires_boundary(self):
+        with report.report_scope():
+            with patch.object(report.time, "perf_counter", return_value=0):
+                report.record_frame(.01)
+                report.record_inference(.02)
+            with patch.object(report.time, "perf_counter", return_value=1):
+                first = report._take_report()
+            with patch.object(report.time, "perf_counter", return_value=2):
+                for _ in range(3):
+                    report.record_frame(.03)
+                report.record_inference(.06)
+            with patch.object(report.time, "perf_counter", return_value=3):
+                second = report._take_report()
+            self.assertAlmostEqual(first[4], 10)
+            self.assertAlmostEqual(second[1], 30)
+            self.assertAlmostEqual(second[4], 25)
+            self.assertAlmostEqual(second[5], 40)
+            with patch.object(report.time, "perf_counter", return_value=10):
+                boundary = report._take_report()
+            self.assertEqual(boundary[2], 0)
+            self.assertIsNone(boundary[3])
+            self.assertAlmostEqual(boundary[4], 30)
+            self.assertAlmostEqual(boundary[5], 60)
+            with patch.object(report.time, "perf_counter", return_value=12):
+                empty = report._take_report()
+            self.assertIsNone(empty[4])
+            self.assertIsNone(empty[5])
 
     def test_inference_count_and_average_reset_each_interval(self):
         with patch.object(report.time, "perf_counter", side_effect=[10.0, 10.1, 11.0, 12.0]):

@@ -10,6 +10,7 @@ from pipeworks.embedded import (
     Async,
 )
 from pipeworks.embedded.tensor_rt_inference import TensorRTInference
+from pipeworks.embedded.yolo_detect import YoloDetect
 from step.metadata_from_db import MetadataFromDB
 from step.box_overlay import BoxOverlay
 from step.save_inference_result_to_db import SaveInferenceResultToDB
@@ -29,9 +30,7 @@ def build_pipeline() -> Pipeline:
         .step(
             Async(
                 TensorRTPreProcess(),
-                TensorRTInference(
-                    Path(__file__).with_name("model") / "yolo11n.plan"
-                ),
+                TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan"),
                 TensorRTPostProcess(),
                 timeout_ms=20,
             ),

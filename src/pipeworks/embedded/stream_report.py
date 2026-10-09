@@ -2,6 +2,7 @@
 
 import time
 import sys
+from collections import deque
 from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ class _ReportStats:
     processing_seconds: float = 0.0
     completed_inferences: int = 0
     inference_seconds: float = 0.0
+    frame_history: deque = field(default_factory=deque)
+    inference_history: deque = field(default_factory=deque)
     stage_totals: dict[str, tuple[int, float]] = field(default_factory=dict)
     receive_success_at: float | None = None
     receive_failure_at: float | None = None
@@ -103,6 +106,8 @@ def record_frame(processing_seconds: float) -> None:
             stats.window_started_at = now
         stats.completed_frames += 1
         stats.processing_seconds += max(0.0, processing_seconds)
+        stats.frame_history.append((now, max(0.0, processing_seconds)))
+        _prune_history(stats.frame_history, now)
 
 
 def record_inference(inference_seconds: float) -> None:
@@ -113,9 +118,21 @@ def record_inference(inference_seconds: float) -> None:
             stats.window_started_at = now
         stats.completed_inferences += 1
         stats.inference_seconds += max(0.0, inference_seconds)
+        stats.inference_history.append((now, max(0.0, inference_seconds)))
+        _prune_history(stats.inference_history, now)
 
 
-def _take_report() -> tuple[float, float, int, float | None] | None:
+def _prune_history(history, now):
+    while history and history[0][0] <= now - 10:
+        history.popleft()
+
+
+def _recent_average(history, now):
+    _prune_history(history, now)
+    return sum(seconds for _, seconds in history) / len(history) * 1000 if history else None
+
+
+def _take_report() -> tuple | None:
     stats = _stats()
     now = time.perf_counter()
     with stats.lock:
@@ -139,6 +156,8 @@ def _take_report() -> tuple[float, float, int, float | None] | None:
             average_ms,
             inference_count,
             average_inference_ms,
+            _recent_average(stats.frame_history, now),
+            _recent_average(stats.inference_history, now),
         )
 
 
@@ -158,19 +177,20 @@ class StreamReport(Step):
                 stats.window_started_at = time.perf_counter()
 
         def report_once() -> None:
-            snapshot = _take_report() or (0.0, 0.0, 0, None)
-            fps, average_ms, inference_count, average_inference_ms = snapshot
+            snapshot = _take_report() or (0.0, 0.0, 0, None, None, None)
+            fps, average_ms, inference_count, average_inference_ms, recent_frame_ms, recent_inference_ms = snapshot
             receive_status, publish_status = _connection_status(time.perf_counter())
+            recent_frame = "없음" if recent_frame_ms is None else f"{recent_frame_ms:.1f}ms"
+            inference = "없음" if average_inference_ms is None else f"{average_inference_ms:.1f}ms"
+            recent_inference = "없음" if recent_inference_ms is None else f"{recent_inference_ms:.1f}ms"
             parts = [
                 f"수신 {receive_status}",
                 f"송신 {publish_status}",
                 f"FPS {fps:.1f}",
-                f"프레임 처리 시간 {average_ms:.1f}ms",
+                f"프레임처리 {average_ms:.1f}ms/1s, {recent_frame}/10s",
+                f"추론 {inference}/1s, {recent_inference}/10s"
+                + (f" ({inference_count}건)" if inference_count else ""),
             ]
-            if average_inference_ms is None:
-                parts.append("추론 없음")
-            else:
-                parts.append(f"추론 {average_inference_ms:.1f}ms ({inference_count}건)")
             stages = _take_stage_report()
             labels = (
                 ("batch_queue", "입력 대기"),
