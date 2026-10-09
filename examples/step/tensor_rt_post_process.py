@@ -7,6 +7,7 @@ from ultralytics.utils import YAML, ROOT
 from ultralytics.utils.nms import non_max_suppression
 
 from pipeworks.models import Step
+from pipeworks.execution import current_model_stream
 
 
 class TensorRTPostProcess(Step):
@@ -34,7 +35,7 @@ class TensorRTPostProcess(Step):
     def process(self, inputs):
         for item in inputs:
             item.detections = None
-            stream = getattr(item, "model_cuda_stream", item.cuda_stream)
+            stream = current_model_stream() or getattr(item, "model_cuda_stream", item.cuda_stream)
             outputs = prediction = boxes = None
             try:
                 outputs = getattr(item, "model_output", None)

@@ -9,7 +9,7 @@ from typing import Iterator
 import torch
 
 from pipeworks.embedded.stream_report import record_inference, record_stage
-from pipeworks.execution import release_input
+from pipeworks.execution import release_input, current_model_stream
 from pipeworks.models import PipelineContext, Step
 from pipeworks.local_yolo import _GpuDetectionPredictor, _INPUT_SIZE, _nv12_to_rgb, _prepare_image, infer
 
@@ -106,10 +106,11 @@ class YoloDetect(Step):
         return frame[: height * 3 // 2, :width]
 
     def _copy_frame(self, item: PipelineContext):
-        with torch.cuda.stream(item.cuda_stream):
+        stream = current_model_stream() or item.cuda_stream
+        with torch.cuda.stream(stream):
             image = self._prepare_frame(item).clone()
             ready_event = torch.cuda.Event()
-            ready_event.record(item.cuda_stream)
+            ready_event.record(stream)
         return image, ready_event
 
     def _process_batch(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
@@ -148,7 +149,12 @@ class YoloDetect(Step):
                         image = self._prepare_frame(item)
                         ready_event = torch.cuda.Event()
                         ready_event.record(item.cuda_stream)
-                    if stream is None or stream.device.index != self.gpu_id:
+                    managed = current_model_stream()
+                    if managed is not None:
+                        if managed.device.index != self.gpu_id:
+                            raise ValueError("CudaAsync 모델 스트림의 GPU가 gpu_id와 다릅니다.")
+                        stream = managed
+                    elif stream is None or stream.device.index != self.gpu_id:
                         stream = torch.cuda.Stream(device=self.gpu_id)
                     with torch.cuda.stream(stream):
                         stream.wait_event(ready_event)

@@ -94,3 +94,8 @@ TensorRTInference:
   gpu_id: 0
 PostProcess: {}
 ```
+## 공통 CUDA 스트림
+
+CudaAsync는 요청 장치별 모델 CUDA 스트림을 생성·재사용한다. 입력 준비 완료 이후 내부 Step 전체를 모델 스트림에서 실행하고 요청 종료·오류 시 완료를 확인한다. 원본 item.cuda_stream은 영상·인코딩용으로 유지한다. 일반 처리 코드는 현재 CUDA 스트림에서 GPU 연산하면 된다. 직접 스트림을 지정해야 한다면 pipeworks.execution.current_model_stream()으로 공통 모델 스트림을 조회할 수 있다.
+
+YoloDetect 개별 모드와 TensorRT 전후처리·추론은 공통 스트림을 재사용하고 단독 실행에서는 자체 스트림을 사용한다. YOLO 공유 배치 추론은 여러 요청을 묶는 local_yolo 작업자 스트림을 유지한다.

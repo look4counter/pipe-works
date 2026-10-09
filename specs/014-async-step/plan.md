@@ -66,3 +66,6 @@ Async.configure는 timeout_ms만 검증하고 내부 설정은 전달하지 않�
 ## 이름 변경 계획
 
 구현 파일을 cuda_async.py로 이동하고 클래스·import·로그 경로·예제 및 YAML 섹션과 테스트 참조를 CudaAsync로 변경한다. Pipeline의 내부 설정 연결과 중앙 등록도 새 클래스명을 사용한다. 공개 문서는 새 이름으로 정규화하고 기존 명세 이력은 보존한다. 관련 테스트와 남은 실행 참조를 검사한다.
+## 공통 스트림 구현 계획
+
+execution.py의 ContextVar와 범위 관리자를 통해 현재 모델 스트림을 제공한다. CudaAsync._consume는 장치별 모델 스트림을 보관하고 ready_events 이후 해당 스트림 문맥과 선택적 입력 종료 문맥으로 요청을 실행한다. finally에서 완료를 확인한다. YoloDetect·TensorRT·전후처리는 공통 스트림을 조회하여 재사용하고 자체 입력 준비는 독립 실행 시 수행한다. 내장 모델은 자체 GPU 수명 보장을 유지한다. 스트림 문맥과 실제 모델 회귀를 검증한다.

@@ -14,7 +14,7 @@ from typing import Iterator
 import torch
 
 from pipeworks.models import PipelineContext, Step
-from pipeworks.execution import _input_scope
+from pipeworks.execution import _input_scope, _model_stream_scope
 from pipeworks.hotswap import Hotswap, is_embedded_step
 
 
@@ -280,6 +280,7 @@ class CudaAsync(Step):
 
     def _consume(self, slot):
         outputs = None
+        model_streams = {}
         last_context = copy_context()
         try:
             while (request := slot.wait()) is not None:
@@ -293,10 +294,14 @@ class CudaAsync(Step):
                         event.synchronize()
                     if request.error is not None:
                         return None
-                    stream = getattr(request.item, "cuda_stream", None)
+                    producer = getattr(request.item, "cuda_stream", None)
+                    device = producer.device if producer is not None else next((t.device for t in request.input_tensors if t.is_cuda), None)
+                    stream = model_streams.get(device)
+                    if device is not None and stream is None:
+                        stream = model_streams[device] = torch.cuda.Stream(device=device)
                     try:
                         callback = (lambda event, current=request: slot.release_input(current, event)) if len(self.steps) == 1 else (lambda event: None)
-                        with _input_scope(callback):
+                        with _input_scope(callback), _model_stream_scope(stream):
                             with torch.cuda.stream(stream) if stream is not None else nullcontext():
                                 if outputs is None:
                                     if len(self.steps) == 1 and not isinstance(self._hot_steps[0], Hotswap):

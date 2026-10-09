@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 from pipeworks.local_yolo import _nv12_to_rgb
 from pipeworks.models import Step
+from pipeworks.execution import current_model_stream
 
 
 class TensorRTPreProcess(Step):
@@ -17,7 +18,7 @@ class TensorRTPreProcess(Step):
             if str(pixel_format).upper() != "NV12" or height <= 0 or width <= 0 or height % 2 or width % 2:
                 raise ValueError("TensorRTPreProcess는 양의 짝수 크기 NV12 입력이 필요합니다.")
             producer = item.cuda_stream
-            stream = streams.get(producer.device)
+            stream = current_model_stream() or streams.get(producer.device)
             if stream is None:
                 stream = streams[producer.device] = torch.cuda.Stream(device=producer.device)
             ready = torch.cuda.Event()

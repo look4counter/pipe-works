@@ -32,6 +32,26 @@ class FunctionStep(Step):
 
 
 class AsyncTests(unittest.TestCase):
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
+    def test_manages_shared_model_stream_and_preserves_video_stream(self):
+        from pipeworks.execution import current_model_stream
+        producer = torch.cuda.Stream()
+        observed = []
+
+        def process(item, index):
+            managed = current_model_stream()
+            observed.append(managed.cuda_stream)
+            self.assertEqual(torch.cuda.current_stream().cuda_stream, managed.cuda_stream)
+            self.assertNotEqual(managed.cuda_stream, producer.cuda_stream)
+            self.assertIs(item.cuda_stream, producer)
+            return item
+
+        wrapper = CudaAsync(FunctionStep(process), FunctionStep(process), timeout_ms=1000)
+        list(wrapper.process(iter([PipelineContext(cuda_stream=producer), PipelineContext(cuda_stream=producer)])))
+        self.assertEqual(len(set(observed)), 1)
+        self.assertEqual(len(observed), 4)
+        self.assertIsNone(current_model_stream())
+
     def test_pipeline_internal_class_settings_change_independently(self):
         from pipeworks import Pipeline
         from pipeworks.pipeline import _LiveConfig, _watch_async_children

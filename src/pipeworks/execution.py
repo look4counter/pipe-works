@@ -5,6 +5,20 @@ from contextvars import ContextVar
 
 
 _input_release = ContextVar("pipeworks_input_release", default=None)
+_model_stream = ContextVar("pipeworks_model_stream", default=None)
+
+
+def current_model_stream():
+    return _model_stream.get()
+
+
+@contextmanager
+def _model_stream_scope(stream):
+    token = _model_stream.set(stream)
+    try:
+        yield
+    finally:
+        _model_stream.reset(token)
 
 
 def release_input(*, ready_event=None) -> None:

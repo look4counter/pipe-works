@@ -14,6 +14,7 @@ import yaml
 
 from pipeworks.embedded.stream_report import record_inference
 from pipeworks.models import PipelineContext, Step
+from pipeworks.execution import current_model_stream
 
 
 logger = logging.getLogger(__name__)
@@ -234,7 +235,7 @@ class TensorRTInference(Step):
         for tensor in tensors.values():
             if not isinstance(tensor, torch.Tensor) or not tensor.is_cuda or tensor.device.index != self.gpu_id:
                 raise ValueError("model_input GPU must match gpu_id.")
-        producer = getattr(item, "model_cuda_stream", None)
+        producer = current_model_stream() or getattr(item, "model_cuda_stream", None)
         if producer is None:
             producer = getattr(item, "cuda_stream", None)
         if producer is None:
@@ -262,7 +263,7 @@ class TensorRTInference(Step):
                             session.close()
                         session = None
                         gpu_id = self.gpu_id
-                        stream = torch.cuda.Stream(device=gpu_id)
+                        stream = current_model_stream() or torch.cuda.Stream(device=gpu_id)
                     with torch.cuda.stream(stream):
                         try:
                             tensors = ({name: tensor.contiguous() for name, tensor in tensors.items()}
