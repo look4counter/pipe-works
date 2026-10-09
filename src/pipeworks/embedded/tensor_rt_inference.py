@@ -36,11 +36,14 @@ def _output_allocator(trt, dtype, device, shape):
     class Allocator(trt.IOutputAllocator):
         def __init__(self):
             trt.IOutputAllocator.__init__(self)
+            self.element_size = torch.empty(0, dtype=dtype).element_size()
+            self.reset(shape)
+
+        def reset(self, shape):
             self.shape = shape
             self.raw = None
             self.buffer = None
             self.error = None
-            self.element_size = torch.empty(0, dtype=dtype).element_size()
             if shape is not None:
                 self._reserve(math.prod(shape) * self.element_size, 256)
 
@@ -190,11 +193,16 @@ class _EngineSession:
         for name in self.outputs:
             shape = tuple(self.context.get_tensor_shape(name))
             known_shape = shape if all(size >= 0 for size in shape) else None
-            allocator = _output_allocator(self.trt, self.dtypes[name], stream.device, known_shape)
-            if not self.context.set_output_allocator(name, allocator):
-                raise RuntimeError(f"TensorRT 출력 할당기 설정 실패: {name}")
-            # 이전 할당기는 컨텍스트의 참조를 새 할당기로 교체한 뒤 해제한다.
-            self.allocators[name] = allocator
+            allocator = self.allocators.get(name)
+            if allocator is None:
+                allocator = _output_allocator(self.trt, self.dtypes[name], stream.device, known_shape)
+                if not self.context.set_output_allocator(name, allocator):
+                    raise RuntimeError(f"TensorRT 출력 할당기 설정 실패: {name}")
+                self.allocators[name] = allocator
+            else:
+                # TensorRT retains registered Python allocators until context teardown.
+                # Reuse the callback owner, but preserve earlier output Tensor storage.
+                allocator.reset(known_shape)
             address = allocator.buffer.data_ptr() if allocator.buffer is not None else 0
             if not self.context.set_tensor_address(name, address):
                 raise RuntimeError(f"TensorRT 출력 주소 설정 실패: {name}")

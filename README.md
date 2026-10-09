@@ -173,7 +173,9 @@ NVIDIA GPU를 이용해 RTSP 패킷을 디코딩합니다.
 
 - **역할**: 하드웨어 가속 비디오 디코딩
 - **사용**: `pipeline.step(NvidiaDecode())`
-- **설정**: `max_surfaces`, `timeout_ms`
+- **설정**: `gpu_id` (기본값 `0`)
+- **전달 정책**: 내부 스레드에서 수신·디코딩을 계속 수행하며, 대기 프레임을 최대 30개 보관하며 초과 시 가장 오래된 대기 프레임을 버립니다. 후속 단계가 느리면 소비 전 프레임을 버립니다.
+- **메모리**: 잠금 디코더 버퍼를 복사 없이 공유하고 GPU 작업 완료 후 반환합니다. 잠금 출력 보관량은 최대 34개입니다.
 - **상세**: [docs/pipeworks/embedded/nvidia_decode.md](docs/pipeworks/embedded/nvidia_decode.md)
 
 #### **StreamReport**

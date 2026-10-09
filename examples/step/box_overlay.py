@@ -93,4 +93,6 @@ class BoxOverlay(Step):
                     frame[:height, :width].masked_fill_(mask, y)
                     frame[height:height + height // 2, :width:2].masked_fill_(chroma, u)
                     frame[height:height + height // 2, 1:width:2].masked_fill_(chroma, v)
+                    # The input owns the storage until downstream GPU work finishes.
+                    del frame
             yield item

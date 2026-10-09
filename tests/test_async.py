@@ -32,6 +32,26 @@ class FunctionStep(Step):
 
 
 class AsyncTests(unittest.TestCase):
+    def test_completed_decoder_input_releases_working_context_only(self):
+        observed = []
+        def process(item, index):
+            observed.append(item)
+            item.result_value = 7
+            return item
+
+        frame = torch.tensor([1])
+        lease = object()
+        source = PipelineContext(frame=frame, _decode_buffer=lease)
+        wrapper = CudaAsync(FunctionStep(process), timeout_ms=1000)
+        result = list(wrapper.process(iter([source])))
+        self.assertEqual(result, [source])
+        self.assertIs(result[0].frame, frame)
+        self.assertIs(result[0]._decode_buffer, lease)
+        self.assertEqual(result[0].result_value, 7)
+        self.assertIsNot(observed[0], source)
+        self.assertNotIn("frame", vars(observed[0]))
+        self.assertNotIn("_decode_buffer", vars(observed[0]))
+
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
     def test_manages_shared_model_stream_and_preserves_video_stream(self):
         from pipeworks.execution import current_model_stream

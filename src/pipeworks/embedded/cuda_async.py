@@ -127,8 +127,18 @@ class _InputSlot(Iterator[PipelineContext]):
     def finish(self, request, result):
         with self.condition:
             request.completed_at = time.monotonic()
+            borrowed_frame = any(getattr(item, "_decode_buffer", None) is not None
+                                 for item in (request.owner, request.item, result) if item is not None)
             if not self.closed and not request.expired.is_set() and request.completed_at <= request.deadline:
-                request.result = result
+                # Separate the output before suspended stage generators relinquish
+                # native input fields. Tensor storage itself remains shared.
+                request.result = PipelineContext(**vars(result)) if borrowed_frame and result is not None else result
+            if borrowed_frame and request.input_drained:
+                for item in (request.owner, request.item, result):
+                    if item is not None and getattr(item, "_decode_buffer", None) is not None:
+                        vars(item).pop("frame", None)
+                        vars(item).pop("_decode_buffer", None)
+                request.input_tensors.clear()
             self.request = None
             request.done.set()
 
@@ -351,6 +361,7 @@ class CudaAsync(Step):
                         for kind in kinds:
                             status(kind, "busy")
                         yield item
+                        del item
                         continue
                 request = _Request(item, time.monotonic() + self.timeout_ms / 1000)
                 if slot.offer(request):
@@ -377,6 +388,7 @@ class CudaAsync(Step):
                             fields = vars(request.result).copy()
                             vars(item).clear()
                             vars(item).update(fields)
+                            del fields
                         else:
                             request.expired.set()
                             if not request.done.is_set() or request.completed_at > request.deadline:
@@ -386,11 +398,15 @@ class CudaAsync(Step):
                             drop_frame = not input_finished and not slot.input_released(request)
                         request.result = None
                     if drop_frame:
+                        del item
+                        request = None
                         continue
                 else:
                     for kind in kinds:
                         status(kind, "busy")
                 yield item
+                del item
+                request = None
         finally:
             slot.close()
             if acquired and worker is None:

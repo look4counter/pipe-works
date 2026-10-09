@@ -97,11 +97,15 @@ class _InputEpoch:
             self.cursor.put_back(item)
             self.reason = "code"
             raise StopIteration
-        self.unacknowledged.append((item, vars(item).copy()))
+        if self.owner.recover_errors:
+            self.unacknowledged.append((item, vars(item).copy()))
         return item
 
     def acknowledge(self) -> None:
         self.unacknowledged.clear()
+
+    def close(self) -> None:
+        self.cursor.close()
 
 
 class Hotswap(Step):
@@ -315,6 +319,7 @@ class Hotswap(Step):
                         segment.acknowledge()
                         setattr(item, _EPOCH_ATTRIBUTE, self._output_epoch(upstream_epoch))
                         yield item
+                        del item
                 except Exception:
                     if segment.upstream_error is not None:
                         raise

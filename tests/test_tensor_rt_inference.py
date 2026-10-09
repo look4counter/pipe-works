@@ -20,6 +20,7 @@ class FakeContext:
         self.shapes = {}
         self.addresses = {}
         self.allocators = {}
+        self.allocator_registrations = []
         self.executions = 0
         self.fail_execute = False
 
@@ -41,6 +42,7 @@ class FakeContext:
         return (2, 1)
 
     def set_output_allocator(self, name, allocator):
+        self.allocator_registrations.append((name, allocator))
         self.allocators[name] = allocator
         return True
 
@@ -237,6 +239,15 @@ class TensorRTInferenceTests(unittest.TestCase):
         with torch.cuda.stream(stream):
             tensor = torch.full((2, 2), value, dtype=torch.float32, device="cuda")
         return PipelineContext(model_input=tensor, model_output=object(), cuda_stream=stream, frame=object())
+
+    def test_repeated_inference_registers_one_allocator_per_binding(self):
+        items = [self.item(value) for value in range(1, 6)]
+        results = list(self.step.process(iter(items)))
+        context = self.api.contexts[0]
+        self.assertEqual(len(context.allocator_registrations), len(self.api.outputs))
+        for value, item in enumerate(results, 1):
+            self.assertTrue(torch.equal(item.model_output["raw_scores"],
+                                        torch.full((2, 2), value + 1, device="cuda")))
 
     def test_single_input_names_gpu_values_and_no_pre_or_post_processing(self):
         item = self.item(3)

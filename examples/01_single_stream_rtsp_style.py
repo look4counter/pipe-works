@@ -31,13 +31,15 @@ def build_pipeline() -> Pipeline:
         .step(MetadataFromDB())
         .step(
             CudaAsync(
-                TensorRTPreProcess(),
-                TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan", batch = True),
-                TensorRTPostProcess(),
+                YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt", batch = False),
+                # YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt", batch = True),
+                # TensorRTPreProcess(),
+                # TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan", batch = False),
+                # TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan", batch = True),
+                # TensorRTPostProcess(),
                 timeout_ms=20,
             ),
         )
-        .step(TensorRTReport())
         .step(BoxOverlay())
         .step(Tap(SaveInferenceResultToDB()))
         .step(NvidiaEncode())

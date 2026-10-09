@@ -65,8 +65,8 @@ class Tap(Step):
                 try:
                     outputs = iter(self.step.process(slot))
                     try:
-                        for _ in outputs:
-                            pass
+                        for completed in outputs:
+                            del completed
                     finally:
                         close = getattr(outputs, "close", None)
                         if callable(close):
