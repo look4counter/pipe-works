@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import torch
 
-from pipeworks.embedded.yolo_detect_batch import YoloDetectBatch
+from pipeworks.embedded.yolo_detect import YoloDetect
 from pipeworks.models import PipelineContext
 
 
@@ -23,9 +23,9 @@ def context() -> PipelineContext:
     )
 
 
-class YoloDetectBatchTests(unittest.TestCase):
+class YoloBatchTests(unittest.TestCase):
     def test_process_has_no_input_prefetch(self):
-        step = YoloDetectBatch(Path("model.pt"))
+        step = YoloDetect(Path("model.pt"), batch=True)
         step.configure(SimpleNamespace(inference_interval=3))
         frames = [context() for _ in range(7)]
         pulled = []
@@ -45,7 +45,7 @@ class YoloDetectBatchTests(unittest.TestCase):
         self.assertEqual(self.infer.call_count, 3)
 
     def test_slow_inference_does_not_read_next_frame(self):
-        step = YoloDetectBatch(Path("model.pt"))
+        step = YoloDetect(Path("model.pt"), batch=True)
         first, second = context(), context()
         started = Event()
         release = Event()
@@ -74,22 +74,17 @@ class YoloDetectBatchTests(unittest.TestCase):
         self.assertFalse(runner.is_alive())
         self.assertEqual(outputs, [first, second])
 
-    def test_removed_low_latency_setting_is_rejected(self):
-        for value in (True, False):
-            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "low_latency"):
-                YoloDetectBatch(Path("model.pt")).configure(SimpleNamespace(low_latency=value))
-
     def test_failed_frame_passes_through_and_recovers(self):
-        step = YoloDetectBatch(Path("model.pt"))
+        step = YoloDetect(Path("model.pt"), batch=True)
         step.configure(SimpleNamespace())
         frames = [context(), context()]
         self.infer.side_effect = [RuntimeError("failed"), "recovered"]
-        with self.assertLogs("pipeworks.embedded.yolo_detect_batch", level="ERROR"):
+        with self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR"):
             self.assertEqual(list(step.process(iter(frames))), frames)
         self.assertEqual([frame.detections for frame in frames], [None, "recovered"])
 
     def test_selected_frame_does_not_synchronize_host_before_queueing(self):
-        step = YoloDetectBatch(Path("model.pt"))
+        step = YoloDetect(Path("model.pt"), batch=True)
         step.configure(SimpleNamespace())
         item = context()
         with patch.object(torch.cuda.Stream, "synchronize", side_effect=AssertionError("host sync")):
@@ -98,14 +93,14 @@ class YoloDetectBatchTests(unittest.TestCase):
         self.assertIsInstance(self.infer.call_args.kwargs["ready_event"], torch.cuda.Event)
 
     def setUp(self):
-        inference = patch("pipeworks.embedded.yolo_detect_batch.infer")
+        inference = patch("pipeworks.embedded.yolo_detect.infer")
         self.infer = inference.start()
         def completed_infer(*args, **kwargs):
             kwargs["on_inference_complete"](0.012)
             return self.infer.return_value
         self.infer.side_effect = completed_infer
         self.addCleanup(inference.stop)
-        inference_time = patch("pipeworks.embedded.yolo_detect_batch.record_inference")
+        inference_time = patch("pipeworks.embedded.yolo_detect.record_inference")
         self.record_inference = inference_time.start()
         self.addCleanup(inference_time.stop)
 
@@ -113,12 +108,12 @@ class YoloDetectBatchTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             weights = Path(directory) / "model.pt"
             weights.write_bytes(b"test")
-            step = YoloDetectBatch(weights)
+            step = YoloDetect(weights, batch=True)
             step.configure(SimpleNamespace())
             first, second, third = context(), context(), context()
             result = object()
             self.infer.side_effect = [RuntimeError("start failed"), result, result]
-            with self.assertLogs("pipeworks.embedded.yolo_detect_batch", level="ERROR"):
+            with self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR"):
                 outputs = list(step.process(iter((first, second, third))))
 
             self.assertEqual(outputs, [first, second, third])
@@ -133,7 +128,7 @@ class YoloDetectBatchTests(unittest.TestCase):
             engine.write_bytes(b"test")
             item = context()
             result = object()
-            step = YoloDetectBatch(engine)
+            step = YoloDetect(engine, batch=True)
             step.configure(SimpleNamespace(classes=[2], gpu_id=0))
 
             self.infer.return_value = result
@@ -147,8 +142,8 @@ class YoloDetectBatchTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             weights = Path(directory) / "model.pt"
             weights.write_bytes(b"test")
-            step = YoloDetectBatch(weights)
-            step.configure(SimpleNamespace(classes=[2], confidence=0.4, gpu_id=1))
+            step = YoloDetect(weights, batch=True)
+            step.configure(SimpleNamespace(classes=[2], confidence=0.4, gpu_id=0))
             first, second = context(), context()
             result = object()
 
@@ -164,16 +159,16 @@ class YoloDetectBatchTests(unittest.TestCase):
             self.assertEqual(image.dtype, torch.uint8)
             self.assertEqual(image.shape, (6, 4))
             self.assertTrue(image.is_cuda)
-            self.assertEqual(self.infer.call_args.args[2:], ([2], 0.4, 1))
+            self.assertEqual(self.infer.call_args.args[2:], ([2], 0.4, 0))
 
     def test_gpu_id_defaults_to_zero(self):
-        step = YoloDetectBatch(Path("model.pt"))
+        step = YoloDetect(Path("model.pt"), batch=True)
         step.configure(SimpleNamespace())
         self.assertEqual(step.gpu_id, 0)
         self.assertEqual(step.inference_interval, 1)
 
     def test_inference_interval_requests_only_every_third_frame(self):
-        step = YoloDetectBatch(Path("model.pt"))
+        step = YoloDetect(Path("model.pt"), batch=True)
         step.configure(SimpleNamespace(inference_interval=3))
         frames = [context() for _ in range(7)]
         for frame in frames:
@@ -188,14 +183,14 @@ class YoloDetectBatchTests(unittest.TestCase):
         self.assertEqual(self.record_inference.call_count, 0)
 
     def test_multiple_steps_record_only_inference_time(self):
-        first_step = YoloDetectBatch(Path("first.pt"))
+        first_step = YoloDetect(Path("first.pt"), batch=True)
         first_step.configure(SimpleNamespace(inference_interval=3))
         first_frames = [context() for _ in range(7)]
         for index, frame in enumerate(first_frames):
             frame.processing_started_at = index / 30
         list(first_step.process(iter(first_frames)))
 
-        second_step = YoloDetectBatch(Path("second.pt"))
+        second_step = YoloDetect(Path("second.pt"), batch=True)
         second_step.configure(SimpleNamespace(inference_interval=2))
         second_frames = [context() for _ in range(5)]
         for index, frame in enumerate(second_frames):
@@ -208,17 +203,17 @@ class YoloDetectBatchTests(unittest.TestCase):
     def test_inference_interval_rejects_invalid_values(self):
         for value in (0, -1, True, 1.5, "3"):
             with self.subTest(value=value):
-                step = YoloDetectBatch(Path("model.pt"))
+                step = YoloDetect(Path("model.pt"), batch=True)
                 with self.assertRaisesRegex(ValueError, "inference_interval"):
                     step.configure(SimpleNamespace(inference_interval=value))
 
     def test_failed_request_does_not_shift_inference_interval(self):
-        step = YoloDetectBatch(Path("model.pt"))
+        step = YoloDetect(Path("model.pt"), batch=True)
         step.configure(SimpleNamespace(inference_interval=3))
         frames = [context() for _ in range(5)]
         self.infer.side_effect = [RuntimeError("inference failed"), "fourth"]
 
-        with self.assertLogs("pipeworks.embedded.yolo_detect_batch", level="ERROR"):
+        with self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR"):
             outputs = list(step.process(iter(frames)))
 
         self.assertEqual(outputs, frames)
@@ -228,10 +223,10 @@ class YoloDetectBatchTests(unittest.TestCase):
 
     def test_missing_model_passes_frames_through(self):
         with TemporaryDirectory() as directory:
-            step = YoloDetectBatch(Path(directory) / "missing.pt")
+            step = YoloDetect(Path(directory) / "missing.pt", batch=True)
             first, second = context(), context()
             self.infer.side_effect = FileNotFoundError("missing model")
-            with self.assertLogs("pipeworks.embedded.yolo_detect_batch", level="ERROR") as logs:
+            with self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR") as logs:
                 outputs = list(step.process(iter((first, second))))
             self.assertEqual(outputs, [first, second])
             self.assertIsNone(first.detections)
@@ -245,10 +240,10 @@ class YoloDetectBatchTests(unittest.TestCase):
             first, second = context(), context()
             first.pixel_format = "P016"
             result = object()
-            step = YoloDetectBatch(weights)
+            step = YoloDetect(weights, batch=True)
             step.configure(SimpleNamespace())
             self.infer.return_value = result
-            with self.assertLogs("pipeworks.embedded.yolo_detect_batch", level="ERROR"):
+            with self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR"):
                 outputs = list(step.process(iter((first, second))))
             self.assertEqual(outputs, [first, second])
             self.assertIsNone(first.detections)
@@ -260,10 +255,10 @@ class YoloDetectBatchTests(unittest.TestCase):
             weights.write_bytes(b"test")
             first, second = context(), context()
             result = object()
-            step = YoloDetectBatch(weights)
+            step = YoloDetect(weights, batch=True)
             step.configure(SimpleNamespace())
             self.infer.side_effect = [RuntimeError("inference failed"), result]
-            with self.assertLogs("pipeworks.embedded.yolo_detect_batch", level="ERROR"):
+            with self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR"):
                 outputs = list(step.process(iter((first, second))))
             self.assertEqual(outputs, [first, second])
             self.assertIsNone(first.detections)

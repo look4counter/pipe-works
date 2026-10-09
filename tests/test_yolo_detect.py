@@ -28,6 +28,13 @@ def detection_result(boxes=None):
 
 
 class YoloSettingsTests(unittest.TestCase):
+    def test_optional_batch_parameter(self):
+        self.assertFalse(YoloDetect(Path("model.pt")).batch)
+        self.assertTrue(YoloDetect(Path("model.pt"), batch=True).batch)
+        for value in (None, 1, 0, "true"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                YoloDetect(Path("model.pt"), batch=value)
+
     def test_configuration_and_validation(self):
         step = YoloDetect(Path("model.pt"))
         step.configure(SimpleNamespace(classes=[2], confidence=0.4, gpu_id=0, inference_interval=3))
@@ -47,6 +54,136 @@ class YoloSettingsTests(unittest.TestCase):
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
 class YoloDetectTests(unittest.TestCase):
+    def test_batch_mode_uses_existing_worker_and_interval(self):
+        step = YoloDetect(Path("model.pt"), batch=True)
+        step.configure(SimpleNamespace(classes=[2], confidence=.4, inference_interval=3))
+        frames = [context() for _ in range(7)]
+        with patch("pipeworks.embedded.yolo_detect.infer", side_effect=["first", "fourth", "seventh"]) as infer:
+            outputs = list(step.process(iter(frames)))
+        self.assertEqual(outputs, frames)
+        self.assertEqual([item.detections for item in outputs], ["first", None, None, "fourth", None, None, "seventh"])
+        self.assertEqual(infer.call_count, 3)
+        self.assertEqual(infer.call_args.args[2:], ([2], .4, 0))
+
+    def test_legacy_batch_api_is_removed(self):
+        import importlib.util
+        from pipeworks import embedded
+        self.assertFalse(hasattr(embedded, "YoloDetectBatch"))
+        self.assertIsNone(importlib.util.find_spec("pipeworks.embedded.yolo_detect_batch"))
+
+    def test_batch_records_queue_wait_and_inference_in_calling_scope(self):
+        item = context()
+        step = YoloDetect(Path("model.pt"), batch=True)
+
+        def infer(*args, on_inference_complete, **kwargs):
+            on_inference_complete(.012)
+            return "detected"
+
+        with patch("pipeworks.embedded.yolo_detect.infer", side_effect=infer), patch(
+            "pipeworks.embedded.yolo_detect.record_stage"
+        ) as record, report_scope():
+            stats = _stats()
+            list(step.process(iter([item])))
+            self.assertEqual(stats.completed_inferences, 1)
+            self.assertAlmostEqual(stats.inference_seconds, .012)
+        self.assertEqual([call.args[0] for call in record.call_args_list], ["batch_queue", "batch_wait"])
+
+    def test_batch_configuration_updates_between_inputs(self):
+        step = YoloDetect(Path("model.pt"), batch=True)
+        frames = [context(), context()]
+
+        def inputs():
+            yield frames[0]
+            step.configure(SimpleNamespace(classes=[2], confidence=.7))
+            yield frames[1]
+
+        with patch("pipeworks.embedded.yolo_detect.infer", return_value="result") as infer:
+            list(step.process(inputs()))
+        self.assertEqual(infer.call_args_list[0].args[2:], (None, .25, 0))
+        self.assertEqual(infer.call_args_list[1].args[2:], ([2], .7, 0))
+
+    def test_batch_failure_passes_input_and_recovers(self):
+        step = YoloDetect(Path("model.pt"), batch=True)
+        frames = [context(), context()]
+        with patch("pipeworks.embedded.yolo_detect.infer", side_effect=[RuntimeError("failed"), "recovered"]), \
+                self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR"):
+            outputs = list(step.process(iter(frames)))
+        self.assertEqual(outputs, frames)
+        self.assertEqual([item.detections for item in outputs], [None, "recovered"])
+
+    def test_async_batch_timeout_after_copy_skips_duplicate_copy(self):
+        entered, release, cleaned = Event(), Event(), Event()
+        self.releases.append(release)
+        frame = context()
+        original = frame.frame
+        observed = []
+
+        def infer(path, image, *args, ready_event, **kwargs):
+            ready_event.synchronize()
+            observed.append(image)
+            entered.set()
+            release.wait(5)
+            self.assertTrue(torch.all(image == 128).item())
+            return "late"
+
+        class ObservedYolo(YoloDetect):
+            def process(self, inputs):
+                try:
+                    yield from super().process(inputs)
+                finally:
+                    cleaned.set()
+
+        with patch("pipeworks.embedded.yolo_detect.infer", side_effect=infer), patch(
+            "pipeworks.embedded.async_step._snapshot"
+        ) as snapshot:
+            outputs = Async(ObservedYolo(self.model_path, batch=True), timeout_ms=100).process(iter([frame]))
+            self.assertIs(next(outputs), frame)
+            self.assertTrue(entered.wait(1))
+            snapshot.assert_not_called()
+            self.assertIs(frame.frame, original)
+            self.assertNotEqual(observed[0].data_ptr(), original.data_ptr())
+            with torch.cuda.stream(frame.cuda_stream):
+                frame.frame.fill_(7)
+                frame.cuda_stream.synchronize()
+            outputs.close()
+            release.set()
+            self.assertTrue(cleaned.wait(2))
+            self.assertFalse(hasattr(frame, "detections"))
+
+    def test_async_batch_timeout_before_copy_keeps_fallback_copy(self):
+        from pipeworks.embedded import async_step
+
+        entered, release, cleaned = Event(), Event(), Event()
+        self.releases.append(release)
+        frame = context()
+        original = frame.frame
+        copy_frame = YoloDetect._copy_frame
+
+        def blocked_copy(step, item):
+            entered.set()
+            release.wait(5)
+            return copy_frame(step, item)
+
+        class ObservedYolo(YoloDetect):
+            def process(self, inputs):
+                try:
+                    yield from super().process(inputs)
+                finally:
+                    cleaned.set()
+
+        with patch.object(YoloDetect, "_copy_frame", blocked_copy), patch(
+            "pipeworks.embedded.yolo_detect.infer", return_value="late"
+        ), patch.object(async_step, "_snapshot", wraps=async_step._snapshot) as snapshot:
+            outputs = Async(ObservedYolo(self.model_path, batch=True), timeout_ms=50).process(iter([frame]))
+            self.assertIs(next(outputs), frame)
+            self.assertTrue(entered.wait(1))
+            snapshot.assert_called_once()
+            self.assertNotEqual(frame.frame.data_ptr(), original.data_ptr())
+            outputs.close()
+            release.set()
+            self.assertTrue(cleaned.wait(2))
+            self.assertFalse(hasattr(frame, "detections"))
+
     def setUp(self):
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)

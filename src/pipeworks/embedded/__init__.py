@@ -3,7 +3,6 @@ from pipeworks.embedded.rtsp_source import RTSPSource
 from pipeworks.embedded.rtsp_publish import RTSPPublish
 from pipeworks.embedded.nvidia_encode import NvidiaEncode
 from pipeworks.embedded.nvidia_decode import NvidiaDecode
-from pipeworks.embedded.yolo_detect_batch import YoloDetectBatch
 from pipeworks.embedded.yolo_detect import YoloDetect
 from pipeworks.embedded.tensor_rt_inference import TensorRTInference
 from pipeworks.embedded.tap import Tap
@@ -15,7 +14,6 @@ __all__ = [
     "RTSPPublish",
     "NvidiaEncode",
     "NvidiaDecode",
-    "YoloDetectBatch",
     "YoloDetect",
     "TensorRTInference",
     "Tap",

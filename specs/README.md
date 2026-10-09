@@ -22,9 +22,9 @@
 
 ## 현재 예제 흐름
 
-`RTSPSource → NvidiaDecode → YoloDetectBatch → BoxOverlay → NvidiaEncode → Tap → RTSPPublish → StreamReport`
+`RTSPSource → NvidiaDecode → YoloDetect(batch=True) → BoxOverlay → NvidiaEncode → Tap → RTSPPublish → StreamReport`
 
-01 예제는 한 영상, 02 예제는 다섯 영상을 각각 실행한다. 두 예제 모두 `YoloDetectBatch`와 공유 YAML의 해당 섹션을 사용한다. `YoloDetect`는 공개 단계로 남아 있지만 예제에 등록되어 있지 않다.
+01 예제는 한 영상에서 `Async(YoloDetect(..., batch=True))`를 사용하고, 02 예제는 다섯 영상을 각각 `YoloDetect(..., batch=True)`로 실행한다. 일반 감지 설정은 `YoloDetect` 또는 `Async.step`을 사용하며 모델 동명 YAML은 배치 수집 설정이다.
 
 ## 검증 상태
 

@@ -9,7 +9,7 @@ from pipeworks.embedded import (
     StreamReport,
     Tap,
 )
-from pipeworks.embedded.yolo_detect_batch import YoloDetectBatch
+from pipeworks.embedded.yolo_detect import YoloDetect
 from step.box_overlay import BoxOverlay
 from step.metadata_from_db import MetadataFromDB
 from step.post_process import PostProcess
@@ -24,7 +24,7 @@ def build_pipeline(video: str) -> Pipeline:
         .step(RTSPSource(f"rtsp://210.99.70.120:1935/live/{video}.stream"))
         .step(NvidiaDecode())
         .step(MetadataFromDB())
-        .step(YoloDetectBatch(Path(__file__).with_name("model") / "yolo11n.engine"))
+        .step(YoloDetect(Path(__file__).with_name("model") / "yolo11n.engine", batch=True))
         .step(BoxOverlay())
         .step(NvidiaEncode())
         .step(Tap(PostProcess()))

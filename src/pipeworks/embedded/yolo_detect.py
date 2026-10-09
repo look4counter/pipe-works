@@ -1,4 +1,4 @@
-"""Run synchronous GPU YOLO inference; compose with Async for bounded waiting."""
+"""Run individual or shared-batch GPU YOLO inference with optional Async."""
 
 import logging
 from pathlib import Path
@@ -8,9 +8,10 @@ from typing import Iterator
 
 import torch
 
-from pipeworks.embedded.stream_report import record_inference
+from pipeworks.embedded.stream_report import record_inference, record_stage
+from pipeworks.execution import release_input
 from pipeworks.models import PipelineContext, Step
-from pipeworks.local_yolo import _GpuDetectionPredictor, _INPUT_SIZE, _nv12_to_rgb, _prepare_image
+from pipeworks.local_yolo import _GpuDetectionPredictor, _INPUT_SIZE, _nv12_to_rgb, _prepare_image, infer
 
 
 logger = logging.getLogger(__name__)
@@ -52,8 +53,11 @@ def _predict(model, image, classes, confidence, gpu_id, stream):
 
 
 class YoloDetect(Step):
-    def __init__(self, model_path: Path) -> None:
+    def __init__(self, model_path: Path, *, batch: bool = False) -> None:
+        if not isinstance(batch, bool):
+            raise ValueError("batch는 불리언이어야 합니다.")
         self.model_path = Path(model_path)
+        self.batch = batch
         self.classes: list[int] | None = None
         self.confidence = 0.25
         self.gpu_id = 0
@@ -99,7 +103,38 @@ class YoloDetect(Step):
             raise ValueError(f"NV12 프레임 크기가 잘못되었습니다: {tuple(frame.shape)}")
         return frame[: height * 3 // 2, :width]
 
+    def _copy_frame(self, item: PipelineContext):
+        with torch.cuda.stream(item.cuda_stream):
+            image = self._prepare_frame(item).clone()
+            ready_event = torch.cuda.Event()
+            ready_event.record(item.cuda_stream)
+        return image, ready_event
+
+    def _process_batch(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
+        for frame_index, item in enumerate(inputs):
+            dequeued_at = time.perf_counter()
+            processing_started_at = getattr(item, "processing_started_at", dequeued_at)
+            item.detections = None
+            if frame_index % self.inference_interval == 0:
+                try:
+                    image, ready_event = self._copy_frame(item)
+                    release_input(ready_event=ready_event)
+                    item.detections = infer(
+                        self.model_path, image, self.classes, self.confidence, self.gpu_id,
+                        ready_event=ready_event, on_inference_complete=record_inference,
+                    )
+                except Exception:
+                    logger.exception("YOLO 배치 감지에 실패하여 원본 프레임을 전달합니다.")
+            emitted_at = time.perf_counter()
+            record_stage("batch_queue", dequeued_at - processing_started_at)
+            record_stage("batch_wait", emitted_at - dequeued_at)
+            yield item
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
+        if self.batch:
+            yield from self._process_batch(inputs)
+            return
+
         model = None
         model_gpu = None
         stream = None

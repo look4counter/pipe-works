@@ -14,6 +14,7 @@ from typing import Iterator
 import torch
 
 from pipeworks.models import PipelineContext, Step
+from pipeworks.execution import _input_scope
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,8 @@ class _Request:
     completed_at: float | None = None
     error: Exception | None = None
     prepared: Event = field(default_factory=Event)
+    release_requested: bool = False
+    release_event: object | None = None
 
 
 def _tensors(value, found, seen):
@@ -160,6 +163,28 @@ class _InputSlot(Iterator[PipelineContext]):
             self.request = None
             request.done.set()
 
+    def release_input(self, request, ready_event):
+        with self.condition:
+            if self.request is not request or request.done.is_set():
+                return
+            if not request.consumed:
+                raise RuntimeError("입력을 받은 뒤에만 사용 종료를 알릴 수 있습니다.")
+            if ready_event is not None and not callable(getattr(ready_event, "query", None)):
+                raise TypeError("ready_event는 query 메서드를 가진 완료 이벤트여야 합니다.")
+            request.release_requested = True
+            request.release_event = ready_event
+
+    def input_released(self, request):
+        if not request.release_requested:
+            return False
+        if request.release_event is None:
+            return True
+        try:
+            return bool(request.release_event.query())
+        except Exception:
+            logger.exception("Async 입력 사용 종료 이벤트를 확인하지 못해 복사합니다.")
+            return False
+
     def close(self):
         with self.condition:
             self.closed = True
@@ -225,12 +250,13 @@ class Async(Step):
                         event.synchronize()
                     if request.error is not None:
                         return None
-                    if outputs is None:
-                        outputs = iter(self.step.process(slot))
                     stream = getattr(request.item, "cuda_stream", None)
                     try:
-                        with torch.cuda.stream(stream) if stream is not None else nullcontext():
-                            output = next(outputs)
+                        with _input_scope(lambda event, current=request: slot.release_input(current, event)):
+                            with torch.cuda.stream(stream) if stream is not None else nullcontext():
+                                if outputs is None:
+                                    outputs = iter(self.step.process(slot))
+                                output = next(outputs)
                     finally:
                         if stream is not None:
                             stream.synchronize()
@@ -293,7 +319,7 @@ class Async(Step):
                             raise
                     slot.publish()
                     request.done.wait(max(0, request.deadline - time.monotonic()))
-                    timed_out = False
+                    copy_needed = False
                     with slot.condition:
                         if request.done.is_set() and request.result is not None:
                             fields = vars(request.result).copy()
@@ -304,8 +330,9 @@ class Async(Step):
                             timed_out = not request.done.is_set() or (
                                 request.completed_at is not None and request.completed_at > request.deadline
                             )
+                            copy_needed = timed_out and not slot.input_released(request)
                         request.result = None
-                    if timed_out:
+                    if copy_needed:
                         try:
                             fallback = _snapshot(request)
                             vars(item).clear()

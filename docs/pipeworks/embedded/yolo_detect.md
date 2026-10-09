@@ -1,4 +1,4 @@
-# YoloDetect: 동기 GPU YOLO 객체 감지
+# YoloDetect: 개별·배치 GPU YOLO 객체 감지
 
 선택 프레임의 모델 로드·변환·추론·좌표 복원을 호출 스레드에서 동기로 실행한다. 입력 준비 이벤트를 기다리는 별도 CUDA 추론 스트림을 사용하며, GPU 결과가 준비된 다음에 같은 입력 컨텍스트를 전달한다. 내부 Python 작업자나 시간 제한은 없으며, 잘못된 입력·모델 로드·추론 오류는 호출자에게 예외로 전파한다.
 
@@ -11,6 +11,7 @@ from pathlib import Path
 from pipeworks.embedded import YoloDetect
 
 pipeline.step(YoloDetect(Path("models/yolo11n.pt")))
+pipeline.step(YoloDetect(Path("models/yolo11n.pt"), batch=True))
 ```
 
 `.pt`와 Ultralytics에서 지원하는 `.engine` 모델 경로를 사용할 수 있다. 모델은 입력 스트림의 첫 선택 프레임에서 준비하고 이후 선택 프레임에 재사용한다. 선택 프레임은 초기화나 추론에 오래 걸려도 결과가 준비될 때까지 기다린다.
@@ -30,7 +31,22 @@ YoloDetect:
 - `gpu_id`: 음수가 아닌 GPU 번호. 기본값은 0이다.
 - `inference_interval`: 1 이상의 정수. 기본값은 1이며 첫 입력부터 지정 간격으로 선택한다. 간격 3은 1·4·7번째 입력을 추론한다.
 
-간격으로 건너뛴 입력은 `detections=None`으로 전달한다. 단일 `YoloDetect`는 모델 동명 `.yml`을 읽지 않으며 `timeout`도 적용하지 않는다. `YoloDetectBatch`의 배치 수집 설정은 별도 계약이다.
+간격으로 건너뛴 입력은 `detections=None`으로 전달한다. `batch`는 생성자의 불리언 인자이며 기본값은 `False`이다. YAML에서 실행 모드를 바꾸지는 않는다.
+
+## 선택적 배치 처리
+
+`batch=False`는 위의 기본 동기 경로를 유지하며 모델 동명 `.yml`을 읽지 않는다. `batch=True`는 `YoloDetect`에서 GPU 입력 복제와 사용 종료 신호를 처리하고 `local_yolo.infer()`에 직접 제출한다. 같은 모델 경로의 여러 영상 요청을 공유 작업자에서 모아 추론한다. 결과가 나올 때까지 기다리는 방식이며 한 영상의 다음 프레임을 미리 읽지 않는다. 배치 API는 `YoloDetect(model_path, batch=True)`로 통합되었다.
+
+모델 옆 `yolo11n.yml`에는 다음 배치 수집 설정을 둔다.
+
+```yaml
+max_batch_size: 8
+timeout: 20  # 배치를 모으는 최대 시간, 밀리초
+```
+
+이 `timeout`은 추론 대기 제한이 아니다. 실제 묶음 크기는 동시에 들어오는 요청 수·동일 추론 옵션·모델 엔진의 배치 지원 범위에 따라 달라진다. 실행 중 classes·confidence·gpu_id·inference_interval 설정 변경은 배치 경로에도 입력 경계에서 전달한다.
+
+배치 경로는 기존 동작처럼 실패를 기록하고 `detections=None`으로 원본을 전달한다. 개별 경로의 오류는 예외로 전파한다.
 
 ## 선택적 비동기 실행
 
@@ -38,6 +54,8 @@ YoloDetect:
 from pipeworks.embedded import Async, YoloDetect
 
 pipeline.step(Async(YoloDetect(model_path), timeout_ms=5))
+# 배치 처리와 시간 제한을 함께 사용
+pipeline.step(Async(YoloDetect(model_path, batch=True), timeout_ms=5))
 ```
 
 ```yaml
@@ -50,7 +68,9 @@ Async:
     inference_interval: 1
 ```
 
-공통 `Async`가 작업용 입력을 복사하고 제한 시간·오류·사용 중 원본 통과와 늦은 결과 폐기를 담당한다. 모델 실행 자체는 동기 방식이지만 공통 작업 스레드에서 호출된다. 실행 중 추론을 강제로 취소하지 않는다.
+공통 `Async`가 제한 시간·오류·사용 중 원본 통과와 늦은 결과 폐기를 담당한다. 정상 완료에는 데이터를 복사하지 않고 공유 입력을 읽기 전용으로 사용한다. 개별 모드는 타임아웃에 후속 전달용 입력을 복사한다. 실행 중 추론을 강제로 취소하지 않는다.
+
+배치 모드는 추론용 GPU 입력을 복제한 뒤 `release_input(ready_event=...)`으로 원본 사용 종료를 알린다. `Async`는 타임아웃 시 복사 완료 이벤트가 완료된 경우에만 추가 복사를 생략한다. 복사 준비 전이나 이벤트 완료 전이면 기존 타임아웃 복사를 유지한다. 신호가 없어도 일반 Step을 사용할 수 있다.
 
 원본 통과는 기존 속성을 그대로 보존한다. 원래 `detections`가 없던 입력은 시간 초과 후에도 이 속성이 없을 수 있다. 사용 중 통과한 입력은 감싼 모델 단계가 보지 않으므로 모델의 간격 카운터는 실제 제출된 입력을 기준으로 증가한다.
 
@@ -73,6 +93,5 @@ if result is not None:
 ## 관련 문서
 
 - [Async](async.md): 공통 비동기 실행과 원본 통과 정책.
-- [YoloDetectBatch](yolo_detect_batch.md): 공유 배치 감지.
 - [TensorRTInference](tensor_rt_inference.md): 원시 GPU 텐서 추론.
 - [파이프라인](../pipeline.md): 단계 조립과 구성.

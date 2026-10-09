@@ -1,4 +1,4 @@
-# 작업 목록: 동기 GPU YOLO 감지
+﻿# 작업 목록: 동기 GPU YOLO 감지
 
 **명세**: [spec.md](spec.md)
 **계획**: [plan.md](plan.md)
@@ -85,3 +85,31 @@ T007 → T008 → T009 → T010 → T011 → T012 → T013 순서로 수행한�
 - [x] T028 `specs/011-yolo-detect-sync/`의 현재 명세·계획·작업 대비 코드 수렴을 점검하고 남은 작업을 완료한다.
 
 의존성: T021 → T022 → T023 → T024 → T025 → T026 → T027 → T028. T023·T024는 가져오기 의존성을 함께 바꾸므로 순차로 처리하되 두 파일을 모두 수정한 뒤 실행한다. 이후 문서 작성과 관련 회귀 실행은 독립적으로 수행할 수 있다.
+
+## 13단계: 선택적 배치와 입력 사용 종료
+
+- [x] T029 명세·명확화·계획·공개 계약과 Async 관련 계약을 갱신하고 일관성을 분석한다. (FR-012~FR-015)
+- [x] T030 tests/test_yolo_detect.py, tests/test_async.py에 batch 선택과 신호 완료·미완료·실패·요청 격리·GPU 조합 테스트를 추가하고 구현 전 실패를 확인한다. (SC-006~SC-008)
+- [x] T031 src/pipeworks/execution.py와 src/pipeworks/embedded/async_step.py에 선택적 요청 신호와 조건부 타임아웃 복사를 구현한다. (FR-013~FR-015)
+- [x] T032 src/pipeworks/embedded/yolo_detect.py와 yolo_detect_batch.py에 배치 위임과 복사 완료 신호를 연결하고 기존 설정·단일·배치 경로를 검증한다. (FR-012, FR-013, SC-006, SC-007)
+- [x] T033 README, docs/pipeworks/embedded/yolo_detect.md, yolo_detect_batch.md, async.md 및 관련 설계 자료를 갱신하고 집중·전체 회귀 검증 결과와 수렴 점검을 기록한다. (FR-015, SC-005~SC-008)
+
+T029 → T030 → T031 → T032 → T033 순서로 수행한다.
+
+## 14단계: YoloDetect에서 배치 직접 처리
+
+- [x] T034 명세·명확화·계획·계약을 직접 배치 처리로 갱신하고 일관성을 분석한다. (FR-016)
+- [x] T035 tests/test_yolo_detect.py에서 중간 Step 없이 직접 제출하는 검증과 직접 복제 경로·설정·오류·Async 타임아웃 검증을 갱신하고 구현 전 실패를 확인한다. (FR-016, SC-006~SC-008)
+- [x] T036 src/pipeworks/embedded/yolo_detect.py의 배치 위임을 자체 GPU 복제·신호·local_yolo.infer 호출·통계 처리로 교체한다. (FR-012~FR-016)
+- [x] T037 README와 YOLO·배치 문서 및 설계 자료를 갱신하고 YOLO·Async·기존 배치·공유 작업자 회귀 검증 후 수렴 점검을 기록한다. (FR-016, SC-005~SC-008)
+
+T034 → T035 → T036 → T037 순서로 수행하며 사용자 예제 변경은 보존한다.
+
+## 15단계: 별도 배치 Step 제거
+
+- [x] T038 최신 제거 요구를 명세·명확화·계획·계약에 반영하고 일관성을 분석한다. (FR-016)
+- [x] T039 tests/test_yolo_batch.py로 기존 배치 검증을 옮기고 tests/test_yolo_detect.py와 test_box_overlay.py의 공개 API·예제 검증을 갱신한다. 구현 전 제거 검증 실패를 확인한다. (FR-016, SC-006~SC-008)
+- [x] T040 src/pipeworks/embedded/yolo_detect_batch.py와 공개 내보내기를 제거하고 examples/02_multiple_stream_rtsp_style.py 및 README·YOLO·Async·local_yolo 문서를 통합한다. (FR-016)
+- [x] T041 관련·전체 회귀 검증과 남은 참조 검사를 수행하고 quickstart에 결과를 기록한 뒤 수렴 점검한다. (FR-016, SC-005~SC-008)
+
+T038 → T039 → T040 → T041 순서로 수행한다.

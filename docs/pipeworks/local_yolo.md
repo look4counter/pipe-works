@@ -65,4 +65,4 @@ yolov8x   (161MB)  # extra-large
 ## 🔗 관련 문서
 
 - [YoloDetect](embedded/yolo_detect.md): YOLO 객체 감지
-- [YoloDetectBatch](embedded/yolo_detect_batch.md): 배치 감지
+- [YoloDetect](embedded/yolo_detect.md): 개별·공유 배치 감지

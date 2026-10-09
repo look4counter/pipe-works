@@ -24,7 +24,7 @@ def build_pipeline() -> Pipeline:
         .step(RTSPSource("rtsp://210.99.70.120:1935/live/cctv001.stream"))
         .step(NvidiaDecode())
         .step(MetadataFromDB())
-        .step(Async(YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt"), timeout_ms=20))
+        .step(Async(YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt", batch=True), timeout_ms=20))
         .step(BoxOverlay())
         .step(Tap(PostProcess()))
         .step(NvidiaEncode())

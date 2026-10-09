@@ -3,9 +3,9 @@
 `Async`는 다른 처리 단계를 별도 작업 스레드에서 실행한다. 기한 안에 완료되면 결과를 원본 컨텍스트에 반영하고, 시간 초과나 오류가 발생하면 원본을 그대로 전달한다. 기본 제한 시간은 5ms이다.
 
 ```python
-from pipeworks.embedded import Async, YoloDetectBatch
+from pipeworks.embedded import Async, YoloDetect
 
-pipeline.step(Async(YoloDetectBatch(model_path), timeout_ms=10))
+pipeline.step(Async(YoloDetect(model_path, batch=True), timeout_ms=10))
 ```
 
 일반 사용자 `Step`도 같은 방식으로 감쌀 수 있다. 공개 가져오기는 `from pipeworks.embedded import Async`를 사용한다. 모듈에서 직접 가져올 때는 `from pipeworks.embedded.async_step import Async`를 사용한다. 구현 파일은 `src/pipeworks/embedded/async_step.py`이다.
@@ -16,6 +16,7 @@ pipeline.step(Async(YoloDetectBatch(model_path), timeout_ms=10))
 - 기한 안에 나온 결과로 원본 속성을 갱신하고 같은 원본 객체를 전달한다.
 - 이전 요청이 진행 중이면 후속 입력은 복사하거나 제출하지 않고 통과한다. 요청을 쌓지 않는다.
 - 시간 초과 후 완료된 결과는 폐기한다. 이미 실행 중인 작업을 강제로 취소하지 않는다.
+- 타임아웃 시 해당 요청의 입력 사용 종료 신호가 완료되어 있으면 데이터 복사를 생략한다. 신호가 없거나 아직 완료되지 않았다면 기존 복사를 수행한다.
 - 처리 오류는 로그로 남기고 원본을 전달한다. 처리 오류 뒤 다음 요청에서는 처리 반복자를 다시 시작한다. 타임아웃 복사에 실패하면 실행 중인 작업이 끝날 때까지 기다린 뒤 원본을 전달한다.
 - 입력 종료나 조기 종료는 작업 완료를 무한히 기다리지 않는다. 작업자가 완료한 뒤 처리 반복자를 정리한다.
 - 같은 인스턴스를 다시 사용해도 이전 작업자가 정리를 마칠 때까지 새 입력은 통과한다. 인스턴스 하나에서 작업자를 중복 실행하지 않는다.
@@ -48,8 +49,21 @@ Async:
 
 ## 기존 모델 단계와 조합
 
+일반 Step은 신호를 추가하지 않아도 동작한다. 추론용 복사본이나 별도 전처리 결과를 확보해 공유 입력이 더 이상 필요하지 않은 Step만 다음 API를 사용한다.
+
+```python
+from pipeworks.execution import release_input
+
+release_input()  # 공유 입력 사용이 이미 끝난 경우
+release_input(ready_event=copy_done_event)  # 원본을 읽는 GPU 작업의 완료 이벤트
+```
+
+CUDA 이벤트를 전달하면 `Async`가 타임아웃 시 `query()`로 완료를 확인한다. 이벤트 완료를 기다리느라 제한 시간을 늘리지는 않는다. 조회 실패는 로그와 기존 복사로 처리한다. 신호는 현재 요청에만 적용되며 `Async` 밖에서 호출하면 아무 동작도 하지 않는다. 신호 이후에는 이벤트 이전에 제출한 GPU 읽기 외에 공유 입력을 다시 읽거나 수정하면 안 된다. 별도 작업 컨텍스트의 결과 속성을 갱신하는 것은 가능하다.
+
+`YoloDetect(model_path, batch=True)`는 배치용 GPU 복사 완료 이벤트를 전달한다. 완료가 확인된 타임아웃에는 `Async`의 추가 복사가 없다. 단일 `YoloDetect`는 기존 타임아웃 복사 정책을 유지한다.
+
 `YoloDetect`는 동기로 실행하며 모델 동명 YAML의 제한 시간을 읽지 않는다. `Async(YoloDetect(model_path), timeout_ms=5)`로 감싸면 공통 래퍼가 비동기 실행·시간 제한·오류 통과를 적용한다. 실패하거나 시간 초과한 요청은 원본을 그대로 전달하므로 원본에 `detections`가 없었다면 이후에도 없을 수 있다. 결과 확인에는 `getattr(context, "detections", None)`을 사용할 수 있다.
 
 `TensorRTInference`는 자체 비동기·시간 제한 처리를 유지하므로 `Async`로 감싸면 두 제한이 함께 적용된다. 내부 시간 초과를 바깥 `Async`가 늘려 주지는 않는다.
 
-`YoloDetectBatch`는 공유 배치 결과를 기다리는 동안 바깥 `Async`가 원본을 통과시킬 수 있다. 모델 설정의 `timeout`은 배치를 모으는 시간이고, `Async.timeout_ms`는 요청 결과를 기다리는 시간이다. 내부 모델 단계가 수행하는 복사는 유지되며 바깥 `Async`는 타임아웃 때만 복사한다. `YoloDetect(batch=True)` 옵션은 이번 변경에 포함하지 않는다.
+`YoloDetect(batch=True)`는 공유 배치 결과를 기다리는 동안 바깥 `Async`가 원본을 통과시킬 수 있다. 모델 설정의 `timeout`은 배치를 모으는 시간이고, `Async.timeout_ms`는 요청 결과를 기다리는 시간이다. 내부 배치 입력 복사는 유지하며, 바깥 `Async`의 타임아웃 복사는 원본 사용 종료가 확인되면 생략한다.

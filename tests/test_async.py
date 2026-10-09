@@ -32,6 +32,159 @@ class FunctionStep(Step):
 
 
 class AsyncTests(unittest.TestCase):
+    def test_release_input_outside_async_is_optional(self):
+        from pipeworks.execution import release_input
+        self.assertIsNone(release_input())
+
+    def test_release_input_is_scoped_during_process_initialization(self):
+        from pipeworks.execution import release_input
+        entered, release, finished = Event(), Event(), Event()
+        self.addCleanup(release.set)
+
+        class EagerStep(Step):
+            def process(self, inputs):
+                item = next(inputs)
+                release_input()
+                entered.set()
+                release.wait(5)
+                finished.set()
+                return iter([item])
+
+        with patch("pipeworks.embedded.async_step._snapshot") as snapshot:
+            outputs = Async(EagerStep(), timeout_ms=50).process(iter([PipelineContext()]))
+            next(outputs)
+            self.assertTrue(entered.wait(1))
+            snapshot.assert_not_called()
+            outputs.close()
+            release.set()
+            self.assertTrue(finished.wait(1))
+
+    def test_release_input_skips_copy_only_when_event_is_complete(self):
+        from pipeworks.execution import release_input
+        module = import_module("pipeworks.embedded.async_step")
+
+        for ready in (None, SimpleNamespace(query=lambda: True), SimpleNamespace(query=lambda: False)):
+            with self.subTest(ready=ready):
+                entered, release, cleaned = Event(), Event(), Event()
+                self.addCleanup(release.set)
+
+                class ReleasedStep(Step):
+                    def process(self, inputs):
+                        try:
+                            for item in inputs:
+                                release_input(ready_event=ready)
+                                entered.set()
+                                release.wait(5)
+                                item.late = True
+                                yield item
+                        finally:
+                            cleaned.set()
+
+                original = PipelineContext(tensor=torch.tensor([1]), data=[1])
+                tensor, data = original.tensor, original.data
+                with patch.object(module, "_snapshot", wraps=module._snapshot) as snapshot:
+                    outputs = Async(ReleasedStep(), timeout_ms=50).process(iter([original]))
+                    self.assertIs(next(outputs), original)
+                    self.assertTrue(entered.wait(1))
+                    expected_copy = ready is not None and not ready.query()
+                    self.assertEqual(snapshot.call_count, int(expected_copy))
+                    if not expected_copy:
+                        self.assertIs(original.tensor, tensor)
+                        self.assertIs(original.data, data)
+                    outputs.close()
+                    release.set()
+                    self.assertTrue(cleaned.wait(1))
+                    self.assertFalse(hasattr(original, "late"))
+
+    def test_release_signal_does_not_leak_to_next_request(self):
+        from pipeworks.execution import release_input
+        module = import_module("pipeworks.embedded.async_step")
+        release, cleaned = Event(), Event()
+        self.addCleanup(release.set)
+
+        class SometimesReleased(Step):
+            def process(self, inputs):
+                try:
+                    for index, item in enumerate(inputs):
+                        if index == 0:
+                            release_input()
+                        else:
+                            release.wait(5)
+                        yield item
+                finally:
+                    cleaned.set()
+
+        wrapper = Async(SometimesReleased(), timeout_ms=50)
+        with patch.object(module, "_snapshot", wraps=module._snapshot) as snapshot:
+            outputs = wrapper.process(iter([PipelineContext(), PipelineContext(tensor=torch.tensor([1]))]))
+            next(outputs)
+            second = next(outputs)
+            self.assertEqual(snapshot.call_count, 1)
+            self.assertEqual(second.tensor.tolist(), [1])
+            outputs.close()
+            release.set()
+            self.assertTrue(cleaned.wait(1))
+
+    def test_release_event_query_error_falls_back_to_copy(self):
+        from pipeworks.execution import release_input
+        release, cleaned = Event(), Event()
+        self.addCleanup(release.set)
+
+        class InvalidEvent:
+            def query(self):
+                raise RuntimeError("이벤트 조회 실패")
+
+        class ReleasedStep(Step):
+            def process(self, inputs):
+                try:
+                    for item in inputs:
+                        release_input(ready_event=InvalidEvent())
+                        release.wait(5)
+                        yield item
+                finally:
+                    cleaned.set()
+
+        original = PipelineContext(tensor=torch.tensor([1]))
+        tensor = original.tensor
+        with self.assertLogs("pipeworks.embedded.async_step", level="ERROR"):
+            outputs = Async(ReleasedStep(), timeout_ms=50).process(iter([original]))
+            next(outputs)
+        self.assertIsNot(original.tensor, tensor)
+        outputs.close()
+        release.set()
+        self.assertTrue(cleaned.wait(1))
+
+    def test_stale_execution_context_cannot_release_another_request(self):
+        from contextvars import copy_context
+        from pipeworks.execution import release_input
+        module = import_module("pipeworks.embedded.async_step")
+        release, cleaned = Event(), Event()
+        self.addCleanup(release.set)
+
+        class StaleContextStep(Step):
+            def process(self, inputs):
+                saved = None
+                try:
+                    for index, item in enumerate(inputs):
+                        if index == 0:
+                            saved = copy_context()
+                        else:
+                            saved.run(release_input)
+                            release.wait(5)
+                        yield item
+                finally:
+                    cleaned.set()
+
+        wrapper = Async(StaleContextStep(), timeout_ms=50)
+        with patch.object(module, "_snapshot", wraps=module._snapshot) as snapshot:
+            outputs = wrapper.process(iter([PipelineContext(), PipelineContext(tensor=torch.tensor([1]))]))
+            next(outputs)
+            next(outputs)
+            self.assertEqual(snapshot.call_count, 1)
+            outputs.close()
+            release.set()
+            self.assertTrue(cleaned.wait(1))
+
     def test_public_import_and_validation(self):
         from pipeworks.embedded import Async as exported
         self.assertIs(exported, Async)

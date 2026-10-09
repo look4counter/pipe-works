@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import torch
 
-from pipeworks.embedded import NvidiaEncode, YoloDetectBatch
+from pipeworks.embedded import Async, NvidiaEncode, YoloDetect
 from pipeworks.models import PipelineContext
 
 
@@ -22,7 +22,8 @@ class BoxOverlayTests(unittest.TestCase):
         pipeline = self.example["build_pipeline"]()
         steps = [getattr(step, "wrapped_step", step) for step in pipeline.steps]
         overlay = next(step for step in steps if isinstance(step, self.example["BoxOverlay"]))
-        self.assertLess(steps.index(next(step for step in steps if isinstance(step, YoloDetectBatch))), steps.index(overlay))
+        detect = next(step for step in steps if isinstance(step.step if isinstance(step, Async) else step, YoloDetect))
+        self.assertLess(steps.index(detect), steps.index(overlay))
         self.assertLess(steps.index(overlay), steps.index(next(step for step in steps if isinstance(step, NvidiaEncode))))
         self.assertEqual((overlay.line_width, overlay.line_color, overlay.keep_previous), (2, "#00ff00", True))
 

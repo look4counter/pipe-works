@@ -146,7 +146,7 @@ RTSP 카메라에서 영상을 읽습니다.
 
 - **사용**: `pipeline.step(Async(processor, timeout_ms=5))`
 - **설정**: `timeout_ms`, 감싼 단계 설정의 `step` 매핑
-- **지원**: 입력 하나당 출력 하나인 단계. 공유 입력은 읽기 전용이며 타임아웃 때만 후속 전달용 데이터를 복사합니다. 늦은 결과는 폐기합니다.
+- **지원**: 입력 하나당 출력 하나인 단계. 공유 입력은 읽기 전용이며 타임아웃 때만 후속 전달용 데이터를 복사합니다. 선택적 입력 사용 종료 신호가 완료되면 이 복사도 생략합니다. 늦은 결과는 폐기합니다.
 - **상세**: [Async 안내](docs/pipeworks/embedded/async.md)
 
 #### **YoloDetect**
@@ -154,6 +154,7 @@ RTSP 카메라에서 영상을 읽습니다.
 
 - **역할**: 객체 감지 (별도 CUDA 스트림에서 동기 처리, 영상·감지 결과의 CPU 복사 금지)
 - **사용**: `pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))`
+- **선택적 배치**: `YoloDetect(model_path, batch=True)`. 기본값은 `False`이며 True는 GPU 입력 복제와 사용 종료 신호를 직접 처리하고 `local_yolo.infer()`에 제출합니다. 배치 수집은 모델 동명 `.yml`의 `max_batch_size`, 밀리초 `timeout`으로 설정합니다.
 - **설정**: `classes`, `confidence`, `gpu_id`, `inference_interval`
 - **선택적 비동기**: `pipeline.step(Async(YoloDetect(model_path), timeout_ms=5))`. 단일 감지는 모델 동명 `.yml`의 `timeout`을 읽지 않습니다.
 - **상세**: [docs/pipeworks/embedded/yolo_detect.md](docs/pipeworks/embedded/yolo_detect.md)
@@ -166,14 +167,6 @@ RTSP 카메라에서 영상을 읽습니다.
 - **설정**: 클래스명 YAML의 `gpu_id`, `inference_interval`; 모델 동명 `.yml`의 `timeout`, `plugins`
 - **동작**: 전처리·후처리·CPU 텐서 복사 없이 비동기 추론. 시간 초과·실패·사용 중에는 결과 없이 입력을 전달합니다.
 - **상세**: [TensorRTInference 안내](docs/pipeworks/embedded/tensor_rt_inference.md)
-
-#### **YoloDetectBatch**
-여러 프레임을 묶어 배치 YOLO 처리합니다.
-
-- **역할**: 객체 감지 (배치 처리, 높은 처리량)
-- **사용**: `pipeline.step(YoloDetectBatch(model_path=Path("models/yolo11n.pt")))`
-- **설정**: `classes`, `confidence`, `gpu_id`, `batch_size`, `batch_timeout_ms`
-- **상세**: [docs/pipeworks/embedded/yolo_detect_batch.md](docs/pipeworks/embedded/yolo_detect_batch.md)
 
 #### **NvidiaDecode**
 NVIDIA GPU를 이용해 RTSP 패킷을 디코딩합니다.
@@ -306,7 +299,6 @@ pipeline.run()
 | Async | [Async 안내](docs/pipeworks/embedded/async.md) |
 | RTSPSource | [docs/pipeworks/embedded/rtsp_source.md](docs/pipeworks/embedded/rtsp_source.md) |
 | YoloDetect | [docs/pipeworks/embedded/yolo_detect.md](docs/pipeworks/embedded/yolo_detect.md) |
-| YoloDetectBatch | [docs/pipeworks/embedded/yolo_detect_batch.md](docs/pipeworks/embedded/yolo_detect_batch.md) |
 | RTSPPublish | [docs/pipeworks/embedded/rtsp_publish.md](docs/pipeworks/embedded/rtsp_publish.md) |
 | NvidiaDecode | [docs/pipeworks/embedded/nvidia_decode.md](docs/pipeworks/embedded/nvidia_decode.md) |
 | NvidiaEncode | [docs/pipeworks/embedded/nvidia_encode.md](docs/pipeworks/embedded/nvidia_encode.md) |
