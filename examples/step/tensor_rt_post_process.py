@@ -2,6 +2,8 @@ import math
 from types import SimpleNamespace
 
 import torch
+# Ultralytics가 컴파일된 NMS를 선택하도록 모듈 초기화 시 로드한다.
+import torchvision  # noqa: F401
 from ultralytics.engine.results import Boxes
 from ultralytics.utils import YAML, ROOT
 from ultralytics.utils.nms import non_max_suppression

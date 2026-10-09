@@ -30,3 +30,9 @@ Python 3.11, PyTorch 2.2.1, Ultralytics 8.4.146, TensorRT 10.10을 사용한다.
 ## 검증
 
 모의 이벤트로 평균·10초 만료·미완료 보류를 검증한다. 입력 정체·종료·범위 격리를 확인한다. CUDA 단일·배치 계측과 기존 결과 보존 테스트를 실행한다. 마지막으로 speckit-converge를 수행한다.
+
+## 후속 개선: 컴파일된 NMS 선택
+
+`examples/step/tensor_rt_post_process.py`에서 모듈 초기화 시 torchvision을 명시적으로 가져온다. 설치된 Ultralytics는 sys.modules에 torchvision이 있으면 torchvision.ops.nms를 선택한다. 기존 torchvision 의존성을 사용하므로 추가 패키지는 필요하지 않다. 기존 NMS 호출과 후처리 알고리즘은 유지한다.
+
+새 프로세스에서 후처리 모듈을 가져온 후 torchvision 로드를 확인하고 CUDA 후보를 입력하여 torchvision.ops.nms 호출을 관찰한다. 기존 `tests/test_tensor_rt_processing.py`와 `tests/test_detection_report.py`를 실행하여 감지 결과와 계측을 검증한다. 헌법은 미작성 템플릿이고 설계 원칙 위반은 없다.

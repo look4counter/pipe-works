@@ -33,3 +33,12 @@ T001 → T002 → T003 → T004/T005 → T006 → T007 → T008 → T009 순서�
 새 감지 리포트 테스트 14개가 모두 통과했다. 실제 예제 YOLO·TensorRT 모델의 단일·배치 구간 분리, 공유 배치의 실행 격리, GPU 추가 동기화 금지, 타임아웃·부분 종료·바쁨·오류 상태를 확인했다.
 
 전체 회귀 테스트는 223개 중 218개 통과, 3개 건너뜀, 2개 오류였다. 두 오류는 기존 examples/02_multiple_stream_rtsp_style.py가 존재하지 않는 step.post_process 모듈을 가져오는 문제이며 이번 변경 파일이 아니다. 단독 실행에서도 재현했다. Windows named pipe 통합 테스트는 샌드박스 밖에서 재실행하여 검증했다.
+
+## 6단계: 사용자 이야기 1의 후속 NMS 개선
+
+- [x] T010 [US1] `examples/step/tensor_rt_post_process.py`에서 torchvision을 명시적으로 가져와 컴파일된 NMS 선택을 보장한다. (FR-009)
+- [x] T011 [US1] 새 프로세스의 NMS 호출을 확인하고 `tests/test_tensor_rt_processing.py`, `tests/test_detection_report.py`의 기존 검증을 실행한다. (FR-009, SC-005)
+
+T010 → T011 순서로 수행하고 완료 후 명세 대비 수렴을 점검한다.
+
+후속 검증: 전후처리 테스트 6개와 감지 리포트 테스트 14개가 모두 통과했다. 새 프로세스에서 TensorRT 후처리만 가져온 뒤 CUDA 입력을 실행하여 torchvision.ops.nms가 한 번 호출되고 중복 박스 두 개가 한 개로 억제되는 것을 확인했다. 실제 스트림의 개선 폭은 재시작 후 TensorRTReport로 비교한다.
