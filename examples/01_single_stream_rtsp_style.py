@@ -29,9 +29,7 @@ def build_pipeline() -> Pipeline:
         .step(MetadataFromDB())
         .step(
             Async(
-                TensorRTPreProcess(),
-                TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan"),
-                TensorRTPostProcess(),
+                YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt"),
                 timeout_ms=20,
             ),
         )

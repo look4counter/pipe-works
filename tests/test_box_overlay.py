@@ -72,7 +72,10 @@ class BoxOverlayTests(unittest.TestCase):
         reused = item(None)
         empty = item([])
         cleared = item(None)
-        outputs = list(overlay.process(iter((first, reused, empty, cleared))))
+        detections = first.detections
+        with patch.object(torch.Tensor, "cpu", side_effect=AssertionError("CPU copy")), patch.object(torch.Tensor, "tolist", side_effect=AssertionError("CPU list")), patch.object(torch.Tensor, "item", side_effect=AssertionError("scalar read")):
+            outputs = list(overlay.process(iter((first, reused, empty, cleared))))
+        self.assertIs(first.detections, detections)
         stream.synchronize()
 
         self.assertEqual(outputs, [first, reused, empty, cleared])
