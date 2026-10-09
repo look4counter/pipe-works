@@ -27,6 +27,36 @@ class Container:
 
 
 class RTSPSourceTests(unittest.TestCase):
+    def test_reconnect_interval_ms_waits_and_stop_event(self):
+        for config, seconds in [({}, 3), ({"reconnect_interval_ms": 0}, 0), ({"reconnect_interval_ms": 250}, .25), ({"reconnect_interval_ms": 1250.5}, 1.2505)]:
+            for use_stop in [False, True]:
+                with self.subTest(config=config, use_stop=use_stop):
+                    source = RTSPSource("rtsp://input")
+                    source.configure(SimpleNamespace(**config))
+                    if use_stop:
+                        from unittest.mock import Mock
+                        stop = Mock()
+                        stop.is_set.side_effect = [False, True]
+                        source._pipeworks_stop_event = stop
+                    with patch("pipeworks.embedded.rtsp_source.av.open", side_effect=[av.error.FFmpegError(1, "failed"), Container()]), patch("pipeworks.embedded.rtsp_source.time.sleep") as sleep:
+                        iterator = source.process(iter(()))
+                        if use_stop:
+                            self.assertEqual(list(iterator), [])
+                            stop.wait.assert_called_once_with(seconds)
+                            sleep.assert_not_called()
+                        else:
+                            next(iterator)
+                            iterator.close()
+                            sleep.assert_called_once_with(seconds)
+                    self.assertEqual(source.reconnect_interval_ms, config.get("reconnect_interval_ms", 3000))
+
+    def test_invalid_reconnect_interval_configuration(self):
+        configs = [{"reconnect_interval_ms": value} for value in [-1, True, "3000", None, float("nan"), float("inf")]]
+        configs += [{"reconnect_interval": 3}, {"reconnect_interval": 3, "reconnect_interval_ms": 3000}]
+        for config in configs:
+            with self.subTest(config=config), self.assertRaisesRegex(ValueError, "reconnect_interval_ms"):
+                RTSPSource("rtsp://input").configure(SimpleNamespace(**config))
+
     def test_timeout_ms_conversion(self):
         for config, seconds in [({}, 5), ({"timeout_ms": 0}, 0), ({"timeout_ms": 250}, .25), ({"timeout_ms": 1250.5}, 1.2505), ({"timeout_ms": 10000}, 10)]:
             with self.subTest(config=config):
@@ -66,7 +96,7 @@ class RTSPSourceTests(unittest.TestCase):
     def test_connection_error_retries_and_disabled_reconnect_raises(self):
         container = Container()
         source = RTSPSource("rtsp://input")
-        source.configure(SimpleNamespace(reconnect_interval=0))
+        source.configure(SimpleNamespace(reconnect_interval_ms=0))
         error = av.error.FFmpegError(1, "failed")
         with patch("pipeworks.embedded.rtsp_source.av.open", side_effect=[error, container]) as open_mock, patch(
             "pipeworks.embedded.rtsp_source.time.sleep"

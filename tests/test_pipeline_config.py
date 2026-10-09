@@ -216,11 +216,11 @@ class PipelineConfigTests(unittest.TestCase):
     def test_registered_steps_apply_configuration_to_explicit_attributes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.yaml"
-            path.write_text("RTSPSource:\n  reconnect_interval: 7\nNvidiaDecode:\n  mode: fast\n", encoding="utf-8")
+            path.write_text("RTSPSource:\n  reconnect_interval_ms: 7000\nNvidiaDecode:\n  mode: fast\n", encoding="utf-8")
             source = RTSPSource("rtsp://example")
             decode = NvidiaDecode()
             Pipeline("test", config=path).step(source).step(decode)
-        self.assertEqual(source.reconnect_interval, 7)
+        self.assertEqual(source.reconnect_interval_ms, 7000)
         self.assertEqual(decode.gpu_id, 0)
         self.assertNotIn("config", vars(source))
         self.assertNotIn("config", vars(decode))

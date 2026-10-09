@@ -34,3 +34,8 @@ Python 3.11.9, 기존 PyAV와 unittest를 사용하며 새 의존성은 없다. 
 4. 설정 변경 시 기존 인스턴스의 최상위 속성을 보관하고 해당 인스턴스의 `configure()`를 실행한다. 성공하면 처리 반복자를 유지하고, 실패하면 보관한 속성을 복원해 이전 설정을 유지한다. 코드 변경이 동시에 발생하면 설정 적용 후 기존 코드 교체 계약을 따른다.
 5. 소스는 출력 경계, 입력 단계는 다음 입력 요청에서 설정을 확인한다. 설정 변경만으로 디코더·인코더·송출 생성기를 종료하지 않는다. 현재 열린 자원이 생성 시점에 읽은 값은 자연스러운 자원 재생성 때 적용한다.
 6. 테스트에서는 사용자 Step, 내장 Step, `Tap`, 소스, 잘못된 YAML, 설정 오류, 중앙 실행과 인스턴스·처리 반복자 식별자 유지를 확인한다.
+# 후속 계획: 재연결 간격 밀리초 통일
+
+RTSPSource와 RTSPPublish는 reconnect_interval_ms 기본값 3000을 저장한다. timeout_ms와 같은 유한한 비음수 숫자 검증을 적용하며 이전 reconnect_interval 키는 오류로 거부한다. 수신 time.sleep과 stop.wait, 송출 연결 실패와 mux 실패의 retry_at 계산에서는 1000으로 나누어 초로 변환한다. 수신 로그도 밀리초로 표시한다. 다른 재연결 정책은 보존한다.
+
+tests/test_rtsp_source.py는 기본값·0·소수 대기와 중단 이벤트, test_rtsp_publish.py는 연결 및 송신 실패 후 250ms 경계와 잘못된 설정을 검증한다. test_pipeline_config.py의 구성 예제를 밀리초로 옮긴다. examples/config/stream.yml, README.md, docs/pipeworks/pipeline.md 및 두 RTSP 문서는 이름과 수치를 함께 환산한다. 기존 RTSP 데이터 계약도 갱신한다. 관련 테스트만 실행하며 코드·명세·작업의 수렴을 확인한다.

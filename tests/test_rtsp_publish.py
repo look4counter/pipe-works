@@ -34,6 +34,26 @@ class Output:
 
 
 class RTSPPublishTests(unittest.TestCase):
+    def test_reconnect_interval_ms_retry_boundary(self):
+        for failure in ["open", "mux"]:
+            with self.subTest(failure=failure):
+                failed = Output(fail_mux=True)
+                recovered = Output()
+                initial = OSError("open failed") if failure == "open" else failed
+                publisher = self.publisher(reconnect_interval_ms=250)
+                with patch("pipeworks.embedded.rtsp_publish.av.open", side_effect=[initial, recovered]) as opened, patch("pipeworks.embedded.rtsp_publish.time.monotonic", side_effect=[0, 0, .249, .25]):
+                    list(publisher.process(iter([self.bypass_input(0)] * 3)))
+                self.assertEqual(opened.call_count, 2)
+                self.assertEqual(len(recovered.sent), 1)
+        self.assertEqual(self.publisher().reconnect_interval_ms, 3000)
+
+    def test_invalid_reconnect_interval_configuration(self):
+        configs = [{"reconnect_interval_ms": value} for value in [-1, True, "3000", None, float("nan"), float("inf")]]
+        configs += [{"reconnect_interval": 3}, {"reconnect_interval": 3, "reconnect_interval_ms": 3000}]
+        for config in configs:
+            with self.subTest(config=config), self.assertRaisesRegex(ValueError, "reconnect_interval_ms"):
+                self.publisher(**config)
+
     def test_timeout_ms_conversion(self):
         for config, microseconds in [({}, "5000000"), ({"timeout_ms": 0}, "0"), ({"timeout_ms": 250}, "250000"), ({"timeout_ms": 1250.5}, "1250500")]:
             with self.subTest(config=config):
@@ -119,7 +139,7 @@ class RTSPPublishTests(unittest.TestCase):
         with patch("pipeworks.embedded.rtsp_publish.av.open", side_effect=[failed, recovered]), patch(
             "pipeworks.embedded.rtsp_publish.time.monotonic", side_effect=[0, 0, 1, 2]
         ), patch("pipeworks.embedded.rtsp_publish.record_publish") as status:
-            result = list(self.publisher(reconnect_interval=1).process(iter([self.bypass_input(0)] * 3)))
+            result = list(self.publisher(reconnect_interval_ms=1000).process(iter([self.bypass_input(0)] * 3)))
         self.assertEqual([call.args[0] for call in status.call_args_list], [False, True, True])
         self.assertEqual(result, [])
         self.assertEqual(failed.closed, 1)

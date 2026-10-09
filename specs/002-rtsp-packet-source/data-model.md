@@ -14,4 +14,4 @@
 - `url`: 입력 주소
 - `transport`: RTSP 전송 방식. 기본값은 `tcp`
 - `reconnect`: 재연결 활성 여부. 기본값은 참
-- `reconnect_interval`: 재연결 대기 시간. 기본값은 3초
+- `reconnect_interval_ms`: 재연결 대기 시간. 기본값은 3000밀리초이며 0 이상의 유한한 숫자를 허용한다. 이전 키는 거부한다.

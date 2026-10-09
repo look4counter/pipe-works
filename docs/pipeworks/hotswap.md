@@ -57,7 +57,7 @@ Context (Epoch 2)
 YoloDetect:
   confidence: 0.25
   gpu_id: 0
-  inference_interval: 1
+  inference_interval_frame: 1
 ```
 
 파이프라인 실행 중:
@@ -66,7 +66,7 @@ YoloDetect:
 YoloDetect:
   confidence: 0.5      # 변경
   gpu_id: 0
-  inference_interval: 2  # 변경
+  inference_interval_frame: 2  # 변경
 ```
 
 파일을 저장하면:

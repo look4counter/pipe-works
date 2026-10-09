@@ -37,12 +37,12 @@ class YoloSettingsTests(unittest.TestCase):
 
     def test_configuration_and_validation(self):
         step = YoloDetect(Path("model.pt"))
-        step.configure(SimpleNamespace(classes=[2], confidence=0.4, gpu_id=0, inference_interval=3))
-        self.assertEqual((step.classes, step.confidence, step.gpu_id, step.inference_interval), ([2], 0.4, 0, 3))
-        self.assertEqual(YoloDetect(Path("model.pt")).inference_interval, 1)
+        step.configure(SimpleNamespace(classes=[2], confidence=0.4, gpu_id=0, inference_interval_frame=3))
+        self.assertEqual((step.classes, step.confidence, step.gpu_id, step.inference_interval_frame), ([2], 0.4, 0, 3))
+        self.assertEqual(YoloDetect(Path("model.pt")).inference_interval_frame, 1)
         for config in (SimpleNamespace(classes=[True]), SimpleNamespace(classes=[-1]),
                        SimpleNamespace(confidence=0), SimpleNamespace(gpu_id=-1),
-                       *(SimpleNamespace(inference_interval=value) for value in (0, -1, True, 1.5, "3", None))):
+                       *(SimpleNamespace(inference_interval_frame=value) for value in (0, -1, True, 1.5, "3", None))):
             with self.subTest(config=config), self.assertRaises(ValueError):
                 step.configure(config)
 
@@ -56,7 +56,7 @@ class YoloSettingsTests(unittest.TestCase):
 class YoloDetectTests(unittest.TestCase):
     def test_batch_mode_uses_existing_worker_and_interval(self):
         step = YoloDetect(Path("model.pt"), batch=True)
-        step.configure(SimpleNamespace(classes=[2], confidence=.4, inference_interval=3))
+        step.configure(SimpleNamespace(classes=[2], confidence=.4, inference_interval_frame=3))
         frames = [context() for _ in range(7)]
         with patch("pipeworks.embedded.yolo_detect.infer", side_effect=["first", "fourth", "seventh"]) as infer:
             outputs = list(step.process(iter(frames)))
@@ -207,7 +207,7 @@ class YoloDetectTests(unittest.TestCase):
     def test_results_keep_order_interval_model_and_options(self):
         frames = [context() for _ in range(7)]
         originals = [item.frame for item in frames]
-        self.step.configure(SimpleNamespace(classes=[2], confidence=0.4, gpu_id=0, inference_interval=3))
+        self.step.configure(SimpleNamespace(classes=[2], confidence=0.4, gpu_id=0, inference_interval_frame=3))
         model = self.mock_model()
         with patch("ultralytics.YOLO", return_value=model) as load, patch(
             "pipeworks.embedded.yolo_detect.record_inference"
@@ -425,3 +425,13 @@ class YoloDetectTests(unittest.TestCase):
 
     def test_real_engine_model_infers_one_frame(self):
         self._check_real_model("engine")
+
+
+class YoloIntervalConfigurationTests(unittest.TestCase):
+    def test_legacy_interval_is_rejected_in_both_modes(self):
+        for batch in (False, True):
+            for config in ({"inference_interval": 3}, {"inference_interval": 3, "inference_interval_frame": 3}):
+                with self.subTest(batch=batch, config=config):
+                    step = YoloDetect(Path("model.pt"), batch=batch)
+                    with self.assertRaisesRegex(ValueError, "inference_interval_frame"):
+                        step.configure(SimpleNamespace(**config))

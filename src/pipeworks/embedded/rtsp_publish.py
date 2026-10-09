@@ -15,6 +15,16 @@ class RTSPPublish(Step):
         self.url = url
 
     def configure(self, config: SimpleNamespace) -> None:
+        if hasattr(config, "reconnect_interval"):
+            raise ValueError("reconnect_interval 대신 밀리초 단위의 reconnect_interval_ms를 사용하세요.")
+        reconnect_interval_ms = getattr(config, "reconnect_interval_ms", 3000)
+        if (
+            isinstance(reconnect_interval_ms, bool)
+            or not isinstance(reconnect_interval_ms, (int, float))
+            or not math.isfinite(reconnect_interval_ms)
+            or reconnect_interval_ms < 0
+        ):
+            raise ValueError("reconnect_interval_ms는 0 이상의 유한한 숫자여야 합니다.")
         if hasattr(config, "timeout"):
             raise ValueError("timeout 대신 밀리초 단위의 timeout_ms를 사용하세요.")
         timeout_ms = getattr(config, "timeout_ms", 5000)
@@ -27,16 +37,13 @@ class RTSPPublish(Step):
             raise ValueError("timeout_ms는 0 이상의 유한한 숫자여야 합니다.")
 
         self.reconnect = getattr(config, "reconnect", True)
-        self.reconnect_interval = getattr(config, "reconnect_interval", 3)
+        self.reconnect_interval_ms = reconnect_interval_ms
         self.transport = getattr(config, "transport", "tcp")
         self.timeout_ms = timeout_ms
         self.packet_size = getattr(config, "packet_size", 1452)
 
         if not isinstance(self.reconnect, bool):
             logger.error("RTSP 입력 설정에 잘못된 reconnect 값이 있습니다.")
-
-        if self.reconnect_interval < 0:
-            logger.error("RTSP 입력 설정에 잘못된 reconnect_interval 값이 있습니다.")
 
         if self.transport not in ["tcp", "udp"]:
             logger.error("RTSP 입력 설정에 잘못된 transport 값이 있습니다.")
@@ -109,7 +116,7 @@ class RTSPPublish(Step):
                         output_stream = None
                         if not self.reconnect:
                             raise
-                        retry_at = time.monotonic() + self.reconnect_interval
+                        retry_at = time.monotonic() + self.reconnect_interval_ms / 1000
                         logger.warning("RTSP 출력 연결 실패, 재시도 예정: %s", error)
                         continue
 
@@ -158,7 +165,7 @@ class RTSPPublish(Step):
                     output_stream = None
                     if not self.reconnect:
                         raise
-                    retry_at = time.monotonic() + self.reconnect_interval
+                    retry_at = time.monotonic() + self.reconnect_interval_ms / 1000
                     logger.warning("RTSP 패킷 송신 실패, 재시도 예정: %s", error)
                     continue
 

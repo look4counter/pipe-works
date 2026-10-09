@@ -61,13 +61,15 @@ class YoloDetect(Step):
         self.classes: list[int] | None = None
         self.confidence = 0.25
         self.gpu_id = 0
-        self.inference_interval = 1
+        self.inference_interval_frame = 1
 
     def configure(self, config: SimpleNamespace) -> None:
+        if hasattr(config, "inference_interval"):
+            raise ValueError("inference_interval 대신 프레임 단위의 inference_interval_frame을 사용하세요.")
         classes = getattr(config, "classes", None)
         confidence = getattr(config, "confidence", 0.25)
         gpu_id = getattr(config, "gpu_id", 0)
-        inference_interval = getattr(config, "inference_interval", 1)
+        inference_interval_frame = getattr(config, "inference_interval_frame", 1)
         if classes is not None and (
             not isinstance(classes, list)
             or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in classes)
@@ -77,12 +79,12 @@ class YoloDetect(Step):
             raise ValueError("confidence는 0보다 크고 1 이하여야 합니다.")
         if isinstance(gpu_id, bool) or not isinstance(gpu_id, int) or gpu_id < 0:
             raise ValueError("gpu_id는 음수가 아닌 정수여야 합니다.")
-        if isinstance(inference_interval, bool) or not isinstance(inference_interval, int) or inference_interval < 1:
-            raise ValueError("inference_interval은 1 이상의 정수여야 합니다.")
+        if isinstance(inference_interval_frame, bool) or not isinstance(inference_interval_frame, int) or inference_interval_frame < 1:
+            raise ValueError("inference_interval_frame은 1 이상의 정수여야 합니다.")
         self.classes = classes
         self.confidence = confidence
         self.gpu_id = gpu_id
-        self.inference_interval = inference_interval
+        self.inference_interval_frame = inference_interval_frame
 
     def _prepare_frame(self, item):
         pixel_format = getattr(item.pixel_format, "name", item.pixel_format)
@@ -115,7 +117,7 @@ class YoloDetect(Step):
             dequeued_at = time.perf_counter()
             processing_started_at = getattr(item, "processing_started_at", dequeued_at)
             item.detections = None
-            if frame_index % self.inference_interval == 0:
+            if frame_index % self.inference_interval_frame == 0:
                 try:
                     image, ready_event = self._copy_frame(item)
                     release_input(ready_event=ready_event)
@@ -140,7 +142,7 @@ class YoloDetect(Step):
         stream = None
         for frame_index, item in enumerate(inputs):
             item.detections = None
-            if frame_index % self.inference_interval == 0:
+            if frame_index % self.inference_interval_frame == 0:
                 try:
                     with torch.cuda.stream(item.cuda_stream):
                         image = self._prepare_frame(item)

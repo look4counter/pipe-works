@@ -23,13 +23,15 @@ YoloDetect:
   classes: null
   confidence: 0.25
   gpu_id: 0
-  inference_interval: 1
+  inference_interval_frame: 1
 ```
 
 - `classes`: 음수가 아닌 정수 클래스 번호 목록. 기본값 `null`은 전체 클래스이다.
 - `confidence`: 0보다 크고 1 이하인 신뢰도. 기본값은 0.25이다.
 - `gpu_id`: 음수가 아닌 GPU 번호. 기본값은 0이다.
-- `inference_interval`: 1 이상의 정수. 기본값은 1이며 첫 입력부터 지정 간격으로 선택한다. 간격 3은 1·4·7번째 입력을 추론한다.
+- `inference_interval_frame`: 1 이상의 정수. 기본값은 1이며 첫 입력부터 지정 간격으로 선택한다. 간격 3은 1·4·7번째 입력을 추론한다.
+
+기존 `inference_interval` 설정은 `inference_interval_frame`으로 변경해야 한다. 값과 프레임 단위 동작은 동일하며 이전 키는 변경 안내 오류로 처리한다.
 
 간격으로 건너뛴 입력은 `detections=None`으로 전달한다. `batch`는 생성자의 불리언 인자이며 기본값은 `False`이다. YAML에서 실행 모드를 바꾸지는 않는다.
 
@@ -44,7 +46,7 @@ max_batch_size: 8
 timeout: 20  # 배치를 모으는 최대 시간, 밀리초
 ```
 
-이 `timeout`은 추론 대기 제한이 아니다. 실제 묶음 크기는 동시에 들어오는 요청 수·동일 추론 옵션·모델 엔진의 배치 지원 범위에 따라 달라진다. 실행 중 classes·confidence·gpu_id·inference_interval 설정 변경은 배치 경로에도 입력 경계에서 전달한다.
+이 `timeout`은 추론 대기 제한이 아니다. 실제 묶음 크기는 동시에 들어오는 요청 수·동일 추론 옵션·모델 엔진의 배치 지원 범위에 따라 달라진다. 실행 중 classes·confidence·gpu_id·inference_interval_frame 설정 변경은 배치 경로에도 입력 경계에서 전달한다.
 
 배치 경로는 기존 동작처럼 실패를 기록하고 `detections=None`으로 원본을 전달한다. 개별 경로의 오류는 예외로 전파한다.
 
@@ -65,7 +67,7 @@ Async:
     classes: [2]
     confidence: 0.4
     gpu_id: 0
-    inference_interval: 1
+    inference_interval_frame: 1
 ```
 
 공통 `Async`가 제한 시간·오류·사용 중 원본 통과와 늦은 결과 폐기를 담당한다. 정상 완료에는 데이터를 복사하지 않고 공유 입력을 읽기 전용으로 사용한다. 개별 모드는 타임아웃에 후속 전달용 입력을 복사한다. 실행 중 추론을 강제로 취소하지 않는다.

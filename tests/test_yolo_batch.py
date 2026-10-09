@@ -26,7 +26,7 @@ def context() -> PipelineContext:
 class YoloBatchTests(unittest.TestCase):
     def test_process_has_no_input_prefetch(self):
         step = YoloDetect(Path("model.pt"), batch=True)
-        step.configure(SimpleNamespace(inference_interval=3))
+        step.configure(SimpleNamespace(inference_interval_frame=3))
         frames = [context() for _ in range(7)]
         pulled = []
         self.infer.side_effect = ["first", "fourth", "seventh"]
@@ -165,11 +165,11 @@ class YoloBatchTests(unittest.TestCase):
         step = YoloDetect(Path("model.pt"), batch=True)
         step.configure(SimpleNamespace())
         self.assertEqual(step.gpu_id, 0)
-        self.assertEqual(step.inference_interval, 1)
+        self.assertEqual(step.inference_interval_frame, 1)
 
-    def test_inference_interval_requests_only_every_third_frame(self):
+    def test_inference_interval_frame_requests_only_every_third_frame(self):
         step = YoloDetect(Path("model.pt"), batch=True)
-        step.configure(SimpleNamespace(inference_interval=3))
+        step.configure(SimpleNamespace(inference_interval_frame=3))
         frames = [context() for _ in range(7)]
         for frame in frames:
             frame.detections = "old"
@@ -184,14 +184,14 @@ class YoloBatchTests(unittest.TestCase):
 
     def test_multiple_steps_record_only_inference_time(self):
         first_step = YoloDetect(Path("first.pt"), batch=True)
-        first_step.configure(SimpleNamespace(inference_interval=3))
+        first_step.configure(SimpleNamespace(inference_interval_frame=3))
         first_frames = [context() for _ in range(7)]
         for index, frame in enumerate(first_frames):
             frame.processing_started_at = index / 30
         list(first_step.process(iter(first_frames)))
 
         second_step = YoloDetect(Path("second.pt"), batch=True)
-        second_step.configure(SimpleNamespace(inference_interval=2))
+        second_step.configure(SimpleNamespace(inference_interval_frame=2))
         second_frames = [context() for _ in range(5)]
         for index, frame in enumerate(second_frames):
             frame.processing_started_at = index / 25
@@ -200,16 +200,16 @@ class YoloBatchTests(unittest.TestCase):
         self.assertEqual(self.record_inference.call_count, 6)
         self.assertTrue(all(call.args == (0.012,) for call in self.record_inference.call_args_list))
 
-    def test_inference_interval_rejects_invalid_values(self):
+    def test_inference_interval_frame_rejects_invalid_values(self):
         for value in (0, -1, True, 1.5, "3"):
             with self.subTest(value=value):
                 step = YoloDetect(Path("model.pt"), batch=True)
-                with self.assertRaisesRegex(ValueError, "inference_interval"):
-                    step.configure(SimpleNamespace(inference_interval=value))
+                with self.assertRaisesRegex(ValueError, "inference_interval_frame"):
+                    step.configure(SimpleNamespace(inference_interval_frame=value))
 
-    def test_failed_request_does_not_shift_inference_interval(self):
+    def test_failed_request_does_not_shift_inference_interval_frame(self):
         step = YoloDetect(Path("model.pt"), batch=True)
-        step.configure(SimpleNamespace(inference_interval=3))
+        step.configure(SimpleNamespace(inference_interval_frame=3))
         frames = [context() for _ in range(5)]
         self.infer.side_effect = [RuntimeError("inference failed"), "fourth"]
 

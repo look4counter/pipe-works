@@ -44,3 +44,6 @@ TensorRTInference는 기존 _AsyncWorker를 상속하므로 필요한 슬롯 초
 ## 헌장 재확인
 
 설계 후 충돌이나 미해결 질문은 없다. TensorRT 작업자 분리는 기존 사용자를 깨뜨리지 않기 위한 최소 통합 변경이다.
+## 추론 프레임 간격 이름 변경 계획
+
+YoloDetect의 생성 초기값·configure 검증과 속성·개별 및 배치 간격 선택은 inference_interval_frame으로 변경한다. 이전 설정 키는 속성 갱신 전에 오류로 거부한다. tests/test_yolo_detect.py와 test_yolo_batch.py의 기존 간격·설정 갱신 검증을 새 이름으로 옮기고 이전 키 거부를 확인한다. README의 YOLO 항목, 예제 YAML, YOLO·Async·pipeline·hotswap 문서의 YOLO 설정을 변경한다. TensorRTInference 코드는 유지한다. YOLO·배치·Async 관련 테스트 후 수렴 점검한다.

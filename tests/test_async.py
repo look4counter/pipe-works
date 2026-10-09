@@ -198,9 +198,9 @@ class AsyncTests(unittest.TestCase):
     def test_configure_forwards_inner_settings(self):
         inner = FunctionStep(lambda item, _: item)
         step = Async(inner, timeout_ms=25)
-        step.configure(SimpleNamespace(step={"inference_interval": 3}))
+        step.configure(SimpleNamespace(step={"inference_interval_frame": 3}))
         self.assertEqual(step.timeout_ms, 25)
-        self.assertEqual(vars(inner.config), {"inference_interval": 3})
+        self.assertEqual(vars(inner.config), {"inference_interval_frame": 3})
         step.configure(SimpleNamespace(timeout_ms=10, confidence=0.4))
         self.assertEqual(step.timeout_ms, 10)
         self.assertEqual(vars(inner.config), {"confidence": 0.4})

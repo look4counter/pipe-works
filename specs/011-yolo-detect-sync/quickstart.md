@@ -1,4 +1,4 @@
-﻿# 동기 감지 검증 안내
+# 동기 감지 검증 안내
 
 ```powershell
 .venv/Scripts/python.exe -m unittest discover -s tests -p test_yolo_detect.py -v
@@ -51,3 +51,8 @@ YoloDetect 22개, Async 28개, 기존 YoloDetectBatch 16개, 공유 작업자 6�
 전체 회귀는 176개 중 172개 통과, 3개 건너뜀, 1개 실패였다. 기존 test_server_exits_after_last_pipeline_disconnects의 중앙 프로세스 종료 기대 실패가 남았다. 실행 코드·예제·공개 문서에서 폐기 API 참조가 없고 제거 확인 테스트만 해당 이름을 사용한다. 변경 파일의 공백 검사도 통과했다.
 
 최종 수렴 점검에서 FR-016과 T038~T041을 코드·예제·공개 내보내기·문서·검증 결과에 대조했다. 통합 배치 경로와 입력 사용 종료 신호는 유지되고 폐기 API 제거가 반영되어 추가 구현 작업은 없다. 중앙 프로세스 종료 실패는 이번 제거 작업 이전에도 발생한 별도 회귀 문제로 기록한다.
+## 추론 프레임 간격 이름 변경 검증
+
+YoloDetect는 inference_interval_frame 기본값 1을 사용한다. 두 모드의 간격 선택·정수 검증·실행 중 설정 변경은 유지하며 이전 키는 변경 안내 오류로 거부한다. TensorRTInference 설정은 변경하지 않았다. 예제 YAML과 YOLO·Async·파이프라인·핫스왑 문서 및 README의 YOLO 항목을 갱신했다.
+
+FR-017·SC-009와 T042~T045의 일관성 분석에서 차단 충돌이 없었으며 구현 전 새 설정 검증의 실패를 확인했다. YOLO 23개·배치 15개·Async 28개를 실행해 실패 없이 통과했고 엔진 파일 부재로 1개를 건너뛰었다. 전체 테스트는 반복하지 않았다.

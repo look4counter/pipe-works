@@ -2,7 +2,7 @@
 
 ## RTSP 제한 시간
 
-`RTSPSource.timeout_ms`와 `RTSPPublish.timeout_ms`는 기본값 5000의 밀리초 숫자다. 0 이상의 유한한 정수·실수를 허용한다. 불리언·문자열·음수·비유한 값과 이전 `timeout` 키는 설정 오류다. 수신 라이브러리에는 초로, 송출 라이브러리에는 마이크로초 문자열로 변환한다. `reconnect_interval`은 초 단위를 유지한다.
+`RTSPSource.timeout_ms`와 `RTSPPublish.timeout_ms`는 기본값 5000의 밀리초 숫자다. 0 이상의 유한한 정수·실수를 허용한다. 불리언·문자열·음수·비유한 값과 이전 `timeout` 키는 설정 오류다. 수신 라이브러리에는 초로, 송출 라이브러리에는 마이크로초 문자열로 변환한다. 두 단계의 `reconnect_interval_ms`도 같은 숫자 검증을 사용하며 기본값은 3000이다. 이전 `reconnect_interval` 키는 거부한다. 재연결 대기와 재시도 시각 계산에는 초로 환산한다.
 
 - **파이프라인 설정**: YAML의 최상위 매핑을 `SimpleNamespace`로 보관한다.
 - **단계 설정**: 원래 단계 클래스명에 해당하는 매핑을 `SimpleNamespace`로 변환해 `configure()`에 전달한다. 없는 섹션은 빈 객체다.

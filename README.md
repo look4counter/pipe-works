@@ -47,7 +47,7 @@ pipeline.run()
 ```yaml
 RTSPSource:
   reconnect: true
-  reconnect_interval: 3
+  reconnect_interval_ms: 3000
   transport: tcp
   timeout_ms: 5000
 
@@ -55,7 +55,7 @@ YoloDetect:
   classes: null  # null = 모든 클래스
   confidence: 0.25
   gpu_id: 0
-  inference_interval: 1
+  inference_interval_frame: 1
 
 RTSPPublish:
   bitrate: "5000k"
@@ -134,7 +134,7 @@ RTSP 카메라에서 영상을 읽습니다.
 
 - **역할**: RTSP 스트림 수신 및 디코딩
 - **사용**: `pipeline.step(RTSPSource(url="rtsp://camera/main"))`
-- **설정**: `reconnect`, `reconnect_interval`, `transport`, `timeout_ms`
+- **설정**: `reconnect`, `reconnect_interval_ms`, `transport`, `timeout_ms`
 - **상세**: [docs/pipeworks/embedded/rtsp_source.md](docs/pipeworks/embedded/rtsp_source.md)
 
 ---
@@ -155,7 +155,7 @@ RTSP 카메라에서 영상을 읽습니다.
 - **역할**: 객체 감지 (별도 CUDA 스트림에서 동기 처리, 영상·감지 결과의 CPU 복사 금지)
 - **사용**: `pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))`
 - **선택적 배치**: `YoloDetect(model_path, batch=True)`. 기본값은 `False`이며 True는 GPU 입력 복제와 사용 종료 신호를 직접 처리하고 `local_yolo.infer()`에 제출합니다. 배치 수집은 모델 동명 `.yml`의 `max_batch_size`, 밀리초 `timeout`으로 설정합니다.
-- **설정**: `classes`, `confidence`, `gpu_id`, `inference_interval`
+- **설정**: `classes`, `confidence`, `gpu_id`, `inference_interval_frame`
 - **선택적 비동기**: `pipeline.step(Async(YoloDetect(model_path), timeout_ms=5))`. 단일 감지는 모델 동명 `.yml`의 `timeout`을 읽지 않습니다.
 - **상세**: [docs/pipeworks/embedded/yolo_detect.md](docs/pipeworks/embedded/yolo_detect.md)
 
@@ -327,7 +327,7 @@ pipeline.run()
 ```yaml
 RTSPSource:
   reconnect: true
-  reconnect_interval: 3
+  reconnect_interval_ms: 3000
 
 YoloDetect:
   confidence: 0.5
@@ -483,7 +483,7 @@ except KeyboardInterrupt:
 ```yaml
 RTSPSource:
   reconnect: true
-  reconnect_interval: 5  # 초 단위
+  reconnect_interval_ms: 5000  # 밀리초 단위
   timeout_ms: 10000
 ```
 

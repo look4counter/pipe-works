@@ -209,7 +209,7 @@ if __name__ == "__main__":
 ```yaml
 RTSPSource:
   reconnect: true
-  reconnect_interval: 3
+  reconnect_interval_ms: 3000
   transport: tcp
   timeout_ms: 5000
 
@@ -217,7 +217,7 @@ YoloDetect:
   classes: null
   confidence: 0.25
   gpu_id: 0
-  inference_interval: 1
+  inference_interval_frame: 1
 
 RTSPPublish:
   bitrate: "5000k"

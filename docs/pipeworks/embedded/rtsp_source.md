@@ -57,7 +57,7 @@ for cam_id, cam_url in cameras:
 RTSPSource:
   # 재연결 설정
   reconnect: true                  # 연결 실패 시 재연결 (기본: true)
-  reconnect_interval: 3            # 재연결 대기 시간 (초, 기본: 3)
+  reconnect_interval_ms: 3000            # 재연결 대기 시간 (밀리초, 기본: 3000)
   
   # 연결 설정
   transport: tcp                   # tcp 또는 udp (기본: tcp)
@@ -74,7 +74,7 @@ RTSPSource:
 # 항상 재연결 시도
 RTSPSource:
   reconnect: true
-  reconnect_interval: 10  # 10초 기다린 후 재연결
+  reconnect_interval_ms: 10000  # 10초 기다린 후 재연결
 
 # 실패 시 즉시 종료
 RTSPSource:
@@ -193,7 +193,7 @@ pipeline.run()
 ```yaml
 RTSPSource:
   reconnect: true
-  reconnect_interval: 3
+  reconnect_interval_ms: 3000
   timeout_ms: 5000
 ```
 
@@ -202,7 +202,7 @@ RTSPSource:
 ```yaml
 RTSPSource:
   reconnect: true
-  reconnect_interval: 10        # 10초 대기
+  reconnect_interval_ms: 10000        # 10초 대기
   transport: tcp                # TCP 안정성
   timeout_ms: 15000                   # 15초 타임아웃
 ```
@@ -225,7 +225,7 @@ pipeline.run()
 ```yaml
 RTSPSource:
   reconnect: true
-  reconnect_interval: 3
+  reconnect_interval_ms: 3000
   timeout_ms: 5000
 
 YoloDetect:
@@ -258,7 +258,7 @@ RTSPPublish:
 ```yaml
 RTSPSource:
   timeout_ms: 15000           # 타임아웃 증가
-  reconnect_interval: 5 # 재연결 간격 증가
+  reconnect_interval_ms: 5000 # 재연결 간격 증가
 ```
 
 ### "계속 재연결 시도"
@@ -290,7 +290,7 @@ RTSPSource:
 
 1. **URL 형식**: `rtsp://IP:PORT/path` (기본 포트: 554)
 2. **실시간 지연 최소화**: `transport: tcp` + 짧은 `timeout_ms`
-3. **안정성 우선**: `reconnect: true` + 긴 `reconnect_interval`
+3. **안정성 우선**: `reconnect: true` + 긴 `reconnect_interval_ms`
 4. **다중 카메라**: 각 카메라마다 별도의 `RTSPSource` Step 사용
 
-제한 시간은 `timeout_ms`로 지정하며 기본값은 5000밀리초입니다. 기존 `timeout: 5`는 `timeout_ms: 5000`으로 변경해야 합니다. 0 이상의 유한한 숫자를 허용하며 이전 `timeout` 키는 오류로 처리합니다. `reconnect_interval`은 계속 초 단위입니다.
+제한 시간은 `timeout_ms`로 지정하며 기본값은 5000밀리초입니다. 기존 `timeout: 5`는 `timeout_ms: 5000`으로 변경해야 합니다. 재연결 간격은 `reconnect_interval_ms`로 지정하며 기본값은 3000밀리초입니다. 기존 `reconnect_interval: 3`은 `reconnect_interval_ms: 3000`으로 변경해야 합니다. 두 옵션 모두 0 이상의 유한한 숫자를 허용하며 이전 키는 오류로 처리합니다.
