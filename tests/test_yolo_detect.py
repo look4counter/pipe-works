@@ -111,78 +111,72 @@ class YoloDetectTests(unittest.TestCase):
         self.assertEqual(outputs, frames)
         self.assertEqual([item.detections for item in outputs], [None, "recovered"])
 
-    def test_async_batch_timeout_after_copy_skips_duplicate_copy(self):
+    def test_async_batch_timeout_after_rgb_passes_original(self):
+        from pipeworks.local_yolo import _nv12_to_rgb
         entered, release, cleaned = Event(), Event(), Event()
         self.releases.append(release)
         frame = context()
         original = frame.frame
+        with torch.cuda.stream(frame.cuda_stream):
+            expected = _nv12_to_rgb(original)
+        frame.cuda_stream.synchronize()
         observed = []
-
         def infer(path, image, *args, ready_event, **kwargs):
             ready_event.synchronize()
             observed.append(image)
             entered.set()
             release.wait(5)
-            self.assertTrue(torch.all(image == 128).item())
-            return "late"
-
+            self.assertTrue(torch.equal(image, expected))
+            return 'late'
         class ObservedYolo(YoloDetect):
             def process(self, inputs):
                 try:
                     yield from super().process(inputs)
                 finally:
                     cleaned.set()
-
-        with patch("pipeworks.embedded.yolo_detect.infer", side_effect=infer), patch(
-            "pipeworks.embedded.cuda_async._snapshot"
-        ) as snapshot:
+        with patch('pipeworks.embedded.yolo_detect.infer', side_effect=infer), patch.object(
+            torch.Tensor, 'clone', side_effect=AssertionError('input clone')
+        ):
             outputs = CudaAsync(ObservedYolo(self.model_path, batch=True), timeout_ms=100).process(iter([frame]))
             self.assertIs(next(outputs), frame)
             self.assertTrue(entered.wait(1))
-            snapshot.assert_not_called()
             self.assertIs(frame.frame, original)
+            self.assertEqual(observed[0].shape, (3, 4, 4))
             self.assertNotEqual(observed[0].data_ptr(), original.data_ptr())
             with torch.cuda.stream(frame.cuda_stream):
                 frame.frame.fill_(7)
-                frame.cuda_stream.synchronize()
+            frame.cuda_stream.synchronize()
             outputs.close()
             release.set()
             self.assertTrue(cleaned.wait(2))
-            self.assertFalse(hasattr(frame, "detections"))
+            self.assertFalse(hasattr(frame, 'detections'))
 
-    def test_async_batch_timeout_before_copy_keeps_fallback_copy(self):
-        from pipeworks.embedded import cuda_async
-
+    def test_async_batch_timeout_before_rgb_drops_frame(self):
         entered, release, cleaned = Event(), Event(), Event()
         self.releases.append(release)
         frame = context()
         original = frame.frame
-        copy_frame = YoloDetect._copy_frame
-
-        def blocked_copy(step, item):
+        prepare = YoloDetect._prepare_rgb
+        def blocked_prepare(step, item):
             entered.set()
             release.wait(5)
-            return copy_frame(step, item)
-
+            return prepare(step, item)
         class ObservedYolo(YoloDetect):
             def process(self, inputs):
                 try:
                     yield from super().process(inputs)
                 finally:
                     cleaned.set()
-
-        with patch.object(YoloDetect, "_copy_frame", blocked_copy), patch(
-            "pipeworks.embedded.yolo_detect.infer", return_value="late"
-        ), patch.object(cuda_async, "_snapshot", wraps=cuda_async._snapshot) as snapshot:
-            outputs = CudaAsync(ObservedYolo(self.model_path, batch=True), timeout_ms=50).process(iter([frame]))
-            self.assertIs(next(outputs), frame)
+        with patch.object(YoloDetect, '_prepare_rgb', blocked_prepare), patch(
+            'pipeworks.embedded.yolo_detect.infer', return_value='late'
+        ):
+            wrapper = CudaAsync(ObservedYolo(self.model_path, batch=True), timeout_ms=100)
+            self.assertEqual(list(wrapper.process(iter([frame]))), [])
             self.assertTrue(entered.wait(1))
-            snapshot.assert_called_once()
-            self.assertNotEqual(frame.frame.data_ptr(), original.data_ptr())
-            outputs.close()
+            self.assertIs(frame.frame, original)
             release.set()
             self.assertTrue(cleaned.wait(2))
-            self.assertFalse(hasattr(frame, "detections"))
+            self.assertFalse(hasattr(frame, 'detections'))
 
     def setUp(self):
         self.directory = TemporaryDirectory()

@@ -68,3 +68,18 @@
 - **SC-010**: 호출 스레드 실행·복제 제거·간격·GPU 완료·Async 타임아웃 및 기존 엔진 검증이 통과한다.
 
 명확화: 최신 요청은 과거 비동기·시간 제한 계약을 대체한다. 모델 동명 YAML은 다른 YOLO 경로도 공유하므로 timeout을 삭제하거나 거부하지 않고 TensorRT에서 읽지 않는다. 추론 GPU 제출 API는 비동기지만 Step은 완료까지 기다린다. 추가 질문은 필요하지 않다.
+## 선택적 공유 배치
+
+- FR-023: TensorRTInference(model_path, batch=False)는 기존 동기 경로를 유지하며 batch=True일 때 local_tensor_rt에 GPU 입력·준비 이벤트를 제출하고 출력 사전을 받는다. batch는 불리언만 허용한다.
+- FR-024: 배치 모드에서도 gpu_id·inference_interval·입력 준비·원본 컨텍스트·GPU 결과와 호출자 추론 통계를 유지한다. 수집 시간은 모델 YAML이며 자체 추론 제한은 없다. 실패는 호출자에 전파하여 CudaAsync가 처리한다.
+- SC-011: 기본 경로·배치 직접 제출·간격·준비 이벤트·통계·오류·생성자 검증이 통과한다.
+
+명확화: local_tensor_rt의 배치 축 0·개별 배치 크기 1 계약을 사용한다. 임의 엔진 출력 일반화와 예제 모드 변경은 포함하지 않는다. 추가 질문은 필요하지 않다.
+
+## 예제 후처리의 NMS 보호 복제 제거
+
+- FR-025: examples/step/tensor_rt_post_process.py는 해당 요청의 원시 출력 prediction을 복제하지 않고 NMS에 직접 전달한다. NMS가 좌표 표현을 제자리에서 바꾸도록 허용하며 처리 이후 원시 출력은 재사용하지 않는다.
+- FR-026: input.detections의 원본 영상 좌표·신뢰도·클래스·이름과 GPU 저장, 원본 frame 보존 및 모델 입출력 정리 동작을 유지한다. BoxOverlay는 후처리된 detections를 사용해 원본 영상에 표시한다.
+- SC-012: NMS 전 clone을 금지한 실제 CUDA 검증에서 박스 선별·클래스 필터·좌표 복원·빈 결과·정리가 유지되며, 생성한 detections로 BoxOverlay가 원본에 표시한다. 제공된 실제 plan 후처리도 통과한다.
+
+명확화: 최신 요청은 예제 TensorRTPostProcess의 NMS 전 prediction.clone() 한 곳을 제거하는 것이다. 원시 출력은 후처리가 단독으로 소비하고 정리한다. 사용자 예제 파이프라인·TensorRT 추론기·배치 출력 분리·BoxOverlay의 박스 보관 복제는 변경하지 않는다. 추가 질문이 필요한 모호성은 없다.

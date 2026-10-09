@@ -59,3 +59,15 @@ GPU 위치의 LINEAR 바인딩만 지원합니다. CPU 형상 바인딩, 벡터�
 ## 검증
 
 `tests/test_tensor_rt_inference.py`는 모의 TensorRT API와 실제 CUDA 텐서로 GPU 값·이름·자료형·동적 출력·플러그인 로딩·동기 실행·무복제 입력과 CudaAsync 조합을 확인합니다. 실제 TensorRT 엔진 생성·실행 및 예제 YOLO plan 검증도 통과했습니다.
+## 선택적 공유 배치
+
+`TensorRTInference(model_path, batch=True)`는 local_tensor_rt에 요청한다. 기본 batch=False는 기존 동기 개별 경로다. 전처리는 프레임마다 배치 1 텐서를 만들면 된다. 공유 실행기가 여러 입력을 모아 추론하고 각 요청에 배치 1 GPU 출력 사전을 반환한다.
+
+모델 YAML의 max_batch_size와 밀리초 timeout은 배치 크기와 수집 기한이다. 배치 엔진은 수집 가능한 모든 크기를 지원해야 하며 입력·출력의 첫 축이 배치여야 한다. 고정 배치 1 엔진에는 max_batch_size=1을 사용한다. plugins 설정도 유지한다. 배치 모드도 자체 추론 제한은 없으며 오류는 호출자에 전파한다. 시간 제한·영상 통과는 CudaAsync가 담당한다.
+## 원본 영상 사용 종료와 비동기 조합
+
+예제 TensorRTPostProcess는 원시 model_output을 NMS에 직접 전달한다. NMS의 좌표 제자리 변환을 허용하며 원시 출력을 보존하는 clone은 하지 않는다. 후처리 이후에는 input.detections만 사용하고 model_output은 정리한다. BoxOverlay는 detections를 읽어 frame에 표시하므로 원시 출력 복제를 요구하지 않는다.
+
+예제 TensorRTPreProcess는 독립 RGB 생성 직후 원본 읽기의 CUDA 완료 이벤트를 기록해 release_frame을 호출한다. 단일·복수 CudaAsync에서 신호를 적용한다. 이후 추론·후처리는 독립 model_input·model_output만 사용하고 원본을 다시 읽지 않는다. BoxOverlay는 CudaAsync 바깥에 둔다.
+
+CudaAsync는 보호 복사를 하지 않는다. 타임아웃 시 원본 사용 완료가 확인되면 원본을 전달하고, 아직 사용 중이거나 신호가 없으면 해당 프레임을 폐기한다. 사용자 전처리도 동일한 신호 계약을 사용해야 한다. TensorRTInference가 임의 입력 텐서의 원본 별칭 여부를 판단해 자동으로 해제하지는 않는다.

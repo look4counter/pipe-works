@@ -47,7 +47,8 @@ class TensorRTPostProcess(Step):
                         raise ValueError("YOLO11 출력은 같은 GPU의 FP32 (1, 84, N) 텐서여야 합니다.")
                     transform = item.tensor_rt_transform
                     with torch.cuda.stream(stream), torch.no_grad():
-                        boxes = non_max_suppression(prediction.clone(), self.confidence, self.iou, classes=self.classes, max_det=self.max_det, nc=80)[0]
+                        # Consume the raw output in-place; only detections survive.
+                        boxes = non_max_suppression(prediction, self.confidence, self.iou, classes=self.classes, max_det=self.max_det, nc=80)[0]
                         boxes[:, [0, 2]] = (boxes[:, [0, 2]] - transform.left) / transform.ratio
                         boxes[:, [1, 3]] = (boxes[:, [1, 3]] - transform.top) / transform.ratio
                         height, width = transform.shape

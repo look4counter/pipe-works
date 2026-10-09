@@ -5,6 +5,7 @@ from contextvars import ContextVar
 
 
 _input_release = ContextVar("pipeworks_input_release", default=None)
+_frame_release = ContextVar("pipeworks_frame_release", default=None)
 _model_stream = ContextVar("pipeworks_model_stream", default=None)
 
 
@@ -30,6 +31,27 @@ def release_input(*, ready_event=None) -> None:
     callback = _input_release.get()
     if callback is not None:
         callback(ready_event)
+
+
+def release_frame(*, ready_event=None) -> None:
+    """Promise no further original-frame reads in this CudaAsync chain.
+
+    RGB/model tensors created by preprocessing may still be used. A CUDA event
+    must cover every submitted original-frame read. Outside a request this is
+    a no-op; later wrapped Steps must also honor the promise.
+    """
+    callback = _frame_release.get()
+    if callback is not None:
+        callback(ready_event)
+
+
+@contextmanager
+def _frame_scope(callback):
+    token = _frame_release.set(callback)
+    try:
+        yield
+    finally:
+        _frame_release.reset(token)
 
 
 @contextmanager

@@ -9,7 +9,7 @@ from typing import Iterator
 import torch
 
 from pipeworks.embedded.stream_report import record_inference, record_stage
-from pipeworks.execution import release_input, current_model_stream
+from pipeworks.execution import release_frame, current_model_stream
 from pipeworks.models import PipelineContext, Step
 from pipeworks.local_yolo import _GpuDetectionPredictor, _INPUT_SIZE, _nv12_to_rgb, _prepare_image, infer
 
@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 def _predict(model, image, classes, confidence, gpu_id, stream):
     rgb = _nv12_to_rgb(image)
+    frame_done = torch.cuda.Event()
+    frame_done.record(stream)
+    release_frame(ready_event=frame_done)
     height, width = rgb.shape[-2:]
     prepared = _prepare_image(rgb).unsqueeze(0)
     started_at = time.perf_counter()
@@ -105,10 +108,13 @@ class YoloDetect(Step):
             raise ValueError(f"NV12 프레임 크기가 잘못되었습니다: {tuple(frame.shape)}")
         return frame[: height * 3 // 2, :width]
 
-    def _copy_frame(self, item: PipelineContext):
+    def _prepare_rgb(self, item: PipelineContext):
         stream = current_model_stream() or item.cuda_stream
+        producer_ready = torch.cuda.Event()
+        producer_ready.record(item.cuda_stream)
+        stream.wait_event(producer_ready)
         with torch.cuda.stream(stream):
-            image = self._prepare_frame(item).clone()
+            image = _nv12_to_rgb(self._prepare_frame(item))
             ready_event = torch.cuda.Event()
             ready_event.record(stream)
         return image, ready_event
@@ -120,8 +126,8 @@ class YoloDetect(Step):
             item.detections = None
             if frame_index % self.inference_interval_frame == 0:
                 try:
-                    image, ready_event = self._copy_frame(item)
-                    release_input(ready_event=ready_event)
+                    image, ready_event = self._prepare_rgb(item)
+                    release_frame(ready_event=ready_event)
                     item.detections = infer(
                         self.model_path, image, self.classes, self.confidence, self.gpu_id,
                         ready_event=ready_event, on_inference_complete=record_inference,

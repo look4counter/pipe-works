@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from pipeworks.local_yolo import _nv12_to_rgb
 from pipeworks.models import Step
-from pipeworks.execution import current_model_stream
+from pipeworks.execution import current_model_stream, release_frame
 
 
 class TensorRTPreProcess(Step):
@@ -35,6 +35,9 @@ class TensorRTPreProcess(Step):
                     if frame.ndim != 2 or frame.shape[0] < height * 3 // 2 or frame.shape[1] < width:
                         raise ValueError("NV12 입력 크기가 잘못되었습니다.")
                     rgb = _nv12_to_rgb(frame[:height * 3 // 2, :width])
+                    frame_done = torch.cuda.Event()
+                    frame_done.record(stream)
+                    release_frame(ready_event=frame_done)
                     ratio = min(640 / height, 640 / width)
                     resized_h, resized_w = max(1, round(height * ratio)), max(1, round(width * ratio))
                     resized = F.interpolate(rgb.unsqueeze(0), size=(resized_h, resized_w), mode="bilinear", align_corners=False)

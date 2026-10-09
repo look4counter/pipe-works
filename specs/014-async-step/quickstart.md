@@ -1,57 +1,36 @@
-# 검증 안내
+# 실행 및 검증 안내
+
+## 최신 무복사 정책
+
+CudaAsync(*steps, timeout_ms=5)를 사용한다. 정상 결과는 같은 원본 객체에 적용한다. 타임아웃 시 원본 영상 사용 완료가 확인되면 원본을 전달하고 아직 사용 중이면 해당 프레임만 폐기한다. 작업자가 바쁜 동안 후속 입력은 그대로 전달한다. 보호 복사·미완료 복사 목록·복사 정리 스레드는 제거됐다.
+
+YOLO 개별·배치와 예제 TensorRTPreProcess는 RGB 생성 직후 release_frame 이벤트를 보낸다. 같은 CudaAsync의 후속 Step은 원본을 다시 사용하지 않는다. BoxOverlay는 바깥에 둔다. RGB 생성과 배치 텐서 stack 등 모델 입력 생성은 유지한다.
+
+## 작업 절차 기록
+
+기존 014 명세를 최신 요구사항으로 갱신하고 모호성 검토를 수행했다. RTG는 RGB로 해석하며 이벤트 미완료 시 프레임 폐기는 앞선 안전 계약을 따른다. 추가 질문은 없었다. 명세·계획·데이터 모델·계약·작업 목록의 일관성을 분석했고 이전 복사 정책은 대체 관계로 정리했다. 미작성 헌법 템플릿과 존재하지 않는 확장 후크는 생략했다.
+
+구현 전 test_frame_release.py의 신규 5개 테스트를 실행해 기존 구현에서 신호 API 누락, 타임아웃 원본 동일성 실패 및 YOLO 배치 NV12 제출 실패를 확인했다. 구현 후 요청별 신호, 완료·미완료·조회 실패 이벤트, 원본 동일성, 늦은 결과 격리, 복수 Step, DLPack 수명과 CUDA 정리 실패를 검증한다.
+
+## 검증 명령
 
 ```powershell
-.venv/Scripts/python.exe -m unittest discover -s tests -p test_async.py -v
-.venv/Scripts/python.exe -m unittest discover -s tests -v
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_async.py
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_frame_release.py
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_yolo_detect.py
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_yolo_batch.py
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_local_yolo.py
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_tensor_rt_processing.py
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_tensor_rt_inference.py
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_local_tensor_rt.py
 ```
 
-성공 결과, 원본 식별, 상태 유지, 입력 격리, 실패 재시도, 지연·사용 중 통과, 종료와 설정을 확인한다. CUDA가 없으면 GPU 검증을 건너뛴다. 기존 모델의 동작은 유지한다.
+실제 RTSP 영상의 장시간 정지 재현과 GPU 사용률 추세는 별도 운영 검증이 필요하다.
 
-## 2026-10-09 검증 결과
+## 최종 검증 결과
 
-- 최종 집중 검증: 19개 모두 통과. 실제 CUDA 텐서와 DLPack 공급자 복사, 비리프 텐서와 별칭 보존, 종료 후 인스턴스 재사용과 직렬화를 포함한다.
-- 전체 회귀 검증: 152개 실행, 실패 1개·오류 1개·건너뜀 3개. 마지막 실행 이후 추가한 4개 집중 검증도 통과했다.
-- 전체 오류: `test_example_places_configured_overlay_before_encoder`가 현재 예제의 `YoloDetect` 대신 `YoloDetectBatch`를 기대하여 실패한다. 이번 작업에서는 예제를 변경하지 않았다.
-- 전체 실패: `test_server_exits_after_last_pipeline_disconnects`의 중앙 서버 종료 기대가 충족되지 않았다. 이 테스트는 Async를 등록하지 않으며 종료 구현은 이번 변경 범위에 포함하지 않았다.
-- 전체 테스트는 Windows 명명된 파이프 접근 제한 때문에 샌드박스 밖에서 실행했다.
-- `git diff --check`는 통과했다.
+2026-10-09: 관련 테스트 152개 실행 결과 통과했으며 실제 YOLO 모델 파일이 없는 2개는 건너뛰었다. 실제 TensorRT 엔진 생성·추론, 전후처리·배치·모델 스트림·핫스왑·YAML 변경·원본 수명을 포함한다. 마지막 완료 조건 보강 후 CudaAsync 및 종료 신호 43개를 다시 실행해 모두 통과했다.
 
-## 모듈 파일명 변경 검증
+CudaAsync에서 clone·deepcopy·보관 목록·복사 정리 스레드가 없음을 확인했다. 원본 영상 종료 이벤트는 RGB 생성 이후 기록되며 완료가 확인돼야 전달한다. GPU 정리 성공과 작업자 종료는 별도 상태로 관리해 정리 실패 또는 아직 정리 중인 입력을 잘못 전달하지 않는다. 예제 파이프라인의 사용자 YOLO 선택은 보존했고 BoxOverlay가 CudaAsync 바깥에 있는지 검증한다.
 
-`async_step.py`로 변경한 뒤 Async 19개와 YoloDetect 14개 테스트를 실행했다. 실패 없이 통과했고 실제 YOLO 엔진 부재로 1개를 건너뛰었다. 직접 가져오기·패키지 공개 가져오기·직렬화·오류 로그 경로를 확인했다. 처리 로직은 변경하지 않았으며 수렴 점검에서 추가 작업은 없다.
-
-## 타임아웃에만 복사하는 정책 검증
-
-- Async 22개 테스트 모두 통과했다. CPU와 실제 CUDA/DLPack의 정상 경로 공유, 타임아웃 후 복사와 후속 변경 격리, 작업 중 무복사 통과, 원본 수명 유지와 완료 후 해제, 완료·복사 경합, 복사 실패 시 완료 대기, 설정·출력·직렬화를 검증했다.
-- YoloDetect 14개 테스트는 실패 없이 통과했으며 모델 엔진 부재로 1개를 건너뛰었다. 모델 소스는 변경하지 않았다.
-- 전체 163개 테스트는 실패 1개·오류 1개·건너뜀 3개였다. 기존 BoxOverlay 예제의 배치 단계 기대 오류와 중앙 서버 종료 기대 실패가 남았으며 Async 변경과 직접 관련이 없다.
-- 최종 GPU 복사 경로는 별도 CUDA 스트림에서 실행하며 생산자 준비와 복사 완료를 확인한다. 이 변경 후 Async 집중 검증을 다시 실행하여 통과했다.
-- 구현 전 기존 코드가 정상 경로 무복사와 복사 불가능한 입력의 정상 처리 테스트에서 실패함을 확인했다.
-- 일관성 분석에서 FR-004·007·012와 T015~T018의 대응 및 읽기 전용 계약을 확인했다. 미해결 명확화나 구현 차단 충돌은 없었다.
-- 수렴 점검에서 12개 기능 요구사항·3개 성공 기준 및 최신 공유·타임아웃 복사·수명·실패 복구 설계가 구현과 일치함을 확인했다. 미작성 헌법 템플릿은 제외했고 추가 작업은 발견하지 않았다.
-## 복수 단계 검증
-
-Async(*steps, timeout_ms=5)에 하나 이상의 Step을 나열한다. 전체 기한·입력 보호를 공유하고 남은 단계는 만료 뒤 생략한다. 실행 중 작업은 강제 중단하지 않는다. 단일 설정은 유지하며 복수 단계 설정은 steps 매핑 목록을 사용한다.
-
-명세·명확화·계획·작업·일관성 분석에서 FR-013~016과 SC-004의 T019~T022 대응을 확인했고 차단 충돌이 없었다. Async 32개·YOLO 23개·BoxOverlay 5개를 실행해 실패가 없었고 엔진 파일 부재로 1개를 건너뛰었다. 정상 순서와 중간 컨텍스트, 단계 상태, 남은 실행 생략, 중간 입력 종료 신호 차단, 오류 후 재생성·정리, 설정·직렬화를 확인했다. 전체 테스트는 반복하지 않았다.
-## 중앙 전달 누락 회귀 검증
-
-복수 Async에서 첫 내부 Step만 모듈 등록하던 누락을 수정했다. Tap·중첩 Async 내부 모든 Step을 재귀 등록하여 예제 전용 모듈 없이 역직렬화한다. 명세·명확화·계획·작업의 FR-017·SC-005 대응을 분석했고 차단 충돌은 없었다. 구현 전 두 번째 임시 모듈이 없는 환경에서 ModuleNotFoundError를 재현했다. 수정 후 Async 33개 검증이 모두 통과했다. 실제 RTSP 서버 연결은 실행하지 않았다.
-## 내부 핫스왑 검증
-
-FR-018~019와 SC-006의 작업 T027~T030 대응을 분석했고 차단 충돌이 없었다. 단일·복수 사용자 Step에서 실제 임시 파일을 변경해 구현 교체·최신 설정 재적용·잘못된 코드 유지·올바른 코드 복구를 확인했다. 자동 래퍼는 오류를 Async에 전파하며 단계 입력 슬롯을 사용해 공통 요청 슬롯의 종료를 방지한다. 단일 입력 종료 신호·0ms 요청·복수 중간 신호 보호와 중앙 직렬화도 유지된다.
-
-Async 34개·Hotswap 29개·YOLO 23개는 실패 없이 통과했고 엔진 파일 부재로 1개를 건너뛰었다. 예제 검사도 복수 Async 내부 순서를 확인하도록 갱신한다. 전체 회귀는 반복하지 않았다.
-## 내부 YAML 독립 설정 검증
-
-최신 요청으로 과거 step·steps 설정 중계를 제거했다. Async 섹션은 timeout_ms만 받고 내부 Step은 각 클래스명 최상위 섹션을 사용한다. 초기 등록과 실행 중 감시를 파이프라인에 연결했다. FR-020~021·SC-007과 T031~T034의 일관성 분석에서 차단 충돌은 없었다.
-
-Async 35개·구성 7개·Hotswap 29개·YOLO 23개·BoxOverlay 5개를 실행해 실패 없이 통과했고 엔진 파일 부재로 1개를 건너뛰었다. 실제 YAML 수정에서 단계별 독립 변경·잘못된 설정 유지와 복구·중첩 Async·내장 YoloDetect를 확인했다. 예제 검증은 사용자가 변경한 BoxOverlay 색상을 현재 YAML에서 읽어 비교한다. 전체 회귀는 반복하지 않았다.
-## CudaAsync 이름 변경 검증
-
-최신 요청으로 공개 클래스는 CudaAsync, 모듈은 pipeworks.embedded.cuda_async이다. 이전 클래스와 파일 별칭은 제공하지 않는다. 예제·Pipeline·중앙 등록·현재 공개 문서와 테스트·YAML 섹션을 이전했다. 이름 변경에 한정하여 실행 정책은 유지한다. FR-024·SC-008 일관성 분석에서 차단 충돌은 없었다. CudaAsync 35개·YOLO 23개·BoxOverlay 5개·설정 7개 회귀가 실패 없이 통과했고 엔진 파일 부재로 1개를 건너뛰었다. 실행 코드·예제·테스트·공개 문서에서 이전 참조가 없다. 수렴 점검에서 추가 작업은 없다.
-## 공통 모델 스트림 검증
-
-FR-025~026과 SC-009의 일관성을 확인했다. CudaAsync는 원본 영상 스트림을 유지하며 요청 장치별 모델 스트림을 재사용한다. 실행 문맥으로 전달된 모델 스트림을 YOLO·TensorRT·전후처리에서 사용하고 단독 경로는 유지한다. 공유 배치 작업자는 기존 스트림을 유지하되 배치 입력 복사 완료 이벤트는 실제 복사 스트림에 기록한다.
-
-CudaAsync 36개·YOLO 23개·전후처리 5개 검증에서 실패가 없었고 엔진 파일 부재로 1개를 건너뛰었다. 여러 내부 단계와 요청의 동일 모델 스트림·현재 스트림·원본 영상 스트림 보존·호출자 문맥 격리를 실제 CUDA에서 확인했다. 추가 강제 GPU 작업 취소는 없으며 수렴 점검에서 추가 구현 차이는 없다.
+명세의 무복사·종료 신호·폐기·수명·복수 단계 요구사항과 현재 구현·테스트를 비교한 수렴 점검에서 남은 구현 작업은 없다. git diff --check도 통과했다.

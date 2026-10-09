@@ -4,7 +4,8 @@ from collections import deque
 from dataclasses import dataclass, field
 import math
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Queue
+from pipeworks.batch_collector import collect_batch
 from threading import Event, Lock, Thread
 import time
 
@@ -53,22 +54,6 @@ def _batch_settings(model_path: Path) -> tuple[int, float]:
     return size, timeout / 1000
 
 
-def _next_batch(requests, deferred, max_batch_size, timeout):
-    first = deferred.popleft() if deferred else requests.get()
-    batch = [first]
-    deadline = first.received_at + timeout
-    while len(batch) < max_batch_size:
-        try:
-            request = requests.get(timeout=max(0, deadline - time.monotonic()))
-        except Empty:
-            break
-        if request.options != first.options:
-            deferred.append(request)
-            continue
-        batch.append(request)
-    return batch
-
-
 def _nv12_to_rgb(image: torch.Tensor) -> torch.Tensor:
     if not image.is_cuda or image.dtype != torch.uint8 or image.ndim != 2:
         raise ValueError("YOLO 입력은 GPU의 2차원 uint8 NV12 텐서여야 합니다.")
@@ -85,6 +70,13 @@ def _nv12_to_rgb(image: torch.Tensor) -> torch.Tensor:
     g = (c - 0.344136 * u / 224 - 0.714136 * v / 224).clamp(0, 1)
     b = (c + 1.772 * u / 224).clamp(0, 1)
     return torch.stack((r, g, b))
+
+
+def _as_rgb(image: torch.Tensor) -> torch.Tensor:
+    """Accept independently prepared RGB or legacy packed NV12 inputs."""
+    if image.is_cuda and image.dtype == torch.float32 and image.ndim == 3 and image.shape[0] == 3:
+        return image
+    return _nv12_to_rgb(image)
 
 
 def _prepare_image(rgb: torch.Tensor) -> torch.Tensor:
@@ -131,7 +123,8 @@ class _ModelWorker:
         model = None
         deferred: deque[_InferenceRequest] = deque()
         while True:
-            batch = _next_batch(self.requests, deferred, self.max_batch_size, self.timeout)
+            batch = collect_batch(self.requests, deferred, self.max_batch_size, self.timeout,
+                                  key=lambda request: request.options, received_at=lambda request: request.received_at)
             try:
                 for request in batch:
                     if request.ready_event is not None:
@@ -140,7 +133,7 @@ class _ModelWorker:
                     from ultralytics import YOLO
 
                     model = YOLO(str(self.model_path))
-                originals = [_nv12_to_rgb(request.image) for request in batch]
+                originals = [_as_rgb(request.image) for request in batch]
                 images = torch.stack([_prepare_image(rgb) for rgb in originals])
                 first = batch[0]
                 prediction_started_at = time.perf_counter()

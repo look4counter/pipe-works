@@ -156,8 +156,8 @@ class YoloBatchTests(unittest.TestCase):
             self.assertEqual(first.frame.shape, (6, 4))
             self.assertEqual(self.infer.call_count, 2)
             image = self.infer.call_args.args[1]
-            self.assertEqual(image.dtype, torch.uint8)
-            self.assertEqual(image.shape, (6, 4))
+            self.assertEqual(image.dtype, torch.float32)
+            self.assertEqual(image.shape, (3, 4, 4))
             self.assertTrue(image.is_cuda)
             self.assertEqual(self.infer.call_args.args[2:], ([2], 0.4, 0))
 

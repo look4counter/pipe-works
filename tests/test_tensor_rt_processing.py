@@ -37,6 +37,45 @@ class ProcessingTests(unittest.TestCase):
         self.assertAlmostEqual(item.model_input[0, 0, 0, 0].item(), 114 / 255, places=5)
         self.assertEqual(item.model_input[0, 0, 320, 320].item(), 0)
 
+    def test_rgb_release_allows_timeout_to_pass_original_without_affecting_model_input(self):
+        from threading import Event
+        from pipeworks.embedded import CudaAsync
+        from pipeworks.execution import current_model_stream
+        from pipeworks.models import Step
+
+        item = self.frame()
+        original = item.frame
+        entered, unblock = Event(), Event()
+        self.addCleanup(unblock.set)
+        observed = []
+
+        class SlowInference(Step):
+            def process(inner, inputs):
+                for working in inputs:
+                    current_model_stream().synchronize()
+                    observed.append(working.model_input)
+                    entered.set()
+                    unblock.wait(5)
+                    working.model_output = None
+                    yield working
+
+        wrapper = CudaAsync(TensorRTPreProcess(), SlowInference(), TensorRTPostProcess(), timeout_ms=100)
+        try:
+            with patch.object(torch.Tensor, "clone", side_effect=AssertionError("input clone")):
+                self.assertEqual(list(wrapper.process(iter([item]))), [item])
+            self.assertTrue(entered.is_set())
+            self.assertIs(item.frame, original)
+            expected = observed[0].clone()
+            with torch.cuda.stream(item.cuda_stream):
+                item.frame.fill_(255)
+            item.cuda_stream.synchronize()
+            self.assertTrue(torch.equal(observed[0], expected))
+            self.assertFalse(hasattr(item, "model_input"))
+        finally:
+            unblock.set()
+            self.assertTrue(wrapper._session_lock.acquire(timeout=3))
+            wrapper._session_lock.release()
+
     def test_postprocess_filters_nms_restores_coordinates(self):
         item = self.frame()
         next(TensorRTPreProcess().process(iter([item])))
@@ -49,14 +88,29 @@ class ProcessingTests(unittest.TestCase):
         item.model_output = {"output0": prediction}
         step = TensorRTPostProcess()
         step.configure(SimpleNamespace(classes=[2]))
-        with patch.object(torch.Tensor, "cpu", side_effect=AssertionError("CPU copy")):
+        with patch.object(torch.Tensor, "cpu", side_effect=AssertionError("CPU copy")), patch.object(
+            torch.Tensor, "clone", side_effect=AssertionError("NMS input clone")
+        ):
             next(step.process(iter([item])))
         item.cuda_stream.synchronize()
         self.assertEqual(len(item.detections.boxes), 1)
         self.assertTrue(item.detections.boxes.data.is_cuda)
         self.assertTrue(torch.allclose(item.detections.boxes.xyxy[0], torch.tensor([2, 1, 6, 3], device="cuda", dtype=torch.float32)))
         self.assertEqual(item.detections.names[2], "car")
+        self.assertAlmostEqual(item.detections.boxes.conf[0].item(), .9, places=5)
+        self.assertEqual(item.detections.boxes.cls[0].item(), 2)
+        self.assertTrue(torch.equal(prediction[0, :4, 0], torch.tensor([160, 240, 480, 400], device="cuda")))
         self.assertFalse(any(hasattr(item, name) for name in ("model_input", "model_output", "tensor_rt_transform", "model_cuda_stream")))
+        from step.box_overlay import BoxOverlay
+        overlay = BoxOverlay()
+        overlay.configure(SimpleNamespace(line_width=1, line_color="#00ff00"))
+        frame, detections = item.frame, item.detections
+        self.assertIs(next(overlay.process(iter([item]))), item)
+        item.cuda_stream.synchronize()
+        self.assertIs(item.frame, frame)
+        self.assertIs(item.detections, detections)
+        self.assertEqual(item.frame[1, 2].item(), 145)
+        self.assertEqual(item.frame[2, 4].item(), 16)
         next(TensorRTPreProcess().process(iter([item])))
         item.model_output = {"output0": torch.zeros_like(prediction)}
         next(step.process(iter([item])))

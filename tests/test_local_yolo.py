@@ -1,3 +1,8 @@
+from pipeworks.batch_collector import collect_batch
+
+def _collect(requests, deferred, size, timeout):
+    return collect_batch(requests, deferred, size, timeout, key=lambda r: r.options, received_at=lambda r: r.received_at)
+
 from collections import deque
 from pathlib import Path
 from queue import Queue
@@ -9,7 +14,7 @@ from unittest.mock import patch
 
 import torch
 
-from pipeworks.local_yolo import _InferenceRequest, _batch_settings, _next_batch, infer
+from pipeworks.local_yolo import _InferenceRequest, _batch_settings, infer
 
 
 def gpu_nv12(height: int, width: int) -> torch.Tensor:
@@ -19,6 +24,32 @@ def gpu_nv12(height: int, width: int) -> torch.Tensor:
 
 
 class LocalYoloTests(unittest.TestCase):
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
+    def test_prepared_rgb_is_not_converted_from_nv12_again(self):
+        from pipeworks.local_yolo import _nv12_to_rgb
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "rgb.pt"
+            path.write_bytes(b"placeholder")
+            rgb = _nv12_to_rgb(gpu_nv12(64, 96))
+            ready = torch.cuda.Event()
+            ready.record(torch.cuda.current_stream())
+
+            class Model:
+                def __init__(self, path):
+                    pass
+
+                def predict(self, images, **options):
+                    from ultralytics.engine.results import Results
+                    return [Results(image.permute(1, 2, 0), path="image", names={},
+                                    boxes=torch.empty((0, 6), device="cuda")) for image in images]
+
+            with patch("ultralytics.YOLO", Model), patch(
+                "pipeworks.local_yolo._nv12_to_rgb", side_effect=AssertionError("duplicate RGB conversion")
+            ):
+                result = infer(path, rgb, None, .25, 0, ready_event=ready)
+            self.assertEqual(result.orig_shape, (64, 96))
+            self.assertTrue(torch.equal(result.orig_img.permute(2, 0, 1), rgb))
+
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
     def test_reported_inference_excludes_model_loading(self):
         with TemporaryDirectory() as temporary:
@@ -185,5 +216,5 @@ class LocalYoloTests(unittest.TestCase):
             different = _InferenceRequest(None, [3], 0.25, 0)
             for request in (first, second, different):
                 requests.put(request)
-            self.assertEqual(_next_batch(requests, deferred, 4, 0.01), [first, second])
-            self.assertEqual(_next_batch(requests, deferred, 4, 0.01), [different])
+            self.assertEqual(_collect(requests, deferred, 4, 0.01), [first, second])
+            self.assertEqual(_collect(requests, deferred, 4, 0.01), [different])

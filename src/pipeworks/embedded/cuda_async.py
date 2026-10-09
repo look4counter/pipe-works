@@ -1,8 +1,7 @@
-"""Run a Step with shared read-only inputs and copy only on timeout."""
+"""Run Steps without input copies; drop timed-out frames still in use."""
 
 from contextlib import nullcontext
 from contextvars import Context, copy_context
-from copy import deepcopy
 from dataclasses import dataclass, field
 import logging
 import math
@@ -14,7 +13,7 @@ from typing import Iterator
 import torch
 
 from pipeworks.models import PipelineContext, Step
-from pipeworks.execution import _input_scope, _model_stream_scope
+from pipeworks.execution import _input_scope, _frame_scope, _model_stream_scope
 from pipeworks.hotswap import Hotswap, is_embedded_step
 
 
@@ -39,6 +38,9 @@ class _Request:
     prepared: Event = field(default_factory=Event)
     release_requested: bool = False
     release_event: object | None = None
+    frame_release_requested: bool = False
+    frame_release_event: object | None = None
+    input_drained: bool = False
 
 
 def _tensors(value, found, seen):
@@ -86,40 +88,6 @@ def _prepare(request):
         request.ready_events.append(event)
 
 
-def _snapshot(request):
-    """Copy the retained input for downstream use after the deadline."""
-    source = request.owner
-    shared = {id(getattr(source, name)): getattr(source, name)
-              for name in _SHARED_FIELDS if hasattr(source, name)}
-    streams = {}
-    try:
-        for event in request.ready_events:
-            event.synchronize()
-        fields = vars(source).copy()
-        tensors = {}
-        _tensors(fields, tensors, set(shared))
-        # Validate and copy CPU objects before launching any GPU copies.
-        memo = {**shared, **tensors}
-        prepared = deepcopy(PipelineContext(**fields), memo)
-        copies = {}
-        with torch.no_grad():
-            for identity, tensor in tensors.items():
-                copy_stream = None
-                if tensor.is_cuda:
-                    copy_stream = streams.get(tensor.device)
-                    if copy_stream is None:
-                        copy_stream = torch.cuda.Stream(device=tensor.device)
-                        streams[tensor.device] = copy_stream
-                with torch.cuda.stream(copy_stream) if copy_stream is not None else nullcontext():
-                    copied = tensor.clone()
-                    copies[identity] = copied
-        return deepcopy(prepared, {**shared, **copies})
-    finally:
-        for copy_stream in streams.values():
-            # Downstream must receive completed copies, independent of the worker.
-            copy_stream.synchronize()
-
-
 class _InputSlot(Iterator[PipelineContext]):
     def __init__(self):
         self.condition = Condition()
@@ -160,11 +128,10 @@ class _InputSlot(Iterator[PipelineContext]):
             request.completed_at = time.monotonic()
             if not self.closed and not request.expired.is_set() and request.completed_at <= request.deadline:
                 request.result = result
-            # Keep storage alive for a caller still making its timeout copy.
             self.request = None
             request.done.set()
 
-    def release_input(self, request, ready_event):
+    def release_input(self, request, ready_event, *, frame=False):
         with self.condition:
             if self.request is not request or request.done.is_set():
                 return
@@ -172,18 +139,28 @@ class _InputSlot(Iterator[PipelineContext]):
                 raise RuntimeError("입력을 받은 뒤에만 사용 종료를 알릴 수 있습니다.")
             if ready_event is not None and not callable(getattr(ready_event, "query", None)):
                 raise TypeError("ready_event는 query 메서드를 가진 완료 이벤트여야 합니다.")
-            request.release_requested = True
-            request.release_event = ready_event
+            if frame:
+                request.frame_release_requested = True
+                request.frame_release_event = ready_event
+            else:
+                request.release_requested = True
+                request.release_event = ready_event
 
     def input_released(self, request):
+        if request.frame_release_requested:
+            return self._event_completed(request.frame_release_event)
         if not request.release_requested:
             return False
-        if request.release_event is None:
+        return self._event_completed(request.release_event)
+
+    @staticmethod
+    def _event_completed(event):
+        if event is None:
             return True
         try:
-            return bool(request.release_event.query())
+            return bool(event.query())
         except Exception:
-            logger.exception("CudaAsync 입력 사용 종료 이벤트를 확인하지 못해 복사합니다.")
+            logger.exception("CudaAsync 원본 사용 종료 이벤트를 확인하지 못해 해당 프레임을 폐기합니다.")
             return False
 
     def close(self):
@@ -293,6 +270,7 @@ class CudaAsync(Step):
                     for event in request.ready_events:
                         event.synchronize()
                     if request.error is not None:
+                        request.input_drained = True
                         return None
                     producer = getattr(request.item, "cuda_stream", None)
                     device = producer.device if producer is not None else next((t.device for t in request.input_tensors if t.is_cuda), None)
@@ -301,7 +279,8 @@ class CudaAsync(Step):
                         stream = model_streams[device] = torch.cuda.Stream(device=device)
                     try:
                         callback = (lambda event, current=request: slot.release_input(current, event)) if len(self.steps) == 1 else (lambda event: None)
-                        with _input_scope(callback), _model_stream_scope(stream):
+                        frame_callback = lambda event, current=request: slot.release_input(current, event, frame=True)
+                        with _input_scope(callback), _frame_scope(frame_callback), _model_stream_scope(stream):
                             with torch.cuda.stream(stream) if stream is not None else nullcontext():
                                 if outputs is None:
                                     if len(self.steps) == 1 and not isinstance(self._hot_steps[0], Hotswap):
@@ -317,6 +296,7 @@ class CudaAsync(Step):
                         for tensor in request.input_tensors:
                             if tensor.is_cuda:
                                 torch.cuda.current_stream(tensor.device).synchronize()
+                        request.input_drained = True
                     if not request.consumed or not isinstance(output, PipelineContext):
                         raise RuntimeError("CudaAsync 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다.")
                     if getattr(output, "_pipeworks_hotswap_epoch", None) == ():
@@ -375,7 +355,7 @@ class CudaAsync(Step):
                             raise
                     slot.publish()
                     request.done.wait(max(0, request.deadline - time.monotonic()))
-                    copy_needed = False
+                    drop_frame = False
                     with slot.condition:
                         if request.done.is_set() and request.result is not None:
                             fields = vars(request.result).copy()
@@ -383,19 +363,11 @@ class CudaAsync(Step):
                             vars(item).update(fields)
                         else:
                             request.expired.set()
-                            timed_out = not request.done.is_set() or (
-                                request.completed_at is not None and request.completed_at > request.deadline
-                            )
-                            copy_needed = timed_out and not slot.input_released(request)
+                            input_finished = request.done.is_set() and request.input_drained
+                            drop_frame = not input_finished and not slot.input_released(request)
                         request.result = None
-                    if copy_needed:
-                        try:
-                            fallback = _snapshot(request)
-                            vars(item).clear()
-                            vars(item).update(vars(fallback))
-                        except Exception:
-                            logger.exception("CudaAsync 시간 초과 복사에 실패하여 작업 완료를 기다립니다.")
-                            request.done.wait()
+                    if drop_frame:
+                        continue
                 yield item
         finally:
             slot.close()

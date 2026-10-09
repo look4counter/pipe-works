@@ -194,7 +194,10 @@ class _EngineSession:
 
 
 class TensorRTInference(Step):
-    def __init__(self, model_path: Path):
+    def __init__(self, model_path: Path, *, batch: bool = False):
+        if not isinstance(batch, bool):
+            raise ValueError("batch는 불리언이어야 합니다.")
+        self.batch = batch
         self.model_path = Path(model_path)
         self.gpu_id = 0
         self.inference_interval = 1
@@ -248,6 +251,26 @@ class TensorRTInference(Step):
         return inputs
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
+        if self.batch:
+            from pipeworks.local_tensor_rt import infer
+
+            for index, item in enumerate(inputs):
+                item.model_output = None
+                if index % self.inference_interval == 0:
+                    tensors = self._prepare_inputs(item)
+                    producer = current_model_stream() or getattr(item, "model_cuda_stream", None)
+                    if producer is None:
+                        producer = getattr(item, "cuda_stream", None)
+                    if producer is None:
+                        producer = torch.cuda.current_stream(self.gpu_id)
+                    ready_event = torch.cuda.Event()
+                    ready_event.record(producer)
+                    item.model_output = infer(
+                        self.model_path, tensors, self.gpu_id,
+                        ready_event=ready_event, on_inference_complete=record_inference,
+                    )
+                yield item
+            return
         plugins = self._model_settings()
         session = stream = None
         gpu_id = None

@@ -41,3 +41,12 @@ GPU 입력을 생산자 스트림에서 연속 복제하고 준비 이벤트를 
 ## 동기 실행 계획
 
 내부 _Request·_InferenceWorker를 제거한다. process별 별도 CUDA 스트림과 지연 생성 엔진 세션을 보관하고 GPU·플러그인 변경 경계에서 재생성한다. 입력 장치 검증 후 생산자 완료 이벤트를 기록·확인하고 연속화가 필요한 입력만 복사한다. _EngineSession.infer의 완료 동기화와 통계를 유지한다. finally에서 스트림 완료 후 세션을 닫는다. 실패는 Async 또는 호출자에 전달한다. tests/test_tensor_rt_inference.py의 비동기 전용 검증은 Async 조합·동기 실행 검증으로 이전하고 나머지 엔진 회귀를 보존한다. 실제 예제 plan 검증과 문서·README·Async 안내를 갱신한다.
+## 배치 연결 계획
+
+생성자에 키워드 batch를 추가한다. batch=True는 기존 입력 검증·생산자 준비 확인 후 현재 실행 스트림에 완료 이벤트를 기록하여 local_tensor_rt.infer에 전달한다. 간격 선택과 model_output 초기화는 기존과 동일하고 record_inference 콜백을 넘긴다. TensorRTInference는 자체 엔진 세션을 배치 경로에서 만들지 않는다. 기본 경로는 유지한다. tests/test_tensor_rt_inference.py에 모의 공유 실행기 연결 검증을 추가하고 관련 CUDA 회귀와 문서를 갱신한다.
+
+## NMS 보호 복제 제거 계획
+
+범위는 examples/step/tensor_rt_post_process.py의 NMS 입력과 tests/test_tensor_rt_processing.py의 기존 CUDA 결과 검증 및 관련 안내다. 현재 설치된 Ultralytics NMS는 원시 출력의 박스 좌표를 제자리 변환하며 검출 결과는 별도 선별된 텐서로 반환한다. TensorRTInference는 실행마다 출력 할당기를 만들고 공유 배치는 요청별 결과를 분리하므로 해당 예제의 원시 출력은 다른 요청과 공유하지 않는다.
+
+기존 결과 테스트에 clone 금지 조건과 원시 좌표 변환 확인, detections의 신뢰도·클래스·BoxOverlay 표시를 추가해 기존 구현이 실패함을 먼저 확인한다. 이후 prediction.clone()을 prediction으로 바꾸고 원시 출력의 단독 소비 계약을 기록한다. 실제 plan·기존 후처리 실패 정리·CudaAsync 타임아웃 회귀를 실행하고 수렴 점검한다. 헌법은 미작성 템플릿이며 확장 후크는 없다. 최신 요청이 예제 후처리만 확장하며 추론기의 전처리·후처리 미수행 계약은 유지한다.

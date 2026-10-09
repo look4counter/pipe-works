@@ -145,6 +145,12 @@ class FakeTRT:
 
 
 class SettingsTests(unittest.TestCase):
+    def test_batch_flag_validation(self):
+        self.assertFalse(TensorRTInference(Path("model.plan")).batch)
+        self.assertTrue(TensorRTInference(Path("model.plan"), batch=True).batch)
+        for value in (0, 1, None, "true"):
+            with self.assertRaises(ValueError):
+                TensorRTInference(Path("model.plan"), batch=value)
     def test_settings_and_public_export(self):
         from pipeworks.embedded import TensorRTInference as exported
         self.assertIs(exported, TensorRTInference)
@@ -176,6 +182,30 @@ class SettingsTests(unittest.TestCase):
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
 class TensorRTInferenceTests(unittest.TestCase):
+    def test_batch_submits_inputs_events_interval_and_statistics(self):
+        step = TensorRTInference(self.path, batch=True)
+        step.configure(SimpleNamespace(inference_interval=3))
+        items = [self.item() for _ in range(7)]
+        calls = []
+
+        def infer(path, tensors, gpu_id, *, ready_event, on_inference_complete):
+            ready_event.synchronize()
+            calls.append(tensors)
+            on_inference_complete(.01)
+            return {"output": tensors + 1}
+
+        with patch("pipeworks.local_tensor_rt.infer", side_effect=infer), report_scope():
+            stats = _stats()
+            outputs = list(step.process(iter(items)))
+        self.assertEqual(outputs, items)
+        self.assertEqual([i.model_output is not None for i in items], [True, False, False, True, False, False, True])
+        self.assertEqual(stats.completed_inferences, 3)
+        self.assertEqual(len(calls), 3)
+        for tensor, item in zip(calls, items[::3]):
+            self.assertIs(tensor, item.model_input)
+        with patch("pipeworks.local_tensor_rt.infer", side_effect=RuntimeError("batch failed")):
+            with self.assertRaisesRegex(RuntimeError, "batch failed"):
+                list(step.process(iter([self.item()])))
     def setUp(self):
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -256,9 +286,10 @@ class TensorRTInferenceTests(unittest.TestCase):
             items = [self.item(), self.item()]
             outputs = wrapper.process(iter(items))
             try:
-                self.assertIs(next(outputs), items[0])
-                self.assertTrue(entered.wait(2))
                 self.assertIs(next(outputs), items[1])
+                self.assertTrue(entered.wait(2))
+                with self.assertRaises(StopIteration):
+                    next(outputs)
             finally:
                 outputs.close()
                 release.set()

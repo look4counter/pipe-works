@@ -183,29 +183,22 @@ class AsyncTests(unittest.TestCase):
 
     def test_multiple_timeout_skips_remaining_and_ignores_early_release(self):
         from pipeworks.execution import release_input
-        entered, release, finished = Event(), Event(), Event()
-        self.addCleanup(release.set)
-
+        entered, unblock, finished = Event(), Event(), Event()
+        self.addCleanup(unblock.set)
         def slow(item, index):
             release_input()
             entered.set()
-            release.wait(5)
+            unblock.wait(5)
             finished.set()
             return item
-
         final = FunctionStep(lambda item, index: item)
-        wrapper = CudaAsync(FunctionStep(slow), final, timeout_ms=50)
-        module = import_module("pipeworks.embedded.cuda_async")
-        with patch.object(module, "_snapshot", wraps=module._snapshot) as snapshot:
-            outputs = wrapper.process(iter([PipelineContext(data=[1])]))
-            next(outputs)
-            self.assertTrue(entered.wait(1))
-            snapshot.assert_called_once()
-            outputs.close()
-            release.set()
-            self.assertTrue(finished.wait(1))
-            self.assertTrue(wrapper._session_lock.acquire(timeout=1))
-            wrapper._session_lock.release()
+        wrapper = CudaAsync(FunctionStep(slow), final, timeout_ms=100)
+        self.assertEqual(list(wrapper.process(iter([PipelineContext(data=[1])]))), [])
+        self.assertTrue(entered.is_set())
+        unblock.set()
+        self.assertTrue(finished.wait(1))
+        self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+        wrapper._session_lock.release()
         self.assertEqual(final.starts, 0)
 
     def test_multiple_steps_serialization(self):
@@ -258,7 +251,7 @@ class AsyncTests(unittest.TestCase):
                 finished.set()
                 return iter([item])
 
-        with patch("pipeworks.embedded.cuda_async._snapshot") as snapshot:
+        with patch.object(torch.Tensor, "clone", side_effect=AssertionError("input clone")) as snapshot:
             outputs = CudaAsync(EagerStep(), timeout_ms=50).process(iter([PipelineContext()]))
             next(outputs)
             self.assertTrue(entered.wait(1))
@@ -267,131 +260,84 @@ class AsyncTests(unittest.TestCase):
             release.set()
             self.assertTrue(finished.wait(1))
 
-    def test_release_input_skips_copy_only_when_event_is_complete(self):
+    def test_release_input_passes_only_when_event_is_complete(self):
         from pipeworks.execution import release_input
-        module = import_module("pipeworks.embedded.cuda_async")
-
         for ready in (None, SimpleNamespace(query=lambda: True), SimpleNamespace(query=lambda: False)):
             with self.subTest(ready=ready):
-                entered, release, cleaned = Event(), Event(), Event()
-                self.addCleanup(release.set)
-
-                class ReleasedStep(Step):
-                    def process(self, inputs):
-                        try:
-                            for item in inputs:
-                                release_input(ready_event=ready)
-                                entered.set()
-                                release.wait(5)
-                                item.late = True
-                                yield item
-                        finally:
-                            cleaned.set()
-
+                unblock = Event()
+                self.addCleanup(unblock.set)
+                def process(item, index):
+                    release_input(ready_event=ready)
+                    unblock.wait(5)
+                    item.late = True
+                    return item
                 original = PipelineContext(tensor=torch.tensor([1]), data=[1])
                 tensor, data = original.tensor, original.data
-                with patch.object(module, "_snapshot", wraps=module._snapshot) as snapshot:
-                    outputs = CudaAsync(ReleasedStep(), timeout_ms=50).process(iter([original]))
-                    self.assertIs(next(outputs), original)
-                    self.assertTrue(entered.wait(1))
-                    expected_copy = ready is not None and not ready.query()
-                    self.assertEqual(snapshot.call_count, int(expected_copy))
-                    if not expected_copy:
-                        self.assertIs(original.tensor, tensor)
-                        self.assertIs(original.data, data)
-                    outputs.close()
-                    release.set()
-                    self.assertTrue(cleaned.wait(1))
-                    self.assertFalse(hasattr(original, "late"))
+                wrapper = CudaAsync(FunctionStep(process), timeout_ms=100)
+                outputs = list(wrapper.process(iter([original])))
+                self.assertEqual(outputs, [original] if ready is None or ready.query() else [])
+                self.assertIs(original.tensor, tensor)
+                self.assertIs(original.data, data)
+                unblock.set()
+                self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+                wrapper._session_lock.release()
+                self.assertFalse(hasattr(original, 'late'))
 
     def test_release_signal_does_not_leak_to_next_request(self):
         from pipeworks.execution import release_input
-        module = import_module("pipeworks.embedded.cuda_async")
-        release, cleaned = Event(), Event()
-        self.addCleanup(release.set)
+        unblock = Event()
+        self.addCleanup(unblock.set)
+        def process(item, index):
+            if index == 0:
+                release_input()
+            else:
+                unblock.wait(5)
+            return item
+        first, second = PipelineContext(), PipelineContext(tensor=torch.tensor([1]))
+        wrapper = CudaAsync(FunctionStep(process), timeout_ms=100)
+        self.assertEqual(list(wrapper.process(iter([first, second]))), [first])
+        unblock.set()
+        self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+        wrapper._session_lock.release()
 
-        class SometimesReleased(Step):
-            def process(self, inputs):
-                try:
-                    for index, item in enumerate(inputs):
-                        if index == 0:
-                            release_input()
-                        else:
-                            release.wait(5)
-                        yield item
-                finally:
-                    cleaned.set()
-
-        wrapper = CudaAsync(SometimesReleased(), timeout_ms=50)
-        with patch.object(module, "_snapshot", wraps=module._snapshot) as snapshot:
-            outputs = wrapper.process(iter([PipelineContext(), PipelineContext(tensor=torch.tensor([1]))]))
-            next(outputs)
-            second = next(outputs)
-            self.assertEqual(snapshot.call_count, 1)
-            self.assertEqual(second.tensor.tolist(), [1])
-            outputs.close()
-            release.set()
-            self.assertTrue(cleaned.wait(1))
-
-    def test_release_event_query_error_falls_back_to_copy(self):
+    def test_release_event_query_error_drops_frame(self):
         from pipeworks.execution import release_input
-        release, cleaned = Event(), Event()
-        self.addCleanup(release.set)
-
+        unblock = Event()
+        self.addCleanup(unblock.set)
         class InvalidEvent:
             def query(self):
-                raise RuntimeError("이벤트 조회 실패")
-
-        class ReleasedStep(Step):
-            def process(self, inputs):
-                try:
-                    for item in inputs:
-                        release_input(ready_event=InvalidEvent())
-                        release.wait(5)
-                        yield item
-                finally:
-                    cleaned.set()
-
+                raise RuntimeError('query failed')
+        def process(item, index):
+            release_input(ready_event=InvalidEvent())
+            unblock.wait(5)
+            return item
         original = PipelineContext(tensor=torch.tensor([1]))
-        tensor = original.tensor
-        with self.assertLogs("pipeworks.embedded.cuda_async", level="ERROR"):
-            outputs = CudaAsync(ReleasedStep(), timeout_ms=50).process(iter([original]))
-            next(outputs)
-        self.assertIsNot(original.tensor, tensor)
-        outputs.close()
-        release.set()
-        self.assertTrue(cleaned.wait(1))
+        wrapper = CudaAsync(FunctionStep(process), timeout_ms=100)
+        with self.assertLogs('pipeworks.embedded.cuda_async', level='ERROR'):
+            self.assertEqual(list(wrapper.process(iter([original]))), [])
+        unblock.set()
+        self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+        wrapper._session_lock.release()
 
     def test_stale_execution_context_cannot_release_another_request(self):
         from contextvars import copy_context
         from pipeworks.execution import release_input
-        module = import_module("pipeworks.embedded.cuda_async")
-        release, cleaned = Event(), Event()
-        self.addCleanup(release.set)
-
-        class StaleContextStep(Step):
-            def process(self, inputs):
-                saved = None
-                try:
-                    for index, item in enumerate(inputs):
-                        if index == 0:
-                            saved = copy_context()
-                        else:
-                            saved.run(release_input)
-                            release.wait(5)
-                        yield item
-                finally:
-                    cleaned.set()
-
-        wrapper = CudaAsync(StaleContextStep(), timeout_ms=50)
-        with patch.object(module, "_snapshot", wraps=module._snapshot) as snapshot:
-            outputs = wrapper.process(iter([PipelineContext(), PipelineContext(tensor=torch.tensor([1]))]))
-            next(outputs)
-            next(outputs)
-            self.assertEqual(snapshot.call_count, 1)
-            outputs.close()
-            release.set()
-            self.assertTrue(cleaned.wait(1))
+        unblock = Event()
+        self.addCleanup(unblock.set)
+        saved = []
+        def process(item, index):
+            if index == 0:
+                saved.append(copy_context())
+            else:
+                saved[0].run(release_input)
+                unblock.wait(5)
+            return item
+        first, second = PipelineContext(), PipelineContext(tensor=torch.tensor([1]))
+        wrapper = CudaAsync(FunctionStep(process), timeout_ms=100)
+        self.assertEqual(list(wrapper.process(iter([first, second]))), [first])
+        unblock.set()
+        self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+        wrapper._session_lock.release()
 
     def test_public_import_and_validation(self):
         from pipeworks.embedded import CudaAsync as exported
@@ -428,40 +374,32 @@ class AsyncTests(unittest.TestCase):
             self.assertEqual(output.index, index)
             self.assertFalse(hasattr(output, "removed"))
 
-    def test_timeout_busy_pass_through_and_late_mutation_isolation(self):
-        entered, release, finished = Event(), Event(), Event()
-        self.addCleanup(release.set)
+    def test_timeout_busy_pass_through_and_late_result_isolation(self):
+        entered, unblock, finished = Event(), Event(), Event()
+        self.addCleanup(unblock.set)
         calls = []
-
-        def process(item, _):
+        def process(item, index):
             calls.append(item)
             entered.set()
-            release.wait(5)
-            item.data["values"].append(99)
-            item.tensor.add_(10)
+            unblock.wait(5)
             item.extra = True
             finished.set()
             return item
-
-        frames = [PipelineContext(data={"values": [1]}, tensor=torch.tensor([1])) for _ in range(101)]
-        step = CudaAsync(FunctionStep(process), timeout_ms=10)
+        frames = [PipelineContext(data={'values': [1]}, tensor=torch.tensor([1])) for _ in range(101)]
+        wrapper = CudaAsync(FunctionStep(process), timeout_ms=100)
         started = time.monotonic()
-        stream = step.process(iter(frames))
-        self.assertIs(next(stream), frames[0])
-        self.assertIsNot(frames[0].tensor, calls[0].tensor)
-        self.assertIsNot(frames[0].data, calls[0].data)
-        self.assertLess(time.monotonic() - started, 0.5)
-        self.assertTrue(entered.wait(1))
-        with patch("pipeworks.embedded.cuda_async._snapshot") as snapshot:
-            self.assertEqual(list(stream), frames[1:])
-        snapshot.assert_not_called()
+        with patch.object(torch.Tensor, 'clone', side_effect=AssertionError('input clone')):
+            self.assertEqual(list(wrapper.process(iter(frames))), frames[1:])
+        self.assertLess(time.monotonic() - started, .5)
+        self.assertTrue(entered.is_set())
         self.assertEqual(len(calls), 1)
-        release.set()
-        self.assertTrue(finished.wait(1))
+        self.assertIs(calls[0].tensor, frames[0].tensor)
+        unblock.set()
+        self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+        wrapper._session_lock.release()
+        self.assertTrue(finished.is_set())
         for frame in frames:
-            self.assertEqual(frame.data, {"values": [1]})
-            self.assertEqual(frame.tensor.tolist(), [1])
-            self.assertFalse(hasattr(frame, "extra"))
+            self.assertFalse(hasattr(frame, 'extra'))
 
     def test_exception_passes_original_and_retries_next_input(self):
         def process(item, _):
@@ -498,7 +436,7 @@ class AsyncTests(unittest.TestCase):
             item.left = item.right = item.left + 3
             return item
 
-        with patch("pipeworks.embedded.cuda_async._snapshot") as snapshot:
+        with patch.object(torch.Tensor, "clone", side_effect=AssertionError("input clone")) as snapshot:
             list(CudaAsync(FunctionStep(process), timeout_ms=1000).process(iter([original])))
         snapshot.assert_not_called()
         self.assertEqual(data, [1])
@@ -507,31 +445,22 @@ class AsyncTests(unittest.TestCase):
         self.assertEqual(original.left.tolist(), [5])
         self.assertIs(original.left, original.right)
 
-    def test_timeout_snapshot_can_finish_after_worker_completion(self):
-        module = import_module("pipeworks.embedded.cuda_async")
-        snapshot = module._snapshot
-        release, finished = Event(), Event()
-        self.addCleanup(release.set)
-
-        def process(item, _):
-            release.wait(5)
+    def test_late_completed_request_passes_without_signal_or_result(self):
+        module = import_module('pipeworks.embedded.cuda_async')
+        original = PipelineContext(frame=torch.tensor([1]))
+        finish = module._InputSlot.finish
+        def late_finish(slot, request, result):
+            request.deadline = 0
+            finish(slot, request, result)
+        def process(item, index):
             item.late = True
-            finished.set()
             return item
-
-        def complete_during_copy(request):
-            release.set()
-            self.assertTrue(request.done.wait(1))
-            return snapshot(request)
-
-        original = PipelineContext(data=[1], tensor=torch.tensor([2]))
-        with patch.object(module, "_snapshot", side_effect=complete_during_copy) as copy:
-            output = list(CudaAsync(FunctionStep(process), timeout_ms=10).process(iter([original])))[0]
-        copy.assert_called_once()
-        self.assertIs(output, original)
-        self.assertEqual(output.data, [1])
-        self.assertEqual(output.tensor.tolist(), [2])
-        self.assertFalse(hasattr(output, "late"))
+        with patch.object(module._InputSlot, 'finish', late_finish), patch.object(
+            torch.Tensor, 'clone', side_effect=AssertionError('input clone')
+        ):
+            outputs = list(CudaAsync(FunctionStep(process), timeout_ms=1000).process(iter([original])))
+        self.assertEqual(outputs, [original])
+        self.assertFalse(hasattr(original, 'late'))
 
     def test_request_context_variables_are_propagated(self):
         variable = ContextVar("async_test", default="missing")
@@ -562,7 +491,7 @@ class AsyncTests(unittest.TestCase):
                     closed.set()
 
         stream = CudaAsync(BlockingStep(), timeout_ms=10).process(iter([PipelineContext()]))
-        next(stream)
+        self.assertEqual(list(stream), [])
         started = time.monotonic()
         stream.close()
         self.assertLess(time.monotonic() - started, 0.5)
@@ -586,7 +515,7 @@ class AsyncTests(unittest.TestCase):
 
         wrapper = CudaAsync(BlockingStep(), timeout_ms=10)
         first = wrapper.process(iter([PipelineContext()]))
-        next(first)
+        self.assertEqual(list(first), [])
         first.close()
         original = PipelineContext(value=1)
         self.assertIs(list(wrapper.process(iter([original])))[0], original)
@@ -613,69 +542,49 @@ class AsyncTests(unittest.TestCase):
         self.assertIs(outputs[0], original)
         self.assertEqual(inner.starts, 1)
 
-    def test_timeout_copy_failure_waits_for_worker(self):
-        from threading import Thread
-
+    def test_timeout_never_deepcopies_input_or_waits_for_worker(self):
         class Uncloneable:
             def __deepcopy__(self, memo):
-                raise TypeError("복사 불가")
-
-        entered, release, returned = Event(), Event(), Event()
-        self.addCleanup(release.set)
-
-        def process(item, _):
+                raise AssertionError('deepcopy called')
+        entered, unblock = Event(), Event()
+        self.addCleanup(unblock.set)
+        def process(item, index):
             entered.set()
-            release.wait(5)
+            unblock.wait(5)
             return item
-
-        original = PipelineContext(resource=Uncloneable())
-        step = CudaAsync(FunctionStep(process), timeout_ms=10)
-
-        def consume():
-            self.assertIs(list(step.process(iter([original])))[0], original)
-            returned.set()
-
-        with self.assertLogs("pipeworks.embedded.cuda_async", level="ERROR"):
-            caller = Thread(target=consume)
-            caller.start()
-            try:
-                self.assertTrue(entered.wait(1))
-                self.assertFalse(returned.wait(.1))
-                release.set()
-                caller.join(2)
-                self.assertTrue(returned.is_set())
-            finally:
-                release.set()
-                caller.join(2)
+        original, following = PipelineContext(resource=Uncloneable()), PipelineContext(number=2)
+        wrapper = CudaAsync(FunctionStep(process), timeout_ms=100)
+        started = time.monotonic()
+        self.assertEqual(list(wrapper.process(iter([original, following]))), [following])
+        self.assertLess(time.monotonic() - started, .5)
+        self.assertTrue(entered.is_set())
+        unblock.set()
+        self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+        wrapper._session_lock.release()
 
     def test_timeout_retains_original_storage_until_completion(self):
         import gc
         import weakref
-
-        entered, release, finished, reclaimed = Event(), Event(), Event(), Event()
-        self.addCleanup(release.set)
-
-        def process(item, _):
+        entered, unblock, reclaimed = Event(), Event(), Event()
+        self.addCleanup(unblock.set)
+        def process(item, index):
             entered.set()
-            release.wait(5)
+            unblock.wait(5)
             self.assertEqual(item.tensor.tolist(), [1])
-            finished.set()
             return item
-
         tensor = torch.tensor([1])
-        retained = weakref.ref(tensor, lambda _: reclaimed.set())
+        retained = weakref.ref(tensor, lambda ref: reclaimed.set())
         original = PipelineContext(tensor=tensor)
-        outputs = CudaAsync(FunctionStep(process), timeout_ms=10).process(iter([original]))
-        next(outputs)
-        self.assertTrue(entered.wait(1))
-        self.assertIsNot(original.tensor, tensor)
-        del tensor
-        original.tensor.add_(10)
+        wrapper = CudaAsync(FunctionStep(process), timeout_ms=100)
+        self.assertEqual(list(wrapper.process(iter([original]))), [])
+        self.assertTrue(entered.is_set())
+        del tensor, original
         gc.collect()
         self.assertIsNotNone(retained())
-        outputs.close()
-        release.set()
-        self.assertTrue(finished.wait(1))
+        unblock.set()
+        self.assertTrue(wrapper._session_lock.acquire(timeout=1))
+        wrapper._session_lock.release()
+        gc.collect()
         self.assertTrue(reclaimed.wait(1))
 
     def test_contract_violations_pass_original(self):
@@ -702,7 +611,7 @@ class AsyncTests(unittest.TestCase):
             self.assertIs(outputs[0], original)
             self.assertEqual(vars(original), {"value": 1})
 
-    def test_zero_timeout_passes_while_worker_runs(self):
+    def test_zero_timeout_drops_frame_while_worker_runs(self):
         release, entered = Event(), Event()
         self.addCleanup(release.set)
 
@@ -714,7 +623,7 @@ class AsyncTests(unittest.TestCase):
 
         original = PipelineContext()
         stream = CudaAsync(FunctionStep(process), timeout_ms=0).process(iter([original]))
-        self.assertIs(next(stream), original)
+        self.assertEqual(list(stream), [])
         self.assertTrue(entered.wait(1))
         self.assertEqual(vars(original), {})
         stream.close()
@@ -808,7 +717,26 @@ class AsyncTests(unittest.TestCase):
                     pass
                 sys.modules.pop(module.__name__, None)
 
-    @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
+    @unittest.skipUnless(torch.cuda.is_available(), 'CUDA required')
+    def test_gpu_timeout_before_release_drops_without_clone(self):
+        unblock = Event()
+        self.addCleanup(unblock.set)
+        stream = torch.cuda.Stream()
+        with torch.cuda.stream(stream):
+            tensor = torch.ones((6, 4), dtype=torch.uint8, device='cuda')
+        def process(item, index):
+            unblock.wait(5)
+            return item
+        wrapper = CudaAsync(FunctionStep(process), timeout_ms=100)
+        original = PipelineContext(frame=tensor, cuda_stream=stream)
+        with patch.object(torch.Tensor, 'clone', side_effect=AssertionError('input clone')):
+            self.assertEqual(list(wrapper.process(iter([original]))), [])
+        self.assertIs(original.frame, tensor)
+        unblock.set()
+        self.assertTrue(wrapper._session_lock.acquire(timeout=2))
+        wrapper._session_lock.release()
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
     def test_gpu_success_uses_dlpack_without_copy(self):
         stream = torch.cuda.Stream()
         with torch.cuda.stream(stream):
@@ -828,7 +756,7 @@ class AsyncTests(unittest.TestCase):
             return item
 
         original = PipelineContext(frame=Frame(), model_input=tensor, cuda_stream=stream)
-        with patch("pipeworks.embedded.cuda_async._snapshot") as snapshot, patch.object(
+        with patch.object(torch.Tensor, "clone", side_effect=AssertionError("input clone")) as snapshot, patch.object(
             torch.Tensor, "cpu", side_effect=AssertionError("CPU 전송 금지")
         ):
             output = list(CudaAsync(FunctionStep(process), timeout_ms=1000).process(iter([original])))[0]
@@ -837,40 +765,32 @@ class AsyncTests(unittest.TestCase):
         self.assertEqual(output.answer, 7)
         self.assertEqual(output.frame.data_ptr(), tensor.data_ptr())
 
-    @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
-    def test_gpu_tensor_and_dlpack_frame_are_isolated(self):
-        release, done = Event(), Event()
-        self.addCleanup(release.set)
+    @unittest.skipUnless(torch.cuda.is_available(), 'CUDA required')
+    def test_gpu_dlpack_frame_is_retained_without_copy_on_drop(self):
+        unblock, done = Event(), Event()
+        self.addCleanup(unblock.set)
         stream = torch.cuda.Stream()
         with torch.cuda.stream(stream):
-            tensor = torch.ones((6, 4), dtype=torch.uint8, device="cuda")
-
+            tensor = torch.ones((6, 4), dtype=torch.uint8, device='cuda')
         class Frame:
             def __dlpack__(self, stream=None):
                 return tensor.__dlpack__(stream=stream)
-
             def __dlpack_device__(self):
                 return tensor.__dlpack_device__()
-
-        def process(item, _):
-            release.wait(5)
+        frame = Frame()
+        def process(item, index):
+            unblock.wait(5)
+            self.assertEqual(item.frame.data_ptr(), tensor.data_ptr())
             with torch.cuda.stream(item.cuda_stream):
                 self.assertTrue(torch.all(item.frame == 1).item())
-                self.assertTrue(torch.all(item.model_input == 1).item())
-                item.cuda_stream.synchronize()
             done.set()
             return item
-
-        original = PipelineContext(frame=Frame(), model_input=tensor, cuda_stream=stream)
-        outputs = CudaAsync(FunctionStep(process), timeout_ms=10).process(iter([original]))
-        self.assertIs(next(outputs), original)
-        self.assertNotEqual(original.frame.data_ptr(), tensor.data_ptr())
-        self.assertNotEqual(original.model_input.data_ptr(), tensor.data_ptr())
-        with torch.cuda.stream(stream):
-            original.frame.add_(10)
-            original.model_input.add_(20)
-        outputs.close()
-        release.set()
-        self.assertTrue(done.wait(2))
-        stream.synchronize()
-        self.assertTrue(torch.all(tensor == 1).item())
+        wrapper = CudaAsync(FunctionStep(process), timeout_ms=100)
+        original = PipelineContext(frame=frame, cuda_stream=stream)
+        with patch.object(torch.Tensor, 'clone', side_effect=AssertionError('input clone')):
+            self.assertEqual(list(wrapper.process(iter([original]))), [])
+        self.assertIs(original.frame, frame)
+        unblock.set()
+        self.assertTrue(wrapper._session_lock.acquire(timeout=2))
+        wrapper._session_lock.release()
+        self.assertTrue(done.is_set())
