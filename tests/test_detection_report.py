@@ -231,6 +231,9 @@ class DetectionCudaTests(unittest.TestCase):
         from step.tensor_rt_post_process import TensorRTPostProcess
         entered, unblock = Event(), Event()
         class Slow(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 for item in inputs:
                     current_model_stream().synchronize()

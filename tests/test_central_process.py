@@ -94,6 +94,9 @@ class PrintingStep(Step):
 
 
 class PausedSource(Step):
+    def configure(self, config):
+        pass
+
     def __init__(self, release_path: Path):
         self.release_path = release_path
 
@@ -105,6 +108,9 @@ class PausedSource(Step):
 
 
 class ValueRecorder(Step):
+    def configure(self, config):
+        pass
+
     def __init__(self, result_path: Path):
         self.result_path = result_path
 
@@ -125,6 +131,9 @@ class ConfigurableOffset(Step):
 
 
 class StatusSource(Step):
+    def configure(self, config):
+        pass
+
     def __init__(self, healthy: bool):
         self.healthy = healthy
 
@@ -280,6 +289,8 @@ class CentralProcessTests(unittest.TestCase):
                     f"from {helper_name} import OFFSET\n"
                     "from pipeworks.models import Step, PipelineContext\n"
                     "class UserStep(Step):\n"
+                    "    def configure(self, config):\n"
+                    "        pass\n"
                     "    def process(self, inputs):\n"
                     "        for item in inputs:\n"
                     f"            yield PipelineContext(value=item.value + OFFSET + {offset})\n"

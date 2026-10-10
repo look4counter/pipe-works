@@ -16,6 +16,39 @@ from pipeworks.models import Step
 
 
 class StepConfigDefaultsTests(unittest.TestCase):
+    def test_configure_is_required(self):
+        class MissingConfigure(Step):
+            def process(self, inputs):
+                yield from inputs
+
+        with self.assertRaisesRegex(TypeError, "configure"):
+            MissingConfigure()
+
+    def test_process_remains_required(self):
+        class MissingProcess(Step):
+            def configure(self, config):
+                pass
+
+        with self.assertRaisesRegex(TypeError, "process"):
+            MissingProcess()
+
+    def test_empty_and_inherited_configure_are_allowed(self):
+        class Configured(Step):
+            def configure(self, config):
+                pass
+
+            def process(self, inputs):
+                yield from inputs
+
+        class Inherited(Configured):
+            pass
+
+        for cls in (Configured, Inherited):
+            step = cls()
+            self.assertIsNone(step.configure(SimpleNamespace()))
+            item = SimpleNamespace(value=1)
+            self.assertEqual(list(step.process(iter([item]))), [item])
+
     def test_custom_step_can_opt_into_constructor_defaults(self):
         class CustomStep(Step):
             def __init__(self, *, threshold=.5):

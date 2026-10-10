@@ -11,11 +11,17 @@ from pipeworks.models import PipelineContext, Step
 class PipelineContextTests(unittest.TestCase):
     def test_pass_through_preserves_dynamic_fields_but_new_context_does_not(self):
         class PassThrough(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 for item in inputs:
                     yield item
 
         class Replace(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 for item in inputs:
                     yield PipelineContext(value=item.value)

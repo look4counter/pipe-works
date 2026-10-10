@@ -182,6 +182,9 @@ def span(name, stream=None):
 
 
 class DetectionReport(Step):
+    def configure(self, config):
+        pass
+
     kind = ""
 
     def _write(self, stats, since):

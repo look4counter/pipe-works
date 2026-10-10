@@ -34,6 +34,9 @@ def metadata_code(first_offset: int, second_offset: int) -> str:
 from pipeworks.models import PipelineContext, Step
 
 class Metadata(Step):
+    def configure(self, config):
+        pass
+
     def process(self, inputs):
         for context in inputs:
             yield PipelineContext(value=context.value + {first_offset})
@@ -42,6 +45,9 @@ class Metadata(Step):
 
 
 class Accumulator(Step):
+    def configure(self, config):
+        pass
+
     def process(self, inputs):
         total = 0
         for context in inputs:
@@ -50,6 +56,9 @@ class Accumulator(Step):
 
 
 class NamedAccumulator(Step):
+    def configure(self, config):
+        pass
+
     def __init__(self, label):
         self.label = label
         self.total = 0
@@ -157,6 +166,8 @@ class HotswapTests(unittest.TestCase):
                     f"from {helper_name} import OFFSET\n"
                     "from pipeworks.models import Step, PipelineContext\n"
                     "class UserStep(Step):\n"
+                    "    def configure(self, config):\n"
+                    "        pass\n"
                     "    def process(self, inputs):\n"
                     "        for item in inputs:\n"
                     f"            yield PipelineContext(value=item.value + OFFSET + {offset})\n"
@@ -196,6 +207,8 @@ class HotswapTests(unittest.TestCase):
                     f"from {package_name}.helper import OFFSET\n"
                     "from pipeworks.models import Step, PipelineContext\n"
                     "class UserStep(Step):\n"
+                    "    def configure(self, config):\n"
+                    "        pass\n"
                     "    def process(self, inputs):\n"
                     "        for item in inputs:\n"
                     f"            yield PipelineContext(value=item.value + OFFSET + {offset})\n"
@@ -229,6 +242,9 @@ class HotswapTests(unittest.TestCase):
 
     def test_user_step_error_passes_original_frame_and_continues(self):
         class Fragile(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 for item in inputs:
                     if item.value == 2:
@@ -244,6 +260,9 @@ class HotswapTests(unittest.TestCase):
 
     def test_user_step_error_restores_original_context_fields(self):
         class Mutating(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 for item in inputs:
                     item.frame = "changed"
@@ -261,6 +280,9 @@ class HotswapTests(unittest.TestCase):
 
     def test_user_step_close_error_does_not_stop_pipeline(self):
         class FailsOnClose(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 class Output:
                     def __iter__(self):
@@ -282,6 +304,9 @@ class HotswapTests(unittest.TestCase):
 
     def test_user_step_error_passes_all_unreturned_inputs(self):
         class Buffered(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 for first in inputs:
                     second = next(inputs)
@@ -297,6 +322,9 @@ class HotswapTests(unittest.TestCase):
 
     def test_error_before_input_passes_each_frame(self):
         class Broken(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 raise RuntimeError("cannot start")
 
@@ -307,6 +335,9 @@ class HotswapTests(unittest.TestCase):
 
     def test_upstream_error_is_not_swallowed(self):
         class Passthrough(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 yield from inputs
 
@@ -321,6 +352,9 @@ class HotswapTests(unittest.TestCase):
 
     def test_user_source_error_retries(self):
         class FragileSource(Step):
+            def configure(self, config):
+                pass
+
             def __init__(self, attempts):
                 self.attempts = attempts
 
@@ -341,10 +375,16 @@ class HotswapTests(unittest.TestCase):
         seen = []
 
         class Source(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 yield from frames
 
         class Fragile(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 for item in inputs:
                     if item.value == 2:
@@ -352,6 +392,9 @@ class HotswapTests(unittest.TestCase):
                     yield item
 
         class Collect(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 for item in inputs:
                     seen.append(item)
@@ -423,6 +466,8 @@ class HotswapTests(unittest.TestCase):
             return (
                 "from pipeworks.models import Step, PipelineContext\n"
                 "class Counter(Step):\n"
+                "    def configure(self, config):\n"
+                "        pass\n"
                 "    def __init__(self):\n"
                 "        self.total = 0\n"
                 "    def process(self, inputs):\n"
@@ -470,6 +515,8 @@ class HotswapTests(unittest.TestCase):
             path.write_text(
                 "from pipeworks.models import Step, PipelineContext\n"
                 "class Source(Step):\n"
+                "    def configure(self, config):\n"
+                "        pass\n"
                 "    def process(self, inputs):\n"
                 "        try:\n"
                 "            while True:\n"
@@ -484,6 +531,8 @@ class HotswapTests(unittest.TestCase):
             path.write_text(
                 "from pipeworks.models import Step, PipelineContext\n"
                 "class Source(Step):\n"
+                "    def configure(self, config):\n"
+                "        pass\n"
                 "    def process(self, inputs):\n"
                 "        while True:\n"
                 "            yield PipelineContext(value=2)\n",
@@ -499,6 +548,8 @@ class HotswapTests(unittest.TestCase):
             path.write_text(
                 "from pipeworks.models import Step, PipelineContext\n"
                 "class Source(Step):\n"
+                "    def configure(self, config):\n"
+                "        pass\n"
                 "    def process(self, inputs):\n"
                 "        while True:\n"
                 "            yield PipelineContext(value=1)\n",
@@ -511,6 +562,8 @@ class HotswapTests(unittest.TestCase):
             path.write_text(
                 "from pipeworks.models import Step, PipelineContext\n"
                 "class Source(Step):\n"
+                "    def configure(self, config):\n"
+                "        pass\n"
                 "    def process(self, inputs):\n"
                 "        while True:\n"
                 "            yield PipelineContext(value=2)\n",
@@ -524,6 +577,8 @@ class HotswapTests(unittest.TestCase):
             return (
                 "from pipeworks.models import Step\n"
                 "class Sink(Step):\n"
+                "    def configure(self, config):\n"
+                "        pass\n"
                 "    def __init__(self, seen):\n"
                 "        self.seen = seen\n"
                 "    def process(self, inputs):\n"
@@ -650,11 +705,17 @@ class HotswapTests(unittest.TestCase):
 
     def test_pipeline_run_consumes_wrapped_step_chain(self):
         class Source(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 yield PipelineContext(value=1)
                 yield PipelineContext(value=2)
 
         class Sink(Step):
+            def configure(self, config):
+                pass
+
             def __init__(self, seen):
                 self.seen = seen
 

@@ -26,6 +26,9 @@ class FrameReleaseTests(unittest.TestCase):
                 self.addCleanup(unblock.set)
 
                 class Slow(Step):
+                    def configure(self, config):
+                        pass
+
                     def process(self, inputs):
                         try:
                             for item in inputs:
@@ -63,6 +66,9 @@ class FrameReleaseTests(unittest.TestCase):
                 self.addCleanup(unblock.set)
 
                 class Pre(Step):
+                    def configure(self, config):
+                        pass
+
                     def process(self, inputs):
                         for item in inputs:
                             signal()
@@ -70,6 +76,9 @@ class FrameReleaseTests(unittest.TestCase):
                             yield item
 
                 class Infer(Step):
+                    def configure(self, config):
+                        pass
+
                     def process(self, inputs):
                         for item in inputs:
                             entered.set()
@@ -92,6 +101,9 @@ class FrameReleaseTests(unittest.TestCase):
         self.addCleanup(unblock.set)
 
         class Stale(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 for index, item in enumerate(inputs):
                     if index == 0:
@@ -115,6 +127,9 @@ class FrameReleaseTests(unittest.TestCase):
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
     def test_failed_cuda_cleanup_drops_unreleased_original(self):
         class NoRelease(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 yield from inputs
 

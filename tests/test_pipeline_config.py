@@ -14,6 +14,9 @@ from pipeworks.models import PipelineContext, Step
 
 
 class EditingSource(Step):
+    def configure(self, config):
+        pass
+
     def __init__(self, config_path: Path, changes: list[str]):
         self.config_path = config_path
         self.changes = changes
@@ -42,6 +45,9 @@ class ConfiguredValue(Step):
 
 
 class CollectValues(Step):
+    def configure(self, config):
+        pass
+
     def __init__(self, seen):
         self.seen = seen
 
@@ -61,6 +67,9 @@ class ConfiguredSource(Step):
 
 
 class ChangeAfterFirst(Step):
+    def configure(self, config):
+        pass
+
     def __init__(self, path, seen):
         self.path = path
         self.seen = seen
@@ -88,6 +97,9 @@ class RecordingTap(Step):
 
 
 class TapEditingSource(Step):
+    def configure(self, config):
+        pass
+
     def __init__(self, path, seen):
         self.path = path
         self.seen = seen
@@ -118,6 +130,9 @@ class IdentityStep(Step):
 
 
 class IdentityCollector(Step):
+    def configure(self, config):
+        pass
+
     def __init__(self, seen):
         self.seen = seen
 

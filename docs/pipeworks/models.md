@@ -85,6 +85,8 @@ print(vars(context))  # dict 반환
 
 모든 파이프라인 Step의 추상 기본 클래스입니다.
 
+`configure()`와 `process()`는 모두 필수 구현 추상 메서드입니다. 구현을 생략하면 생성 시 `TypeError`가 발생합니다. 구체 구현을 상속해도 되며 설정이 필요 없으면 빈 `configure()`를 제공합니다.
+
 ```python
 from pipeworks.models import Step, PipelineContext
 from typing import Iterator
@@ -160,6 +162,9 @@ def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext
 
 ```python
 class RobustStep(Step):
+    def configure(self, config):
+        pass
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
             try:

@@ -30,7 +30,7 @@ Python 3.11.9, 기존 PyAV와 unittest를 사용하며 새 의존성은 없다. 
 
 `Pipeline.__init__`은 YAML을 읽고 모든 섹션의 매핑 구조를 검증한 뒤 최상위 설정을 `SimpleNamespace`로 보관한다. `Pipeline.step()`은 원래 단계 클래스명으로 섹션을 찾고 속성형 설정을 `configure()`에 전달한다. 사용자 정의 단계는 `Hotswap`으로 감싸며 설정을 래퍼에 보관해 재시작 시 재적용한다. 내장 단계는 직접 등록한다.
 
-`Step`의 기본 `configure()`는 아무 동작도 하지 않는다. 실제 단계가 필요한 값을 개별 속성으로 저장한다. `PipelineContext`는 필드 없는 동적 객체다. 디코더와 인코더는 출력마다 새 컨텍스트를 만든다.
+`Step`의 `configure()`는 필수 구현 추상 메서드다. 실제 단계가 필요한 값을 개별 속성으로 저장하며 설정이 필요 없으면 빈 구현을 제공한다. `PipelineContext`는 필드 없는 동적 객체다. 디코더와 인코더는 출력마다 새 컨텍스트를 만든다.
 
 `RTSPSource`는 전송 방식·제한 시간·재연결 정책을 개별 속성에 저장한다. 중앙 프로세스가 전달한 중단 이벤트가 있으면 재연결 대기에도 이를 사용한다.
 
@@ -51,3 +51,9 @@ Python 3.11.9, 기존 PyAV와 unittest를 사용하며 새 의존성은 없다. 
 RTSPSource와 RTSPPublish는 reconnect_interval_ms 기본값 3000을 저장한다. timeout_ms와 같은 유한한 비음수 숫자 검증을 적용하며 이전 reconnect_interval 키는 오류로 거부한다. 수신 time.sleep과 stop.wait, 송출 연결 실패와 mux 실패의 retry_at 계산에서는 1000으로 나누어 초로 변환한다. 수신 로그도 밀리초로 표시한다. 다른 재연결 정책은 보존한다.
 
 tests/test_rtsp_source.py는 기본값·0·소수 대기와 중단 이벤트, test_rtsp_publish.py는 연결 및 송신 실패 후 250ms 경계와 잘못된 설정을 검증한다. test_pipeline_config.py의 구성 예제를 밀리초로 옮긴다. examples/config/stream.yml, README.md, docs/pipeworks/pipeline.md 및 두 RTSP 문서는 이름과 수치를 함께 환산한다. 기존 RTSP 데이터 계약도 갱신한다. 관련 테스트만 실행하며 코드·명세·작업의 수렴을 확인한다.
+
+## 후속 설계: configure 필수 구현
+
+기존 abc 추상 메서드 계약으로 src/pipeworks/models.py의 configure에 abstractmethod를 적용한다. 새 의존성은 추가하지 않는다. 설정 없는 DetectionReport와 TensorRTPreProcess, tests/의 직접 Step 하위 클래스 및 동적 코드 문자열에 빈 구현을 추가한다. README.md와 docs/pipeworks/의 Step 안내 및 예제를 갱신한다.
+
+tests/test_step_config_defaults.py에 계약 검증을 먼저 작성해 구현 전 실패를 확인하고 전체 unittest를 실행한다. 외부 환경이 필요한 테스트의 건너뛰기를 기록한다. 헌장은 미작성 템플릿이므로 검사를 생략하고 문서는 한글로 작성한다. 데이터 구조와 설정 우선순위는 기존 계약을 따른다.

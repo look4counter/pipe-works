@@ -17,6 +17,7 @@ class Step(ABC):
         defaults = deepcopy(self._config_defaults)
         return SimpleNamespace(**(defaults | vars(config)))
 
+    @abstractmethod
     def configure(self, config: SimpleNamespace) -> None:
         pass
 

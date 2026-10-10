@@ -237,6 +237,9 @@ class AsyncTests(unittest.TestCase):
         closed = []
 
         class Tracked(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 try:
                     for item in inputs:
@@ -267,6 +270,9 @@ class AsyncTests(unittest.TestCase):
         self.addCleanup(release.set)
 
         class EagerStep(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 item = next(inputs)
                 release_input()
@@ -506,6 +512,9 @@ class AsyncTests(unittest.TestCase):
         self.addCleanup(release.set)
 
         class BlockingStep(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 try:
                     for item in inputs:
@@ -528,6 +537,9 @@ class AsyncTests(unittest.TestCase):
         calls = []
 
         class BlockingStep(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 try:
                     for item in inputs:
@@ -613,16 +625,25 @@ class AsyncTests(unittest.TestCase):
 
     def test_contract_violations_pass_original(self):
         class Aggregate(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 first = next(inputs)
                 next(inputs)
                 yield first
 
         class Source(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 yield PipelineContext(invalid=True)
 
         class Empty(Step):
+            def configure(self, config):
+                pass
+
             def process(self, inputs):
                 for _ in inputs:
                     return
@@ -711,7 +732,7 @@ class AsyncTests(unittest.TestCase):
 
         modules = [ModuleType("async_remote_first"), ModuleType("async_remote_second")]
         for module in modules:
-            exec("from pipeworks.models import Step\nclass Custom(Step):\n    def process(self, inputs):\n        yield from inputs\n", module.__dict__)
+            exec("from pipeworks.models import Step\nclass Custom(Step):\n    def configure(self, config):\n        pass\n    def process(self, inputs):\n        yield from inputs\n", module.__dict__)
             sys.modules[module.__name__] = module
         payloads = []
 

@@ -127,6 +127,9 @@ context = PipelineContext(
 
 ```python
 class MyProcessingStep(Step):
+    def configure(self, config):
+        pass
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
             # RTSPSource에서 제공

@@ -50,6 +50,9 @@ class ProcessingTests(unittest.TestCase):
         observed = []
 
         class SlowInference(Step):
+            def configure(self, config):
+                pass
+
             def process(inner, inputs):
                 for working in inputs:
                     current_model_stream().synchronize()

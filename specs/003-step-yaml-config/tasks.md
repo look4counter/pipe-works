@@ -66,3 +66,13 @@ T023 → T024 → T025 → T026 → T027 순서로 수행한다.
 - [x] T034 현재 코드와 `specs/003-step-yaml-config/`의 명세·계획·작업을 수렴 점검한다. (FR-017~FR-021, SC-014~SC-016)
 
 의존성: T028 → T029 → T030 → T031 → T032 → T033 → T034. 독립 검증은 모델이나 GPU 실행 없이 구성 값으로 수행한다. 병렬 가능한 검증 파일 읽기는 함께 수행하며 구현 작업은 순차 진행한다. 최소 전달 범위는 US3의 7개 내장 Step과 공통 지원이다.
+
+## 단계 7: configure 필수 구현
+
+- [x] T035 specs/003-step-yaml-config/의 명세·계획·계약·작업 일관성을 분석한다. (FR-022~FR-024)
+- [x] T036 [US4] tests/test_step_config_defaults.py에 누락 거부·빈 구현·상속·process 필수 검증을 작성하고 구현 전 실패를 확인한다. (SC-017)
+- [x] T037 [US4] src/pipeworks/models.py를 수정하고 src/pipeworks/detection_profile.py, examples/step/tensor_rt_pre_process.py 및 tests/의 단계와 동적 코드에 빈 구현을 추가한다. (FR-022, FR-023, FR-024)
+- [x] T038 [US4] README.md와 docs/pipeworks/의 필수 구현 안내와 예제를 갱신한다. (FR-024)
+- [x] T039 전체 tests/ 검증과 specs/003-step-yaml-config/quickstart.md 결과 기록을 수행한다. (SC-017, SC-018)
+
+의존성: T035 → T036 → T037 → T038 → T039. 독립 검증은 GPU 실행 없이 단계 생성으로 수행한다. 최소 전달 범위는 US4 전체이다. T037 이후 안내 갱신과 검증은 독립 수행할 수 있다.

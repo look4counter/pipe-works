@@ -10,6 +10,9 @@ from pipeworks.detection_profile import begin, span, use
 
 
 class TensorRTPreProcess(Step):
+    def configure(self, config):
+        pass
+
     def process(self, inputs):
         streams = {}
         for item in inputs:

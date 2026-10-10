@@ -522,6 +522,9 @@ class NativeDecodeTests(unittest.TestCase):
         from pipeworks.models import Step
 
         class Stage(Step):
+            def configure(self, config):
+                pass
+
             def __init__(self, delay):
                 self.delay = delay
             def process(self, inputs):
@@ -577,6 +580,9 @@ class NativeDecodeTests(unittest.TestCase):
         spec.loader.exec_module(module)
 
         class Stage(Step):
+            def configure(self, config):
+                pass
+
             def __init__(self, delay=0):
                 self.delay = delay
             def process(self, inputs):

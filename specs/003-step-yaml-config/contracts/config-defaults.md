@@ -5,3 +5,7 @@
 필수 URL·모델 경로와 batch는 생성자 전용이다. 명시적 null은 누락이 아니며 옵션별 기존 검증을 따른다. Tap은 내부 Step에 설정을 전달하고 CudaAsync 내부 Step은 기존 최상위 클래스명 섹션을 사용한다.
 
 사용자 정의 Step은 `_set_config_defaults`로 생성자 기준을 저장하고 `configure`에서 `_resolve_config`로 병합하여 같은 규칙에 참여할 수 있다. 기존 사용자 정의 configure는 자동 변경하지 않는다.
+
+## 필수 설정 메서드
+
+모든 Step은 configure(config)를 구현하거나 구체 구현을 상속해야 한다. 설정이 필요 없으면 빈 구현을 제공한다. 누락한 단계는 생성 시 TypeError로 거부되며 process 필수 구현도 유지된다.

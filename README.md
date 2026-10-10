@@ -69,12 +69,16 @@ RTSPPublish:
 ### Step
 파이프라인의 기본 단위입니다. 입력 스트림을 받아 처리 후 출력합니다.
 
+`configure()`와 `process()`는 모두 필수 구현 메서드입니다. 설정이 필요 없으면 빈 `configure()`를 구현합니다. 구체 구현을 상속할 수도 있으며, 구현이 누락된 Step은 생성 시 `TypeError`가 발생합니다.
+
 ```python
 class Step(ABC):
+    @abstractmethod
     def configure(self, config: SimpleNamespace) -> None:
         """YAML 설정을 적용합니다."""
         pass
     
+    @abstractmethod
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         """입력을 받아 처리 후 출력합니다."""
         pass
@@ -521,6 +525,9 @@ from typing import Iterator
 from pipeworks.models import PipelineContext, Step
 
 class MyOpenCVStep(Step):
+    def configure(self, config: SimpleNamespace) -> None:
+        pass
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
             # OpenCV 사용
