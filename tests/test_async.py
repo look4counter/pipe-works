@@ -102,6 +102,10 @@ class AsyncTests(unittest.TestCase):
             self.assertEqual(first.config.offset, 1)
             self.assertEqual(second.config.offset, 2)
             watcher = _LiveConfig(path, vars(pipeline.config), pipeline._config_digest)
+            self.addCleanup(watcher.close)
+            def notify_config_change():
+                watcher.subscription._service.mark_changed(path)
+                watcher.last_check = float("-inf")
             _watch_async_children(wrapper, watcher, vars(pipeline.config))
             for step in (wrapper._hot_steps[0], nested._hot_steps[0]):
                 step.check_interval = 0
@@ -109,14 +113,14 @@ class AsyncTests(unittest.TestCase):
             try:
                 self.assertEqual(next(outputs).value, 13)
                 save(3, 2)
-                watcher.last_check = float("-inf")
+                notify_config_change()
                 self.assertEqual(next(outputs).value, 15)
                 save(4, -1)
-                watcher.last_check = float("-inf")
+                notify_config_change()
                 with self.assertLogs("pipeworks.hotswap", level="ERROR"):
                     self.assertEqual(next(outputs).value, 16)
                 save(4, 5)
-                watcher.last_check = float("-inf")
+                notify_config_change()
                 self.assertEqual(next(outputs).value, 19)
             finally:
                 outputs.close()
@@ -130,7 +134,7 @@ class AsyncTests(unittest.TestCase):
             _watch_async_children(embedded, watcher, vars(pipeline.config))
             embedded._hot_steps[0].check_interval = 0
             path.write_text("YoloDetect:\n  confidence: 0.6\n", encoding="utf-8")
-            watcher.last_check = float("-inf")
+            notify_config_change()
             embedded._hot_steps[0]._check_for_update(force=True)
             self.assertEqual(yolo.confidence, .6)
 

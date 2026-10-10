@@ -2,7 +2,6 @@
 
 from collections.abc import Callable, Iterator
 import _imp
-from hashlib import sha256
 import inspect
 import logging
 from pathlib import Path
@@ -13,6 +12,7 @@ from types import ModuleType, SimpleNamespace
 from uuid import uuid4
 
 from pipeworks.models import PipelineContext, Step
+from pipeworks.file_watch import FileSubscription
 
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,7 @@ class Hotswap(Step):
         except (OSError, TypeError):
             filename = None
         self._path = Path(filename).resolve() if filename and watch_code else None
+        self._file_subscription = FileSubscription(self._path) if self._path else None
         self._active_digest = self._file_digest()
         self._failed_digest: str | None = None
         self._last_check = float("-inf")
@@ -150,7 +151,7 @@ class Hotswap(Step):
         if self._path is None:
             return None
         try:
-            return sha256(self._path.read_bytes()).hexdigest()
+            return self._file_subscription.snapshot().digest
         except OSError:
             return None
 
@@ -190,11 +191,12 @@ class Hotswap(Step):
         if self._path is None:
             return False
         try:
-            source = self._path.read_bytes()
+            snapshot = self._file_subscription.snapshot(force=self.check_interval == 0)
+            source = snapshot.source
         except OSError:
             logger.exception("Step 파일을 읽지 못했습니다: %s", self._path)
             return self._candidate is not None
-        digest = sha256(source).hexdigest()
+        digest = snapshot.digest
         if digest == self._active_digest:
             if self._candidate is not None:
                 sys.modules.pop(self._candidate[1], None)
@@ -303,7 +305,11 @@ class Hotswap(Step):
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         if self.source:
-            yield from self._process_source()
+            try:
+                yield from self._process_source()
+            finally:
+                if self._file_subscription is not None:
+                    self._file_subscription.close()
             return
 
         cursor = _Cursor(inputs)
@@ -370,7 +376,11 @@ class Hotswap(Step):
                 else:
                     return
         finally:
-            cursor.close()
+            try:
+                cursor.close()
+            finally:
+                if self._file_subscription is not None:
+                    self._file_subscription.close()
 
     def _process_source(self) -> Iterator[PipelineContext]:
         while True:

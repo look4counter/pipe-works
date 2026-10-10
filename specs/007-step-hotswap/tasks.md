@@ -54,3 +54,20 @@
 - T022를 먼저 수행해 실패를 확인한 뒤 T023을 구현한다.
 - T024는 T023 이후 실행한다. T025는 모든 변경 뒤 수행한다.
 - 기존 단계 1~6의 완료 상태를 유지한다.
+
+## 단계 8: 공유 감시 준비
+
+- [x] T026 `pyproject.toml`, `uv.lock`에 watchdog 6.0.0 의존성을 추가하고 설치한다. (FR-009)
+
+## 단계 9: 공유 감시 사용자 시나리오
+
+- [x] T027 [US1] `tests/test_file_watch.py`에 무변경·공유 읽기·실제 알림·교체 저장·유실·오류·해제·직렬화 검증을 먼저 추가한다. (FR-017~019, SC-011~013)
+- [x] T028 [US1] `src/pipeworks/file_watch.py`에 프로세스별 공유 OS 감시와 스냅샷·재검사·자원 정리를 구현한다. (FR-009, FR-017~019)
+- [x] T029 [US1] `src/pipeworks/hotswap.py`, `src/pipeworks/pipeline.py`에 공유 구독과 처리 경계 적용 및 종료 정리를 연결한다. (FR-009, FR-015, SC-011~013)
+- [x] T030 [US1] `tests/test_hotswap.py`, `tests/test_async.py` 및 설정 테스트의 알림 동기화를 갱신하고 핫스왑·YAML·중앙 프로세스 회귀를 실행한다. (SC-001~013)
+
+## 단계 10: 문서와 검증
+
+- [x] T031 `docs/pipeworks/hotswap.md`, `docs/pipeworks/pipeline.md` 및 `specs/007-step-hotswap/quickstart.md`에 새 감시 계약과 검증 결과를 기록하고 전체 테스트를 실행한다. (SC-005, SC-011~013)
+
+T026 → T027 → T028 → T029 → T030 → T031 순서로 실행한다. 기존 완료 작업은 보존한다. T030의 독립 테스트 파일은 병렬 실행 가능하다. 최소 완료 범위는 공유 감시 사용자 시나리오 전체이며 문서·회귀 검증까지 수행한다.

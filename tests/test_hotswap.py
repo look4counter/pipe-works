@@ -61,6 +61,35 @@ class NamedAccumulator(Step):
 
 
 class HotswapTests(unittest.TestCase):
+    def test_shared_code_snapshot_at_processing_boundaries(self):
+        from pipeworks.file_watch import _WatchService
+        from test_file_watch import FakeObserver
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "shared.py"
+            path.write_text(metadata_code(10, 20), encoding="utf-8")
+            service = _WatchService(observer_factory=FakeObserver)
+            self.addCleanup(service.close)
+            with patch("pipeworks.file_watch._shared_service", return_value=service):
+                first = Hotswap(load_step(path, "Metadata"))
+                second = Hotswap(load_step(path, "Metadata"))
+                self.addCleanup(first._file_subscription.close)
+                self.addCleanup(second._file_subscription.close)
+                with patch.object(Path, "read_bytes", autospec=True, side_effect=Path.read_bytes) as read:
+                    for _ in range(1000):
+                        self.assertFalse(first._check_for_update(force=True))
+                        self.assertFalse(second._check_for_update(force=True))
+                    self.assertEqual(read.call_count, 0)
+                    path.write_text(metadata_code(100, 200), encoding="utf-8")
+                    service.mark_changed(path)
+                    self.assertTrue(first._check_for_update(force=True))
+                    self.assertTrue(second._check_for_update(force=True))
+                    self.assertTrue(first._commit_update())
+                    self.assertTrue(second._commit_update())
+                    self.assertEqual(read.call_count, 1)
+                for wrapper in (first, second):
+                    outputs = wrapper.process(iter([PipelineContext(value=1)]))
+                    self.assertEqual([item.value for item in outputs], [101, 201])
+
     def test_source_configure_keeps_active_generator_open(self):
         closed = []
 

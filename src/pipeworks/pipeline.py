@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import closing
 from hashlib import sha256
 import logging
 from threading import Lock
@@ -9,6 +10,7 @@ import yaml
 
 from pipeworks.hotswap import Hotswap, is_embedded_step
 from pipeworks.models import Step
+from pipeworks.file_watch import FileSubscription
 
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,10 @@ class _LiveConfig:
         self.failed_digest: str | None = None
         self.last_check = float("-inf")
         self.lock = Lock()
+        self.subscription = FileSubscription(path)
+
+    def close(self):
+        self.subscription.close()
 
     def section(self, name: str) -> SimpleNamespace:
         with self.lock:
@@ -71,8 +77,9 @@ class _LiveConfig:
                 self.last_check = now
                 digest = None
                 try:
-                    source = self.path.read_bytes()
-                    digest = sha256(source).hexdigest()
+                    snapshot = self.subscription.snapshot()
+                    source = snapshot.source
+                    digest = snapshot.digest
                     if digest != self.digest and digest != self.failed_digest:
                         self.data = _load_config(source)
                         self.digest = digest
@@ -118,8 +125,7 @@ class Pipeline:
         from pipeworks.embedded.stream_report import report_scope
         from pipeworks.embedded.tap import Tap
 
-        with report_scope():
-            watcher = _LiveConfig(self.config_path, vars(self.config), self._config_digest)
+        with report_scope(), closing(_LiveConfig(self.config_path, vars(self.config), self._config_digest)) as watcher:
             inputs = iter(())
             for index, step in enumerate(self.steps):
                 _watch_async_children(step, watcher, vars(self.config))
