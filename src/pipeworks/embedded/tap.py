@@ -1,4 +1,5 @@
 import logging
+from contextvars import copy_context
 from threading import Condition, Thread
 from types import SimpleNamespace
 from typing import Iterator
@@ -59,6 +60,7 @@ class Tap(Step):
 
         slot = _InputSlot()
         output_writer = _current_output_writer()
+        context = copy_context()
 
         def consume() -> None:
             with _use_output_writer(output_writer):
@@ -76,7 +78,7 @@ class Tap(Step):
                 finally:
                     slot.close()
 
-        worker = Thread(target=consume, name="pipeworks-tap", daemon=True)
+        worker = Thread(target=context.run, args=(consume,), name="pipeworks-tap", daemon=True)
         worker.start()
         exhausted = False
         try:

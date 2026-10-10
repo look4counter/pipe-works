@@ -16,6 +16,28 @@ from pipeworks.file_watch import FileSubscription
 logger = logging.getLogger(__name__)
 
 
+def _has_stream_report(steps):
+    from pipeworks.embedded.stream_report import StreamReport
+    from pipeworks.embedded.tap import Tap
+    from pipeworks.embedded.cuda_async import CudaAsync
+
+    pending, visited = list(steps), set()
+    while pending:
+        step = pending.pop()
+        if id(step) in visited:
+            continue
+        visited.add(id(step))
+        if isinstance(step, StreamReport):
+            return True
+        if isinstance(step, Hotswap):
+            pending.append(step.wrapped_step)
+        elif isinstance(step, Tap):
+            pending.append(step.step)
+        elif isinstance(step, CudaAsync):
+            pending.extend(step._hot_steps)
+    return False
+
+
 def _configure_async_children(step, sections):
     from pipeworks.embedded.cuda_async import CudaAsync
 
@@ -125,7 +147,7 @@ class Pipeline:
         from pipeworks.embedded.stream_report import report_scope
         from pipeworks.embedded.tap import Tap
 
-        with report_scope(), closing(_LiveConfig(self.config_path, vars(self.config), self._config_digest)) as watcher:
+        with report_scope(enabled=_has_stream_report(self.steps)), closing(_LiveConfig(self.config_path, vars(self.config), self._config_digest)) as watcher:
             inputs = iter(())
             for index, step in enumerate(self.steps):
                 _watch_async_children(step, watcher, vars(self.config))

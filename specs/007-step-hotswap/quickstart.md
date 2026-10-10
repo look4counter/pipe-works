@@ -1,5 +1,11 @@
 # 검증 안내: Step 핫스왑
 
+## MetadataFromDB 갱신 스레드 종료 검증 (2026-10-10)
+
+`.venv/Scripts/python.exe -m unittest discover -s tests -p test_metadata_from_db.py`로 정상 EOF·입력 오류·반복자 close·재실행·기존 3초 주기 갱신을 확인한다. close는 대기 주기가 끝날 때까지 기다리지 않고 작업자 종료 후 반환한다. 기존 구현은 종료 검증 네 가지에서 실패했고 수정 후 다섯 가지 모두 통과했다. 같은 명령의 패턴을 test_hotswap.py로 바꾼 기존 처리 경계·반복자 정리 회귀 30개도 통과했다. 총 35개 통과, git diff --check 통과.
+
+FR-020~021, SC-014와 계획·작업을 현재 구현과 비교한 수렴 점검에서 남은 작업은 없다. 종료 상태는 실행별 로컬 변수이고, Hotswap이 이전 출력 반복자를 닫을 때 finally의 join까지 수행한다.
+
 공유 감시 검증은 `.venv/Scripts/python.exe -m unittest discover -s tests -p test_file_watch.py`로 실행한다. 변경 없는 1,000회 확인에서 내용 읽기 0회, 동일 경로 변경의 공유 읽기 1회, 실제 OS 저장·이동 알림, 누락 후 재검사와 종료 정리를 확인한다. 핫스왑·설정·비동기·중앙 프로세스 검증 후 전체 테스트를 실행한다.
 
 ## 공유 OS 감시 검증 결과 (2026-10-10)

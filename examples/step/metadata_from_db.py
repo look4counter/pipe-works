@@ -1,8 +1,7 @@
 from types import SimpleNamespace
 from pipeworks.models import PipelineContext, Step
 from typing import Iterator
-import time
-from threading import Thread
+from threading import Event, Thread
 
 
 class MetadataFromDB(Step):
@@ -12,15 +11,19 @@ class MetadataFromDB(Step):
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         self.metadata = SimpleNamespace(count=0)
+        stop = Event()
 
         def worker():
-            while True:
-                time.sleep(3)
+            while not stop.wait(3):
                 self.metadata.count += 1
 
         thread = Thread(target=worker, daemon=True)
         thread.start()
 
-        for input in inputs:
-            # print(self.metadata.count)
-            yield input
+        try:
+            for input in inputs:
+                # print(self.metadata.count)
+                yield input
+        finally:
+            stop.set()
+            thread.join()

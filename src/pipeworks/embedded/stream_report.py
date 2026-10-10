@@ -4,7 +4,8 @@ import time
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
-from dataclasses import dataclass, field, replace
+from collections import deque
+from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
 from typing import Iterator
@@ -12,54 +13,21 @@ from typing import Iterator
 from pipeworks.models import PipelineContext, Step
 
 @dataclass(frozen=True, slots=True)
-class _Sample:
-    at: float
-    seconds: float
-    previous: "_Sample | None"
-    total: float
-    count: int
-    first_at: float
-
-
-@dataclass(frozen=True, slots=True)
 class _History:
-    head: _Sample | None = None
-    chunks: tuple[_Sample, ...] = ()
-
-    def append(self, now: float, seconds: float) -> "_History":
-        previous = self.head
-        chunks = self.chunks
-        if previous is not None and int(previous.at) != int(now):
-            chunks = tuple(head for head in (previous, *chunks) if head.at > now - 10)
-            previous = None
-        head = _Sample(now, seconds, previous,
-                       seconds + (previous.total if previous is not None else 0.0),
-                       1 + (previous.count if previous is not None else 0),
-                       previous.first_at if previous is not None else now)
-        return _History(head, chunks)
+    samples: tuple[tuple[float, float], ...] = ()
 
     def average(self, now: float) -> float | None:
         total, count = 0.0, 0
-        heads = (self.head, *self.chunks) if self.head is not None else self.chunks
-        for head in heads:
-            if head.at <= now - 10:
-                break
-            if head.first_at > now - 10 and head.at <= now:
-                total += head.total
-                count += head.count
-                continue
-            # Only the boundary chunk needs individual sample inspection.
-            sample = head
-            while sample is not None and sample.at > now - 10:
-                if sample.at <= now:
-                    total += sample.seconds
-                    count += 1
-                sample = sample.previous
+        for at, seconds in self.samples:
+            if now - 10 < at <= now:
+                total += seconds
+                count += 1
         return total / count * 1000 if count else None
 
 
 @dataclass(frozen=True, slots=True)
 class _Snapshot:
+    published_at: float | None = None
     started_at: float | None = None
     completed_frames: int = 0
     processing_seconds: float = 0.0
@@ -76,9 +44,93 @@ class _Snapshot:
 
 @dataclass
 class _ReportStats:
+    enabled: bool = True
     detection_stats: object | None = None
     lock: Lock = field(default_factory=Lock)
     snapshot: _Snapshot = field(default_factory=_Snapshot)
+    started_at: float | None = None
+    completed_frames: int = 0
+    processing_seconds: float = 0.0
+    completed_inferences: int = 0
+    inference_seconds: float = 0.0
+    frame_history: deque = field(default_factory=deque)
+    inference_history: deque = field(default_factory=deque)
+    stages: dict[str, list] = field(default_factory=dict)
+    receive_success_at: float | None = None
+    receive_failure_at: float | None = None
+    publish_success_at: float | None = None
+    publish_failure_at: float | None = None
+
+    def publish(self, *, now: float | None = None) -> None:
+        with self.lock:
+            now = time.perf_counter() if now is None else now
+            _prune(self.frame_history, now)
+            _prune(self.inference_history, now)
+            self.snapshot = _Snapshot(
+                published_at=now, started_at=self.started_at,
+                completed_frames=self.completed_frames, processing_seconds=self.processing_seconds,
+                completed_inferences=self.completed_inferences, inference_seconds=self.inference_seconds,
+                frame_history=_History(tuple(self.frame_history)),
+                inference_history=_History(tuple(self.inference_history)),
+                stages=tuple((name, values[0], values[1]) for name, values in self.stages.items()),
+                receive_success_at=self.receive_success_at, receive_failure_at=self.receive_failure_at,
+                publish_success_at=self.publish_success_at, publish_failure_at=self.publish_failure_at,
+            )
+
+
+def _prune(history: deque, now: float) -> None:
+    while history and history[0][0] <= now - 10:
+        history.popleft()
+
+
+class _Publisher:
+    def __init__(self):
+        self.entries = {}
+        self.stats = ()
+        self.done = Event()
+        self.thread = Thread(target=self.run, name="pipeworks-stats-publisher", daemon=True)
+
+    def run(self):
+        while not self.done.wait(.1):
+            for stats in self.stats:
+                stats.publish()
+
+
+_publisher_lock = Lock()
+_publisher = None
+
+
+@contextmanager
+def _publishing(stats):
+    global _publisher
+    with _publisher_lock:
+        if _publisher is None:
+            _publisher = _Publisher()
+            _publisher.thread.start()
+        publisher = _publisher
+        key = id(stats)
+        _, count, enabled = publisher.entries.get(key, (stats, 0, stats.enabled))
+        stats.enabled = True
+        publisher.entries[key] = (stats, count + 1, enabled)
+        publisher.stats = tuple(entry[0] for entry in publisher.entries.values())
+    try:
+        yield
+    finally:
+        stopping = False
+        with _publisher_lock:
+            _, count, enabled = publisher.entries[key]
+            if count == 1:
+                del publisher.entries[key]
+                stats.enabled = enabled
+            else:
+                publisher.entries[key] = (stats, count - 1, enabled)
+            publisher.stats = tuple(entry[0] for entry in publisher.entries.values())
+            if not publisher.entries:
+                publisher.done.set()
+                _publisher = None
+                stopping = True
+        if stopping:
+            publisher.thread.join()
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +140,7 @@ class _ReportView:
     connections: tuple[str, str]
 
 
-_default_stats = _ReportStats()
+_default_stats = _ReportStats(enabled=False)
 _current_stats: ContextVar[_ReportStats | None] = ContextVar("pipeworks_report_stats", default=None)
 
 
@@ -97,8 +149,8 @@ def _stats() -> _ReportStats:
 
 
 @contextmanager
-def report_scope():
-    token = _current_stats.set(_ReportStats())
+def report_scope(*, enabled: bool = True):
+    token = _current_stats.set(_ReportStats(enabled=enabled))
     try:
         yield
     finally:
@@ -107,33 +159,38 @@ def report_scope():
 
 def record_stage(name: str, seconds: float) -> None:
     stats = _stats()
+    if not stats.enabled:
+        return
     with stats.lock:
-        snapshot = stats.snapshot
-        stages = {name: (count, total) for name, count, total in snapshot.stages}
-        count, total = stages.get(name, (0, 0.0))
-        stages[name] = (count + 1, total + max(0.0, seconds))
-        stats.snapshot = replace(snapshot, stages=tuple(
-            (name, count, total) for name, (count, total) in stages.items()))
+        values = stats.stages.get(name)
+        if values is None:
+            values = stats.stages[name] = [0, 0.0]
+        values[0] += 1
+        values[1] += max(0.0, seconds)
 
 
 def record_receive(success: bool) -> None:
     stats = _stats()
+    if not stats.enabled:
+        return
     with stats.lock:
         now = time.perf_counter()
         if success:
-            stats.snapshot = replace(stats.snapshot, receive_success_at=now)
+            stats.receive_success_at = now
         else:
-            stats.snapshot = replace(stats.snapshot, receive_failure_at=now)
+            stats.receive_failure_at = now
 
 
 def record_publish(success: bool) -> None:
     stats = _stats()
+    if not stats.enabled:
+        return
     with stats.lock:
         now = time.perf_counter()
         if success:
-            stats.snapshot = replace(stats.snapshot, publish_success_at=now)
+            stats.publish_success_at = now
         else:
-            stats.snapshot = replace(stats.snapshot, publish_failure_at=now)
+            stats.publish_failure_at = now
 
 
 def _connection_status(now: float, snapshot: _Snapshot | None = None) -> tuple[str, str]:
@@ -154,28 +211,32 @@ def _connection_status(now: float, snapshot: _Snapshot | None = None) -> tuple[s
 
 def record_frame(processing_seconds: float) -> None:
     stats = _stats()
+    if not stats.enabled:
+        return
     with stats.lock:
         now = time.perf_counter()
-        snapshot = stats.snapshot
         seconds = max(0.0, processing_seconds)
-        stats.snapshot = replace(snapshot,
-            started_at=now if snapshot.started_at is None else snapshot.started_at,
-            completed_frames=snapshot.completed_frames + 1,
-            processing_seconds=snapshot.processing_seconds + seconds,
-            frame_history=snapshot.frame_history.append(now, seconds))
+        if stats.started_at is None:
+            stats.started_at = now
+        stats.completed_frames += 1
+        stats.processing_seconds += seconds
+        stats.frame_history.append((now, seconds))
+        _prune(stats.frame_history, now)
 
 
 def record_inference(inference_seconds: float) -> None:
     stats = _stats()
+    if not stats.enabled:
+        return
     with stats.lock:
         now = time.perf_counter()
-        snapshot = stats.snapshot
         seconds = max(0.0, inference_seconds)
-        stats.snapshot = replace(snapshot,
-            started_at=now if snapshot.started_at is None else snapshot.started_at,
-            completed_inferences=snapshot.completed_inferences + 1,
-            inference_seconds=snapshot.inference_seconds + seconds,
-            inference_history=snapshot.inference_history.append(now, seconds))
+        if stats.started_at is None:
+            stats.started_at = now
+        stats.completed_inferences += 1
+        stats.inference_seconds += seconds
+        stats.inference_history.append((now, seconds))
+        _prune(stats.inference_history, now)
 
 
 class _ReportReader:
@@ -186,6 +247,7 @@ class _ReportReader:
         snapshot = stats.snapshot
         self.started_at = snapshot.started_at if snapshot.started_at is not None else time.perf_counter()
         self.previous = _Snapshot()
+        self.observed_at = self.started_at
 
     def read(self, *, now: float | None = None) -> _ReportView | None:
         # CPython 3.11 publishes a single object reference. All reachable
@@ -195,6 +257,8 @@ class _ReportReader:
         elapsed = now - self.started_at
         if elapsed < 1.0:
             return None
+        published_at = snapshot.published_at if snapshot.published_at is not None else now
+        elapsed = max(0.0, published_at - self.observed_at)
         previous = self.previous
         frames = snapshot.completed_frames - previous.completed_frames
         inferences = snapshot.completed_inferences - previous.completed_inferences
@@ -205,7 +269,7 @@ class _ReportReader:
             if count > old_count:
                 stages.append((name, (total - old_total) / (count - old_count) * 1000))
         view = _ReportView(
-            (frames / elapsed,
+            (frames / elapsed if elapsed else 0.0,
              (snapshot.processing_seconds - previous.processing_seconds) / frames * 1000 if frames else 0.0,
              inferences,
              (snapshot.inference_seconds - previous.inference_seconds) / inferences * 1000 if inferences else None,
@@ -214,6 +278,7 @@ class _ReportReader:
         )
         self.previous = snapshot
         self.started_at = now
+        self.observed_at = published_at
         return view
 
 
@@ -222,6 +287,10 @@ class StreamReport(Step):
         pass
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
+        with _publishing(_stats()):
+            yield from self._process(inputs)
+
+    def _process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         from pipeworks.main import _current_output_writer, _use_output_writer
 
         done = Event()

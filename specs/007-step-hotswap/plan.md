@@ -1,5 +1,9 @@
 # 구현 계획: 실행 중 Step 구현 교체
 
+## MetadataFromDB 갱신 스레드 정리
+
+`examples/step/metadata_from_db.py`의 process마다 로컬 Event를 생성한다. 작업자는 `while not stop.wait(3)`에서 기존 카운트 갱신을 수행한다. 입력 전달을 try/finally로 감싸 종료 시 set과 join을 수행한다. 이벤트와 스레드는 Step 속성으로 보관하지 않아 핫스왑 속성 복사로 공유되지 않게 한다. time.sleep와 불필요한 time import를 제거한다. 종료 뒤에는 이전 스레드가 메타데이터에 접근하지 않는다. 추가 의존성·공개 API 변경은 없다. `tests/test_metadata_from_db.py`에서 종료 네 가지와 주기 갱신을 검증하고 기존 핫스왑 회귀를 실행한다. 미작성 헌장 외 추가 원칙은 없으며 사용자 변경을 보존한다.
+
 **명세**: [기능 명세](spec.md)
 
 ## 기술 배경
