@@ -7,7 +7,8 @@ from unittest.mock import patch
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
-from step.tensor_rt_pre_process import TensorRTPreProcess
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from pipeworks.embedded import TensorRTPreProcess
 from step.tensor_rt_post_process import TensorRTPostProcess
 from pipeworks.models import PipelineContext
 

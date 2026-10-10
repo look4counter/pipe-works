@@ -40,7 +40,6 @@ def build_pipeline() -> Pipeline:
                 timeout_ms=20,
             ),
         )
-        .step(TensorRTReport())
         .step(BoxOverlay())
         .step(Tap(SaveInferenceResultToDB()))
         .step(NvidiaEncode())

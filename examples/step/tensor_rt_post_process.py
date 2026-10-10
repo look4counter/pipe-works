@@ -6,6 +6,7 @@ import torch
 import torchvision  # noqa: F401
 from ultralytics.engine.results import Boxes
 from ultralytics.utils import YAML, ROOT
+from ultralytics.utils.ops import xywh2xyxy
 from ultralytics.utils.nms import non_max_suppression
 
 from pipeworks.models import Step
@@ -35,6 +36,36 @@ class TensorRTPostProcess(Step):
             raise ValueError("output_name은 비어 있지 않은 문자열이어야 합니다.")
         self.confidence, self.iou, self.classes, self.max_det, self.output_name = confidence, iou, classes, max_det, output_name
 
+    def _nms(self, prediction):
+        # Preserve the library's six-column special case.
+        if prediction.shape[-1] == 6:
+            return non_max_suppression(prediction, self.confidence, self.iou,
+                classes=self.classes, max_det=self.max_det, nc=80)[0]
+        scores, labels = prediction[0, 4:84].max(dim=0)
+        keep = scores > self.confidence
+        if self.classes is not None:
+            allowed = labels.new_tensor(self.classes)
+            keep &= (labels[:, None] == allowed).any(dim=1)
+        rows = prediction[0].transpose(0, 1)
+        rows[:, :4] = xywh2xyxy(rows[:, :4])
+        # One dynamic selection of six columns replaces repeated 84-column
+        # candidate selection, score filtering, and class filtering.
+        boxes = torch.cat((rows[:, :4], scores[:, None], labels[:, None].float()), dim=1)[keep]
+        if boxes.shape[0] == 0:
+            return boxes
+        if boxes.shape[0] > 30000:
+            boxes = boxes[boxes[:, 4].argsort(descending=True)[:30000]]
+        offset_boxes = boxes[:, :4] + boxes[:, 5:6] * 7680
+        selected = torchvision.ops.nms(offset_boxes, boxes[:, 4], self.iou)[:self.max_det]
+        return boxes[selected]
+
+    @staticmethod
+    def _restore(boxes, transform):
+        height, width = transform.shape
+        # Basic strided views avoid advanced-index gathers and scatters.
+        boxes[:, 0:4:2].sub_(transform.left).div_(transform.ratio).clamp_(0, width)
+        boxes[:, 1:4:2].sub_(transform.top).div_(transform.ratio).clamp_(0, height)
+
     def process(self, inputs):
         for item in inputs:
             profile = vars(item).pop("_tensor_rt_profile", None)
@@ -53,12 +84,8 @@ class TensorRTPostProcess(Step):
                     transform = item.tensor_rt_transform
                     with use(profile), span("postprocess", stream), torch.cuda.stream(stream), torch.no_grad():
                         # Consume the raw output in-place; only detections survive.
-                        boxes = non_max_suppression(prediction, self.confidence, self.iou, classes=self.classes, max_det=self.max_det, nc=80)[0]
-                        boxes[:, [0, 2]] = (boxes[:, [0, 2]] - transform.left) / transform.ratio
-                        boxes[:, [1, 3]] = (boxes[:, [1, 3]] - transform.top) / transform.ratio
-                        height, width = transform.shape
-                        boxes[:, [0, 2]] = boxes[:, [0, 2]].clamp(0, width)
-                        boxes[:, [1, 3]] = boxes[:, [1, 3]].clamp(0, height)
+                        boxes = self._nms(prediction)
+                        self._restore(boxes, transform)
                         item.detections = SimpleNamespace(boxes=Boxes(boxes, transform.shape), names=self.names, orig_shape=transform.shape)
             except Exception:
                 state = "error"
