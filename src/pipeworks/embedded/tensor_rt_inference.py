@@ -310,9 +310,7 @@ class TensorRTInference(Step):
             raise ValueError("Input CUDA stream GPU must match gpu_id.")
         ready = torch.cuda.Event()
         ready.record(producer)
-        with span("input_wait"):
-            ready.synchronize()
-        return inputs
+        return inputs, ready
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         # 원래 생성기를 유지하여 엔진/스트림 수명을 바꾸지 않는다.
@@ -354,14 +352,7 @@ class TensorRTInference(Step):
             for index, item in enumerate(inputs):
                 item.model_output = None
                 if index % self.inference_interval_frame == 0:
-                    tensors = self._prepare_inputs(item)
-                    producer = current_model_stream() or getattr(item, "model_cuda_stream", None)
-                    if producer is None:
-                        producer = getattr(item, "cuda_stream", None)
-                    if producer is None:
-                        producer = torch.cuda.current_stream(self.gpu_id)
-                    ready_event = torch.cuda.Event()
-                    ready_event.record(producer)
+                    tensors, ready_event = self._prepare_inputs(item)
                     profile = _current.get()
                     options = {"on_profile_complete": profile.merge} if profile is not None else {}
                     item.model_output = infer(
@@ -378,7 +369,7 @@ class TensorRTInference(Step):
             for index, item in enumerate(inputs):
                 item.model_output = None
                 if index % self.inference_interval_frame == 0:
-                    tensors = self._prepare_inputs(item)
+                    tensors, ready_event = self._prepare_inputs(item)
                     settings = self.gpu_id, self.profile_index
                     if session_settings != settings:
                         if stream is not None:
@@ -390,6 +381,9 @@ class TensorRTInference(Step):
                         stream = current_model_stream() or torch.cuda.Stream(device=self.gpu_id)
                     with torch.cuda.stream(stream):
                         try:
+                            # Keep input ordering on the GPU, including caller-owned streams.
+                            with span("input_wait"):
+                                stream.wait_event(ready_event)
                             tensors = ({name: tensor.contiguous() for name, tensor in tensors.items()}
                                        if isinstance(tensors, dict) else tensors.contiguous())
                             if session is None:

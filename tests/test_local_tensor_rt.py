@@ -11,6 +11,40 @@ from pipeworks import local_tensor_rt as batch
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
 class BatchTests(unittest.TestCase):
+    def test_delayed_producers_without_cpu_event_wait(self):
+        class Session:
+            def __init__(self, *args):
+                pass
+
+            def infer(self, inputs, stream, context):
+                return {"output": inputs * 2}
+
+            def close(self):
+                pass
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "delayed.plan"
+            path.write_bytes(b"test")
+            path.with_suffix(".yml").write_text("max_batch_size: 2\ntimeout_ms: 1000", encoding="utf-8")
+            requests = []
+            for number in (3, 7):
+                producer = torch.cuda.Stream()
+                with torch.cuda.stream(producer):
+                    value = torch.zeros((1, 3), device="cuda")
+                producer.synchronize()
+                with torch.cuda.stream(producer):
+                    torch.cuda._sleep(20_000_000)
+                    value.fill_(number)
+                    ready = torch.cuda.Event()
+                    ready.record(producer)
+                requests.append((value, ready))
+            with patch("torch.cuda.Event.synchronize", side_effect=AssertionError("CPU input wait")), \
+                    patch.object(batch, "_EngineSession", Session), ThreadPoolExecutor(2) as executor:
+                futures = [executor.submit(batch.infer, path, value, ready_event=ready) for value, ready in requests]
+                outputs = [future.result(timeout=5)["output"] for future in futures]
+            for number, output in zip((3, 7), outputs):
+                torch.testing.assert_close(output, torch.full((1, 3), number * 2., device="cuda"))
+
     def test_loaded_session_survives_file_deletion_but_reload_checks_file(self):
         loaded, broken = [], [False]
         class Session:

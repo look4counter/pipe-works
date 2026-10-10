@@ -77,7 +77,7 @@ class _ModelWorker:
                 with torch.cuda.stream(stream), torch.no_grad():
                     with span("input_wait"):
                         for request in batch:
-                            request.ready_event.synchronize()
+                            stream.wait_event(request.ready_event)
                     with span("input_copy", stream):
                         if isinstance(batch[0].inputs, dict):
                             tensors = {name: torch.cat([r.inputs[name] for r in batch], dim=0) for name in batch[0].inputs}

@@ -301,6 +301,42 @@ class ProfileSelectionTests(unittest.TestCase):
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
+class InputDependencyTests(unittest.TestCase):
+    def test_delayed_input_without_cpu_event_wait(self):
+        from pipeworks.execution import _model_stream_scope
+
+        class Session:
+            def __init__(self, *args):
+                pass
+
+            def infer(self, inputs, stream, context):
+                return {"output": inputs * 2}
+
+            def close(self):
+                pass
+
+        for same_stream in (True, False):
+            with self.subTest(same_stream=same_stream):
+                producer = torch.cuda.Stream()
+                consumer = producer if same_stream else torch.cuda.Stream()
+                with torch.cuda.stream(producer):
+                    storage = torch.zeros((2, 2), device="cuda")
+                producer.synchronize()
+                with torch.cuda.stream(producer):
+                    torch.cuda._sleep(20_000_000)
+                    storage.fill_(7)
+                item = PipelineContext()
+                item.cuda_stream = producer
+                item.model_input = storage[:, :1].transpose(0, 1)
+                with patch("torch.cuda.Event.synchronize", side_effect=AssertionError("CPU input wait")), \
+                        patch("pipeworks.embedded.tensor_rt_inference._EngineSession", Session), \
+                        patch("torch.cuda.Stream", return_value=consumer), \
+                        _model_stream_scope(consumer if same_stream else None):
+                    result = list(TensorRTInference(Path("model.engine")).process(iter([item])))[0]
+                torch.testing.assert_close(result.model_output["output"], torch.full((1, 2), 14., device="cuda"))
+
+
+@unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
 class TensorRTInferenceTests(unittest.TestCase):
     def test_cached_input_metadata_preserves_dynamic_validation_and_output_queries(self):
         minimum, maximum = [1, 2], [8, 2]
