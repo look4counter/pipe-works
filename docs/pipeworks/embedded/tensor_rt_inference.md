@@ -6,6 +6,8 @@
 
 `TensorRTInference`는 전처리 단계가 만든 `context.model_input`의 GPU 텐서를 TensorRT 엔진으로 추론하고 원시 출력을 `context.model_output`에 넣습니다. 리사이즈·색 변환·정규화·자료형 변환·NMS·좌표 복원은 수행하지 않습니다.
 
+이미지 입력은 내장 [TensorRTPreProcess](tensor_rt_preprocess.md)로 준비할 수 있습니다. 모델별 크기·정규화·색상 순서·자료형·배치를 지정하며 추론 단계는 해당 입력을 그대로 실행합니다.
+
 ## 파이프라인 연결
 
 ```python

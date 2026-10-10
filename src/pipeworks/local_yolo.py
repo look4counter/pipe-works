@@ -7,6 +7,7 @@ from pathlib import Path
 from queue import Queue
 from pipeworks.batch_collector import collect_batch
 from pipeworks.model_worker import get_model_worker
+from pipeworks.image import nv12_to_rgb as _nv12_to_rgb
 from threading import Event, Lock, Thread
 import time
 
@@ -59,24 +60,6 @@ def _batch_settings(model_path: Path) -> tuple[int, float]:
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout < 0:
         raise ValueError("timeout_ms는 0 이상의 유한한 밀리초여야 합니다.")
     return size, timeout / 1000
-
-
-def _nv12_to_rgb(image: torch.Tensor) -> torch.Tensor:
-    if not image.is_cuda or image.dtype != torch.uint8 or image.ndim != 2:
-        raise ValueError("YOLO 입력은 GPU의 2차원 uint8 NV12 텐서여야 합니다.")
-    packed_height, width = image.shape
-    if packed_height % 3 or width % 2:
-        raise ValueError("NV12 프레임 크기가 잘못되었습니다.")
-    height = packed_height * 2 // 3
-    y = image[:height].float()
-    uv = image[height:].reshape(height // 2, width // 2, 2).float()
-    u = uv[..., 0].repeat_interleave(2, 0).repeat_interleave(2, 1) - 128
-    v = uv[..., 1].repeat_interleave(2, 0).repeat_interleave(2, 1) - 128
-    c = (y - 16).clamp_min(0) / 219
-    r = (c + 1.402 * v / 224).clamp(0, 1)
-    g = (c - 0.344136 * u / 224 - 0.714136 * v / 224).clamp(0, 1)
-    b = (c + 1.772 * u / 224).clamp(0, 1)
-    return torch.stack((r, g, b))
 
 
 def _as_rgb(image: torch.Tensor) -> torch.Tensor:
