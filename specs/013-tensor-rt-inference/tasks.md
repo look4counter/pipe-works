@@ -59,3 +59,39 @@ T024 → T025 → T026 순서로 수행한다.
 - [x] T030 예제 후처리·실제 plan·BoxOverlay·CudaAsync 회귀 검증과 수렴 점검을 완료한다. (SC-012)
 
 T027 → T028 → T029 → T030 순서로 수행한다.
+
+## 6단계: US3 프레임 간격 명칭 통일
+
+독립 검증: 새 설정의 기본값·검증·두 모드 선택과 이전 키 거부를 확인한다.
+
+- [x] T031 [US3] specs/013-tensor-rt-inference의 명세·명확화·설계·작업을 갱신하고 구현 전 일관성을 분석한다. (FR-027~030)
+- [x] T032 [US3] tests/test_tensor_rt_inference.py의 간격 이름을 이전하고 기본값·경계값·이전 키 거부·상태 보존을 검증한다. (FR-027~029, SC-013)
+- [x] T033 [US3] src/pipeworks/embedded/tensor_rt_inference.py의 공개 속성·설정·두 분기를 새 이름으로 바꾸고 이전 키를 거부한다. (FR-027~029)
+- [x] T034 [US3] README.md, docs/pipeworks/embedded/tensor_rt_inference.md, examples/config/stream.yml의 이름과 이전 안내를 갱신한다. (FR-030)
+- [x] T035 [US3] TensorRT·예제 처리·YOLO·배치·설정 회귀를 실행하고 specs/013-tensor-rt-inference/quickstart.md에 결과를 기록한 뒤 수렴 점검한다. (SC-013)
+
+의존성: T031 → T032 → T033 → T034 → T035. T033 이후 T034는 테스트 실행과 독립적으로 수행 가능하다. 이번 변경의 최소 완성 범위는 US3 전체이며 기존 완료 작업은 유지한다.
+
+## 7단계: US4 모델 YAML 실행 옵션
+
+독립 검증: 프로파일 1과 플러그인을 지정해 개별·배치 모두 설정을 전달하고 잘못된 설정을 거부한다.
+
+- [x] T036 [US4] specs/013-tensor-rt-inference의 명세·명확화·계획·계약·작업을 갱신하고 일관성을 분석한다. (FR-031~034)
+- [x] T037 [US4] tests/test_tensor_rt_inference.py, tests/test_local_tensor_rt.py에 설정·프로파일 선택 순서·실패·두 경로·실제 다중 프로파일 엔진 검증을 추가하고 변경 전 실패를 확인한다. (FR-031~033, SC-014)
+- [x] T038 [US4] src/pipeworks/embedded/tensor_rt_inference.py와 src/pipeworks/local_tensor_rt.py에 공통 설정 검증과 프로파일 전달·선택·범위 검증을 구현한다. (FR-031~033)
+- [x] T039 [US4] README.md, docs/pipeworks/embedded/tensor_rt_inference.md, examples/model/yolo11n.yml에 옵션 사용과 기본값·경로·재시작 안내를 갱신한다. (FR-034)
+- [x] T040 [US4] TensorRT·공유 배치·예제 처리·수집·CudaAsync 회귀를 실행하고 specs/013-tensor-rt-inference/quickstart.md에 결과를 기록한 뒤 수렴 점검한다. (SC-014)
+
+의존성: T036 → T037 → T038 → T039 → T040. 구현 완료 후 T039와 회귀 실행은 서로 다른 파일에서 독립 수행 가능하다. 이번 최소 완성 범위는 US4 전체다.
+
+## 8단계: US5 영상별 프로파일과 시간 명칭
+
+독립 검증: 영상별 프로파일을 같은 모델의 개별·배치 경로에 적용하고 timeout_ms로 배치 수집 대기를 설정한다.
+
+- [x] T041 [US5] specs/013-tensor-rt-inference 명세·명확화·계획·설계·작업을 갱신하고 일관성을 분석한다. (FR-035~038)
+- [x] T042 [US5] tests/test_tensor_rt_inference.py, tests/test_local_tensor_rt.py, tests/test_local_yolo.py의 설정·변경·프로파일별 분리·실패 격리·시간 검증을 작성하고 변경 전 실패를 확인한다. (SC-015)
+- [x] T043 [US5] src/pipeworks/embedded/tensor_rt_inference.py, src/pipeworks/local_tensor_rt.py, src/pipeworks/local_yolo.py에 영상별 프로파일과 timeout_ms 및 이전 키 안내를 구현한다. (FR-035~038)
+- [x] T044 [US5] examples/config/stream.yml, examples/model/yolo11n.yml, README.md, docs/pipeworks/embedded/tensor_rt_inference.md, docs/pipeworks/embedded/yolo_detect.md와 관련 테스트 설정을 이전한다. (FR-038)
+- [x] T045 [US5] TensorRT·YOLO·공유 배치·CudaAsync·설정 회귀를 실행하고 specs/013-tensor-rt-inference/quickstart.md에 결과를 기록한 뒤 수렴 점검한다. (SC-015)
+
+의존성: T041 → T042 → T043 → T044 → T045. 구현 이후 문서 안내와 회귀 실행은 독립 수행 가능하다. US5 전체가 이번 최소 완성 범위다.

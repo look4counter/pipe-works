@@ -1,11 +1,12 @@
 import importlib.util
+from contextvars import copy_context
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
 import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import torch
 
@@ -24,7 +25,13 @@ class FakeContext:
         self.executions = 0
         self.fail_execute = False
 
+    def set_optimization_profile_async(self, profile_index, stream_handle):
+        self.api.profile_selections.append((profile_index, stream_handle))
+        self.api.calls.append("profile")
+        return self.api.profile_ok
+
     def set_input_shape(self, name, shape):
+        self.api.calls.append("shape")
         self.shapes[name] = tuple(shape)
         return len(shape) == 2 and shape[1] == 2 and 1 <= shape[0] <= 8
 
@@ -105,16 +112,26 @@ class FakeTRT:
         self.payload = None
         self.engine_host_code_allowed = False
         self.contexts = []
+        self.profile_selections = []
+        self.profile_ok = True
+        self.calls = []
+        self.format_profiles = []
         self.engine = SimpleNamespace(
+            num_optimization_profiles=2,
             num_io_tensors=3,
             get_tensor_name=lambda index: (self.inputs + self.outputs)[index],
             get_tensor_mode=lambda name: "input" if name in self.inputs else "output",
             get_tensor_dtype=lambda name: "int32" if name == self.outputs[1] else "float32",
             get_tensor_shape=lambda name: (-1, 2),
+            get_tensor_profile_shape=lambda name, profile_index: ((1, 2), (2, 2), (8, 2)),
             get_tensor_location=lambda name: "host" if self.host else "device",
-            get_tensor_format=lambda name: "vectorized" if self.vectorized else "linear",
+            get_tensor_format=self.get_tensor_format,
             create_execution_context=self.create_context,
         )
+
+    def get_tensor_format(self, name, profile_index=0):
+        self.format_profiles.append(profile_index)
+        return "vectorized" if self.vectorized else "linear"
 
     def create_context(self):
         context = FakeContext(self)
@@ -147,6 +164,55 @@ class FakeTRT:
 
 
 class SettingsTests(unittest.TestCase):
+    def test_profile_and_plugins_settings(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "model.engine"
+            step = TensorRTInference(path)
+            self.assertEqual(step._model_settings(), ())
+            self.assertEqual(step.profile_index, 0)
+            step.configure(SimpleNamespace(profile_index=1))
+            self.assertEqual(step.profile_index, 1)
+            for value in (-1, True, 1.5, "1", None):
+                with self.subTest(value=value):
+                    with self.assertRaisesRegex(ValueError, "profile_index"):
+                        step.configure(SimpleNamespace(gpu_id=2, inference_interval_frame=3, profile_index=value))
+                    self.assertEqual((step.gpu_id, step.inference_interval_frame, step.profile_index), (0, 1, 1))
+            path.with_suffix(".yml").write_text("plugins: [custom.dll]", encoding="utf-8")
+            self.assertEqual(step._model_settings(), (path.parent / "custom.dll",))
+            for text in ("profile_index: 1", "timeout: 20", "plugins: [null]", "plugins: ['']"):
+                with self.subTest(text=text):
+                    path.with_suffix(".yml").write_text(text, encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        step._model_settings()
+
+    def test_interval_default_and_configuration_update(self):
+        step = TensorRTInference(Path("model.engine"))
+        self.assertEqual(step.inference_interval_frame, 1)
+        self.assertFalse(hasattr(step, "inference_interval"))
+        step.configure(SimpleNamespace(inference_interval_frame=3))
+        self.assertEqual(step.inference_interval_frame, 3)
+        step.configure(SimpleNamespace())
+        self.assertEqual(step.inference_interval_frame, 1)
+
+    def test_invalid_interval_preserves_settings(self):
+        step = TensorRTInference(Path("model.engine"))
+        step.configure(SimpleNamespace(gpu_id=1, inference_interval_frame=3))
+        for value in (0, -1, True, 1.5, "3", None):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "inference_interval_frame"):
+                    step.configure(SimpleNamespace(gpu_id=0, inference_interval_frame=value))
+                self.assertEqual((step.gpu_id, step.inference_interval_frame), (1, 3))
+
+    def test_old_interval_key_is_rejected_without_changing_settings(self):
+        step = TensorRTInference(Path("model.engine"))
+        step.configure(SimpleNamespace(gpu_id=1, inference_interval_frame=3))
+        for config in ({"inference_interval": 2},
+                       {"inference_interval": 2, "inference_interval_frame": 4}):
+            with self.subTest(config=config):
+                with self.assertRaisesRegex(ValueError, "inference_interval_frame"):
+                    step.configure(SimpleNamespace(gpu_id=0, **config))
+                self.assertEqual((step.gpu_id, step.inference_interval_frame), (1, 3))
+
     def test_batch_flag_validation(self):
         self.assertFalse(TensorRTInference(Path("model.plan")).batch)
         self.assertTrue(TensorRTInference(Path("model.plan"), batch=True).batch)
@@ -160,37 +226,71 @@ class SettingsTests(unittest.TestCase):
             path = Path(directory) / "model.engine"
             step = TensorRTInference(path)
             self.assertEqual(step._model_settings(), ())
-            path.with_suffix(".yml").write_text("timeout: 25\nplugins: [custom.dll]\nmax_batch_size: 10", encoding="utf-8")
+            path.with_suffix(".yml").write_text("timeout_ms: 25\nplugins: [custom.dll]\nmax_batch_size: 10", encoding="utf-8")
             plugins = step._model_settings()
             self.assertEqual(plugins, (Path(directory) / "custom.dll",))
-            step.configure(SimpleNamespace(gpu_id=1, inference_interval=3))
-            self.assertEqual((step.gpu_id, step.inference_interval), (1, 3))
+            step.configure(SimpleNamespace(gpu_id=1, inference_interval_frame=3))
+            self.assertEqual((step.gpu_id, step.inference_interval_frame), (1, 3))
 
     def test_invalid_settings_are_rejected(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "model.engine"
             for value in ("true", "-1", ".inf", ".nan", '"5"', "null"):
-                path.with_suffix(".yml").write_text(f"timeout: {value}", encoding="utf-8")
+                path.with_suffix(".yml").write_text(f"timeout_ms: {value}", encoding="utf-8")
                 self.assertEqual(TensorRTInference(path)._model_settings(), ())
-            for content in ("[]", "timeout: [", "plugins: wrong", "plugins: [3]"):
+            for content in ("[]", "timeout_ms: [", "plugins: wrong", "plugins: [3]"):
                 path.with_suffix(".yml").write_text(content, encoding="utf-8")
                 with self.assertRaises(ValueError):
                     TensorRTInference(path)._model_settings()
         for config in (SimpleNamespace(gpu_id=True), SimpleNamespace(gpu_id=-1),
-                       SimpleNamespace(inference_interval=0), SimpleNamespace(inference_interval=True)):
+                       SimpleNamespace(inference_interval_frame=0), SimpleNamespace(inference_interval_frame=True)):
             with self.assertRaises(ValueError):
                 TensorRTInference(Path("model.engine")).configure(config)
+
+
+class ProfileSelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / "model.engine"
+        self.path.write_bytes(b"engine")
+        self.api = FakeTRT()
+        self.patcher = patch.dict("sys.modules", {"tensorrt": self.api})
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
+
+    def test_selects_profile_once_before_binding_on_execution_stream(self):
+        session = _EngineSession(self.path, profile_index=1)
+        stream = SimpleNamespace(cuda_stream=123, synchronize=Mock())
+        with patch.object(session, "_bind", side_effect=lambda *args: self.api.calls.append("bind")), \
+                patch.object(session.context, "execute_async_v3", return_value=True):
+            session.infer({}, stream, copy_context())
+            session.infer({}, stream, copy_context())
+        self.assertEqual(self.api.profile_selections, [(1, 123)])
+        self.assertEqual(self.api.calls, ["profile", "bind", "bind"])
+        self.assertEqual(self.api.format_profiles, [1, 1, 1])
+
+    def test_rejects_out_of_range_profile_and_selection_failure(self):
+        with self.assertRaisesRegex(ValueError, "profile_index.*2"):
+            _EngineSession(self.path, profile_index=2)
+        session = _EngineSession(self.path, profile_index=1)
+        self.api.profile_ok = False
+        with patch.object(session, "_bind") as bind:
+            with self.assertRaisesRegex(RuntimeError, "1"):
+                session.infer({}, SimpleNamespace(cuda_stream=123), copy_context())
+            bind.assert_not_called()
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
 class TensorRTInferenceTests(unittest.TestCase):
     def test_batch_submits_inputs_events_interval_and_statistics(self):
         step = TensorRTInference(self.path, batch=True)
-        step.configure(SimpleNamespace(inference_interval=3))
+        step.configure(SimpleNamespace(inference_interval_frame=3))
         items = [self.item() for _ in range(7)]
         calls = []
 
-        def infer(path, tensors, gpu_id, *, ready_event, on_inference_complete):
+        def infer(path, tensors, gpu_id, *, profile_index, ready_event, on_inference_complete):
+            self.assertEqual(profile_index, step.profile_index)
             ready_event.synchronize()
             calls.append(tensors)
             on_inference_complete(.01)
@@ -213,7 +313,7 @@ class TensorRTInferenceTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / "model.engine"
         self.path.write_bytes(b"serialized-engine")
-        self.path.with_suffix(".yml").write_text("timeout: 2000", encoding="utf-8")
+        self.path.with_suffix(".yml").write_text("timeout_ms: 2000", encoding="utf-8")
         self.api = FakeTRT()
         module = patch.dict("sys.modules", {"tensorrt": self.api})
         module.start()
@@ -333,6 +433,28 @@ class TensorRTInferenceTests(unittest.TestCase):
         self.api.plugin_ok = False
         with self.assertRaises(RuntimeError):
             _EngineSession(self.path, (plugin,))
+        with self.assertRaises(FileNotFoundError):
+            _EngineSession(self.path, (plugin.with_name("missing.dll"),))
+
+    def test_model_yaml_passes_profile_and_plugins_to_session(self):
+        plugin = Path(self.directory.name) / "custom.dll"
+        plugin.write_bytes(b"plugin")
+        self.path.with_suffix(".yml").write_text("plugins: [custom.dll]", encoding="utf-8")
+        self.step.configure(SimpleNamespace(profile_index=1))
+        list(self.step.process(iter([self.item()])))
+        self.assertEqual(self.api.loaded_plugins, [str(plugin)])
+        self.assertEqual(self.api.profile_selections[0][0], 1)
+        self.assertEqual(self.api.calls[:2], ["profile", "shape"])
+
+    def test_profile_change_recreates_session_for_next_input(self):
+        first, second = self.item(), self.item()
+        def inputs():
+            yield first
+            self.step.configure(SimpleNamespace(profile_index=1))
+            yield second
+        self.assertEqual(list(self.step.process(inputs())), [first, second])
+        self.assertEqual([index for index, _ in self.api.profile_selections], [0, 1])
+        self.assertEqual(len(self.api.contexts), 2)
 
     def test_invalid_inputs_formats_and_execution_failures_recover(self):
         for invalid in ("cpu", "dtype", "names", "shape", "host", "format", "execution"):
@@ -386,7 +508,7 @@ class TensorRTInferenceTests(unittest.TestCase):
         self.assertEqual(observed, [(caller, item.model_input.data_ptr())])
 
     def test_interval_and_request_scope_statistics(self):
-        self.step.inference_interval = 3
+        self.step.inference_interval_frame = 3
         items = [self.item() for _ in range(7)]
         with report_scope():
             stats = _stats()
@@ -398,6 +520,38 @@ class TensorRTInferenceTests(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("tensorrt") and torch.cuda.is_available(), "TensorRT와 CUDA가 필요합니다.")
 class RealTensorRTTests(unittest.TestCase):
+    def test_model_yaml_selects_second_profile_in_both_modes(self):
+        import tensorrt as trt
+        with TemporaryDirectory() as directory:
+            logger = trt.Logger(trt.Logger.WARNING)
+            builder = trt.Builder(logger)
+            network = builder.create_network(0)
+            value = network.add_input("features", trt.float32, (-1, -1))
+            output = network.add_elementwise(value, value, trt.ElementWiseOperation.SUM).get_output(0)
+            output.name = "result"
+            network.mark_output(output)
+            config = builder.create_builder_config()
+            for width in (2, 4):
+                profile = builder.create_optimization_profile()
+                profile.set_shape("features", (1, width), (2, width), (4, width))
+                config.add_optimization_profile(profile)
+            serialized = builder.build_serialized_network(network, config)
+            self.assertIsNotNone(serialized)
+            path = Path(directory) / "profiles.engine"
+            path.write_bytes(bytes(serialized))
+            path.with_suffix(".yml").write_text("plugins: []", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "프로파일 0"):
+                item = PipelineContext(model_input=torch.ones((1, 4), device="cuda"))
+                list(TensorRTInference(path).process(iter([item])))
+            for batch in (False, True):
+                with self.subTest(batch=batch):
+                    source = torch.ones((1, 4), device="cuda")
+                    item = PipelineContext(model_input=source)
+                    step = TensorRTInference(path, batch=batch)
+                    step.configure(SimpleNamespace(profile_index=1))
+                    list(step.process(iter([item])))
+                    torch.testing.assert_close(item.model_output["result"], source * 2)
+
     def test_real_engine_raw_gpu_output(self):
         import tensorrt as trt
         with TemporaryDirectory() as directory:
@@ -412,7 +566,7 @@ class RealTensorRTTests(unittest.TestCase):
             self.assertIsNotNone(serialized)
             path = Path(directory) / "model.engine"
             path.write_bytes(bytes(serialized))
-            path.with_suffix(".yml").write_text("timeout: 10000", encoding="utf-8")
+            path.with_suffix(".yml").write_text("timeout_ms: 10000", encoding="utf-8")
             step = TensorRTInference(path)
             item = PipelineContext(model_input=torch.ones((2, 2), device="cuda"))
             list(step.process(iter((item,))))

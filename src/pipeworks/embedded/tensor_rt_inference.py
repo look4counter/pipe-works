@@ -21,6 +21,35 @@ from pipeworks.detection_profile import _current, begin, span
 logger = logging.getLogger(__name__)
 
 
+def _load_model_config(model_path):
+    path = model_path.with_suffix(".yml")
+    if not path.is_file():
+        return {}
+    try:
+        config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        raise ValueError(f"TensorRT 모델 설정이 잘못되었습니다: {path}") from error
+    if not isinstance(config, dict):
+        raise ValueError("TensorRT 모델 설정은 객체여야 합니다.")
+    if "timeout" in config:
+        raise ValueError("모델 YAML의 timeout 대신 timeout_ms를 사용하세요.")
+    if "profile_index" in config:
+        raise ValueError("profile_index는 모델 YAML 대신 stream.yml의 TensorRTInference 아래에 설정하세요.")
+    return config
+
+
+def _engine_settings(model_path, config):
+    plugins = config.get("plugins", [])
+    if not isinstance(plugins, list) or any(not isinstance(plugin, str) or not plugin for plugin in plugins):
+        raise ValueError("plugins는 공유 라이브러리 경로 문자열 목록이어야 합니다.")
+    return tuple(model_path.parent / plugin for plugin in plugins)
+
+
+def _validate_profile_index(profile_index):
+    if isinstance(profile_index, bool) or not isinstance(profile_index, int) or profile_index < 0:
+        raise ValueError("profile_index는 음수가 아닌 정수여야 합니다.")
+
+
 def _torch_dtype(trt, dtype):
     for name, torch_name in (
         ("float32", "float32"), ("float16", "float16"), ("int8", "int8"),
@@ -86,9 +115,14 @@ def _output_allocator(trt, dtype, device, shape):
 
 
 class _EngineSession:
-    def __init__(self, model_path: Path, plugins=()):
+    def __init__(self, model_path: Path, plugins=(), profile_index=0):
         import tensorrt as trt
 
+        self.context = self.engine = self.runtime = self.logger = None
+        self.allocators = {}
+        self.plugin_handles = []
+        self.profile_index = profile_index
+        self._profile_selected = False
         self.trt = trt
         self.logger = trt.Logger(trt.Logger.WARNING)
         if trt.init_libnvinfer_plugins(self.logger, "") is False:
@@ -117,12 +151,15 @@ class _EngineSession:
         self.engine = self.runtime.deserialize_cuda_engine(payload)
         if self.engine is None:
             raise RuntimeError(f"TensorRT 엔진 역직렬화 실패: {model_path} (플러그인과 엔진 호환성을 확인하세요.)")
+        if not 0 <= profile_index < self.engine.num_optimization_profiles:
+            raise ValueError(f"profile_index {profile_index}가 엔진 프로파일 범위를 벗어났습니다. "
+                             f"프로파일 수: {self.engine.num_optimization_profiles}")
         self.inputs, self.outputs, self.dtypes = [], [], {}
         for index in range(self.engine.num_io_tensors):
             name = self.engine.get_tensor_name(index)
             if self.engine.get_tensor_location(name) != trt.TensorLocation.DEVICE:
                 raise ValueError(f"GPU에 없는 TensorRT 바인딩은 지원하지 않습니다: {name}")
-            if self.engine.get_tensor_format(name) != trt.TensorFormat.LINEAR:
+            if self.engine.get_tensor_format(name, profile_index) != trt.TensorFormat.LINEAR:
                 raise ValueError(f"LINEAR가 아닌 TensorRT 바인딩은 지원하지 않습니다: {name}")
             self.dtypes[name] = _torch_dtype(trt, self.engine.get_tensor_dtype(name))
             target = self.inputs if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT else self.outputs
@@ -148,6 +185,10 @@ class _EngineSession:
 
     def infer(self, tensors, stream, report_context):
         with span("prepare"):
+            if not self._profile_selected:
+                if not self.context.set_optimization_profile_async(self.profile_index, stream.cuda_stream):
+                    raise RuntimeError(f"TensorRT 프로파일 {self.profile_index} 선택에 실패했습니다.")
+                self._profile_selected = True
             self._bind(tensors, stream)
         started_at = time.perf_counter()
         try:
@@ -177,8 +218,13 @@ class _EngineSession:
             if (len(expected) != tensor.ndim
                     or any(size >= 0 and size != actual for size, actual in zip(expected, tensor.shape))):
                 raise ValueError(f"TensorRT 입력 형상 불일치: {name}")
+            if any(size < 0 for size in expected):
+                minimum, _, maximum = self.engine.get_tensor_profile_shape(name, self.profile_index)
+                if any(actual < low or actual > high
+                       for actual, low, high in zip(tensor.shape, minimum, maximum)):
+                    raise ValueError(f"TensorRT 입력 형상이 프로파일 {self.profile_index} 범위를 벗어났습니다: {name}")
             if not self.context.set_input_shape(name, tuple(tensor.shape)):
-                raise ValueError(f"TensorRT 입력 형상이 프로파일 0 범위를 벗어났습니다: {name}")
+                raise ValueError(f"TensorRT 입력 형상이 프로파일 {self.profile_index} 범위를 벗어났습니다: {name}")
             if not self.context.set_tensor_address(name, tensor.data_ptr()):
                 raise RuntimeError(f"TensorRT 입력 주소 설정 실패: {name}")
         missing = self.context.infer_shapes()
@@ -215,32 +261,25 @@ class TensorRTInference(Step):
         self.batch = batch
         self.model_path = Path(model_path)
         self.gpu_id = 0
-        self.inference_interval = 1
+        self.inference_interval_frame = 1
+        self.profile_index = 0
 
     def configure(self, config: SimpleNamespace):
+        if hasattr(config, "inference_interval"):
+            raise ValueError("inference_interval 대신 프레임 단위의 inference_interval_frame을 사용하세요.")
         gpu_id = getattr(config, "gpu_id", 0)
-        interval = getattr(config, "inference_interval", 1)
+        interval = getattr(config, "inference_interval_frame", 1)
+        profile_index = getattr(config, "profile_index", 0)
+        _validate_profile_index(profile_index)
         if isinstance(gpu_id, bool) or not isinstance(gpu_id, int) or gpu_id < 0:
             raise ValueError("gpu_id는 음수가 아닌 정수여야 합니다.")
         if isinstance(interval, bool) or not isinstance(interval, int) or interval < 1:
-            raise ValueError("inference_interval은 1 이상의 정수여야 합니다.")
-        self.gpu_id, self.inference_interval = gpu_id, interval
+            raise ValueError("inference_interval_frame은 1 이상의 정수여야 합니다.")
+        self.gpu_id, self.inference_interval_frame = gpu_id, interval
+        self.profile_index = profile_index
 
     def _model_settings(self):
-        path = self.model_path.with_suffix(".yml")
-        if not path.is_file():
-            return ()
-        try:
-            with path.open(encoding="utf-8") as config_file:
-                config = yaml.safe_load(config_file)
-        except yaml.YAMLError as error:
-            raise ValueError(f"TensorRT 모델 설정이 잘못되었습니다: {path}") from error
-        if not isinstance(config, dict):
-            raise ValueError("TensorRT 모델 설정은 객체여야 합니다.")
-        plugins = config.get("plugins", [])
-        if not isinstance(plugins, list) or any(not isinstance(plugin, str) or not plugin for plugin in plugins):
-            raise ValueError("plugins는 공유 라이브러리 경로 문자열 목록이어야 합니다.")
-        return tuple(path.parent / plugin for plugin in plugins)
+        return _engine_settings(self.model_path, _load_model_config(self.model_path))
 
     def _prepare_inputs(self, item):
         inputs = getattr(item, "model_input", None)
@@ -305,7 +344,7 @@ class TensorRTInference(Step):
 
             for index, item in enumerate(inputs):
                 item.model_output = None
-                if index % self.inference_interval == 0:
+                if index % self.inference_interval_frame == 0:
                     tensors = self._prepare_inputs(item)
                     producer = current_model_stream() or getattr(item, "model_cuda_stream", None)
                     if producer is None:
@@ -318,33 +357,35 @@ class TensorRTInference(Step):
                     options = {"on_profile_complete": profile.merge} if profile is not None else {}
                     item.model_output = infer(
                         self.model_path, tensors, self.gpu_id,
+                        profile_index=self.profile_index,
                         ready_event=ready_event, on_inference_complete=record_inference, **options,
                     )
                 yield item
             return
         plugins = self._model_settings()
         session = stream = None
-        gpu_id = None
+        session_settings = None
         try:
             for index, item in enumerate(inputs):
                 item.model_output = None
-                if index % self.inference_interval == 0:
+                if index % self.inference_interval_frame == 0:
                     tensors = self._prepare_inputs(item)
-                    if gpu_id != self.gpu_id:
+                    settings = self.gpu_id, self.profile_index
+                    if session_settings != settings:
                         if stream is not None:
                             stream.synchronize()
                         if session is not None:
                             session.close()
                         session = None
-                        gpu_id = self.gpu_id
-                        stream = current_model_stream() or torch.cuda.Stream(device=gpu_id)
+                        session_settings = settings
+                        stream = current_model_stream() or torch.cuda.Stream(device=self.gpu_id)
                     with torch.cuda.stream(stream):
                         try:
                             tensors = ({name: tensor.contiguous() for name, tensor in tensors.items()}
                                        if isinstance(tensors, dict) else tensors.contiguous())
                             if session is None:
                                 with span("prepare"):
-                                    session = _EngineSession(self.model_path, plugins)
+                                    session = _EngineSession(self.model_path, plugins, self.profile_index)
                             item.model_output = session.infer(tensors, stream, copy_context())
                         finally:
                             with span("completion_wait"):

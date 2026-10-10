@@ -203,7 +203,7 @@ class DetectionCudaTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "model.plan"
             path.write_bytes(b"test")
-            path.with_suffix(".yml").write_text("max_batch_size: 2\ntimeout: 1000", encoding="utf-8")
+            path.with_suffix(".yml").write_text("max_batch_size: 2\ntimeout_ms: 1000", encoding="utf-8")
             def run(value):
                 with report_scope():
                     stats = store()

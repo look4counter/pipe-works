@@ -10,10 +10,9 @@ from threading import Event, Lock, Thread
 import time
 
 import torch
-import yaml
 
 from pipeworks.batch_collector import collect_batch
-from pipeworks.embedded.tensor_rt_inference import _EngineSession
+from pipeworks.embedded.tensor_rt_inference import _EngineSession, _engine_settings, _load_model_config, _validate_profile_index
 from pipeworks.detection_profile import Profile, span, use
 
 
@@ -27,6 +26,7 @@ class _Request:
     gpu_id: int
     key: tuple
     ready_event: object
+    profile_index: int = 0
     received_at: float = field(default_factory=time.monotonic)
     done: Event = field(default_factory=Event)
     result: object = None
@@ -37,20 +37,14 @@ class _Request:
 
 
 def _settings(path):
-    config_path = path.with_suffix(".yml")
-    if not config_path.is_file():
-        return 1, 0.0, ()
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    if not isinstance(config, dict):
-        raise ValueError("TensorRT batch settings must be a mapping.")
-    size, timeout, plugins = config.get("max_batch_size", 1), config.get("timeout", 0), config.get("plugins", [])
+    config = _load_model_config(path)
+    plugins = _engine_settings(path, config)
+    size, timeout = config.get("max_batch_size", 1), config.get("timeout_ms", 0)
     if isinstance(size, bool) or not isinstance(size, int) or size < 1:
         raise ValueError("max_batch_size must be a positive integer.")
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout < 0:
-        raise ValueError("timeout must be finite nonnegative milliseconds.")
-    if not isinstance(plugins, list) or any(not isinstance(p, str) or not p for p in plugins):
-        raise ValueError("plugins must be a list of paths.")
-    return size, timeout / 1000, tuple(config_path.parent / p for p in plugins)
+        raise ValueError("timeout_ms must be finite nonnegative milliseconds.")
+    return size, timeout / 1000, plugins
 
 
 class _ModelWorker:
@@ -72,6 +66,7 @@ class _ModelWorker:
             scope = use(profile)
             scope.__enter__()
             stream = None
+            session_key = batch[0].gpu_id, batch[0].profile_index
             try:
                 gpu_id = batch[0].gpu_id
                 if gpu_id not in streams:
@@ -86,14 +81,14 @@ class _ModelWorker:
                             tensors = {name: torch.cat([r.inputs[name] for r in batch], dim=0) for name in batch[0].inputs}
                         else:
                             tensors = torch.cat([r.inputs for r in batch], dim=0)
-                    if gpu_id not in sessions:
+                    if session_key not in sessions:
                         with span("prepare"):
-                            sessions[gpu_id] = _EngineSession(self.path, self.plugins)
+                            sessions[session_key] = _EngineSession(self.path, self.plugins, batch[0].profile_index)
                     started = time.perf_counter()
                     # Use an isolated stats context: callers record their own completed requests.
                     from pipeworks.embedded.stream_report import report_scope
                     with report_scope():
-                        outputs = sessions[gpu_id].infer(tensors, stream, copy_context())
+                        outputs = sessions[session_key].infer(tensors, stream, copy_context())
                     elapsed = time.perf_counter() - started
                     if any(not isinstance(t, torch.Tensor) or not t.is_cuda or t.device != stream.device
                            or t.ndim < 1 or t.shape[0] != len(batch) for t in outputs.values()):
@@ -110,7 +105,7 @@ class _ModelWorker:
                 for request in batch:
                     request.result = None
                     request.error = f"{type(error).__name__}: {error}"
-                session = sessions.pop(batch[0].gpu_id, None)
+                session = sessions.pop(session_key, None)
                 try:
                     if stream is not None:
                         stream.synchronize()
@@ -137,13 +132,14 @@ class _ModelWorker:
                 batch = request = None
 
 
-def infer(model_path: Path, inputs, gpu_id: int = 0, *, ready_event=None, on_inference_complete=None, on_profile_complete=None):
+def infer(model_path: Path, inputs, gpu_id: int = 0, *, profile_index=0, ready_event=None, on_inference_complete=None, on_profile_complete=None):
     """Collect batch-one inputs and return batch-one GPU output mappings."""
     path = Path(model_path).resolve()
     if not path.is_file():
         raise FileNotFoundError(path)
     if isinstance(gpu_id, bool) or not isinstance(gpu_id, int) or gpu_id < 0:
         raise ValueError("gpu_id must be a nonnegative integer.")
+    _validate_profile_index(profile_index)
     if isinstance(inputs, torch.Tensor):
         entries = [("", inputs)]
     elif isinstance(inputs, dict) and inputs and all(isinstance(n, str) for n in inputs):
@@ -153,11 +149,11 @@ def infer(model_path: Path, inputs, gpu_id: int = 0, *, ready_event=None, on_inf
     for name, tensor in entries:
         if not isinstance(tensor, torch.Tensor) or not tensor.is_cuda or tensor.device.index != gpu_id or tensor.ndim < 1 or tensor.shape[0] != 1:
             raise ValueError("Each input must be a batch-one GPU tensor matching gpu_id.")
-    key = (gpu_id, isinstance(inputs, dict), tuple((n, t.dtype, tuple(t.shape[1:])) for n, t in entries))
+    key = (gpu_id, profile_index, isinstance(inputs, dict), tuple((n, t.dtype, tuple(t.shape[1:])) for n, t in entries))
     if ready_event is None:
         ready_event = torch.cuda.Event()
         ready_event.record(torch.cuda.current_stream(gpu_id))
-    request = _Request(inputs.copy() if isinstance(inputs, dict) else inputs, gpu_id, key, ready_event)
+    request = _Request(inputs.copy() if isinstance(inputs, dict) else inputs, gpu_id, key, ready_event, profile_index)
     request.profile_enabled = on_profile_complete is not None
     with _workers_lock:
         worker = _workers.get(path)

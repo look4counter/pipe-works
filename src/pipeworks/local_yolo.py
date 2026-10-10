@@ -48,12 +48,14 @@ def _batch_settings(model_path: Path) -> tuple[int, float]:
         config = yaml.safe_load(config_file)
     if not isinstance(config, dict):
         raise ValueError(f"YOLO 배치 설정은 객체여야 합니다: {config_path}")
+    if "timeout" in config:
+        raise ValueError("모델 YAML의 timeout 대신 timeout_ms를 사용하세요.")
     size = config.get("max_batch_size")
-    timeout = config.get("timeout")
+    timeout = config.get("timeout_ms")
     if isinstance(size, bool) or not isinstance(size, int) or size < 1:
         raise ValueError("max_batch_size는 1 이상의 정수여야 합니다.")
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout < 0:
-        raise ValueError("timeout은 0 이상의 밀리초여야 합니다.")
+        raise ValueError("timeout_ms는 0 이상의 유한한 밀리초여야 합니다.")
     return size, timeout / 1000
 
 

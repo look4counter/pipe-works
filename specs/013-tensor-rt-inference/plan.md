@@ -1,5 +1,23 @@
 # 구현 계획: TensorRT 추론 전용 단계
 
+## 영상별 프로파일 이동 계획
+
+Python 3.11·기존 CUDA/TensorRT 실행 기반을 유지한다. tensor_rt_inference.py의 configure에 profile_index 검증과 원자적 갱신을 추가하고 개별 세션 재생성 키를 (gpu_id, profile_index)로 변경한다. 모델 설정은 plugins만 반환하며 이전 profile_index·timeout 키를 이동·변경 안내 오류로 거부한다. local_tensor_rt.py의 infer는 profile_index 키워드 인자를 받아 요청·호환 키·세션 키에 반영하며 실패 시 해당 세션만 제거한다. GPU 스트림은 GPU별로 유지하고 같은 작업자에서 순차 실행한다.
+
+local_yolo.py와 local_tensor_rt.py는 모델 YAML의 timeout_ms를 읽고 기존 밀리초 변환·기본값·유효성 검증을 유지한다. tests/test_tensor_rt_inference.py와 test_local_tensor_rt.py에 설정 원자성·실행 중 변경·프로파일별 분리·실패 격리·실엔진 검증을 이전하고 test_local_yolo.py에 새 시간 명칭과 경계값을 반영한다. README·TensorRT 및 YOLO 안내·examples/config/stream.yml·examples/model/yolo11n.yml를 갱신한다. 외부 의존성 변경은 없고 헌법 템플릿 검사는 생략한다. 한글 문서와 speckit 순서를 준수한다.
+
+## 모델 실행 옵션 계획
+
+동적 입력은 선택 프로파일의 get_tensor_profile_shape 최소·최대 형상으로 선검증한다. 실제 범위 밖 입력에서 set_input_shape가 성공을 반환할 수 있어 후속 infer_shapes까지 잘못된 입력을 넘기지 않는다.
+
+FR-031~034는 기존 Python 3.11·PyTorch CUDA·TensorRT 10.10에서 구현한다. tensor_rt_inference.py에 모델 YAML 읽기와 프로파일·플러그인 검증 함수를 공통으로 두고 local_tensor_rt.py도 사용한다. _EngineSession은 프로파일 번호를 저장하고 역직렬화 이후 엔진 범위를 검증하며 선택 프로파일의 텐서 포맷을 검사한다. 첫 infer에서 실행 스트림의 set_optimization_profile_async로 선택 후 형상을 설정한다. 실패는 호출자의 기존 동기 완료 정리로 전달한다. 기존 플러그인 로딩 순서와 수명은 유지한다.
+
+tests/test_tensor_rt_inference.py에 설정 경계값·모형 엔진의 선택 순서·실패·범위와 실제 다중 프로파일 엔진의 두 모드 검증을 추가한다. tests/test_local_tensor_rt.py는 공통 설정·작업자 전달과 기존 수집 회귀를 확인한다. docs/pipeworks/embedded/tensor_rt_inference.md, README.md, examples/model/yolo11n.yml에 사용법을 기록한다. 새 외부 의존성은 없고 헌법은 미작성 템플릿이므로 원칙 검사는 생략한다. 문서는 한글이며 실행 중 설정 재로딩은 포함하지 않는다.
+
+## 프레임 간격 명칭 변경 계획
+
+FR-027~030을 위해 Python 3.11의 기존 configure 검증·생성 기본값·개별 및 배치 선택 분기를 `inference_interval_frame`으로 이전한다. 이전 키는 configure 시작에서 거부하여 설정 변경의 원자성을 유지한다. tests/test_tensor_rt_inference.py의 기존 간격 테스트를 이전하고 기본값·전체 경계값·이전 키 동시 지정의 검증을 보강한다. README.md, docs/pipeworks/embedded/tensor_rt_inference.md, examples/config/stream.yml의 설정과 이전 안내를 갱신한다. 검증은 가상환경의 unittest로 TensorRT·예제 처리·YOLO·배치·설정 관련 회귀를 실행한다. 헌법은 미작성 템플릿이므로 원칙 검사는 생략하고 한글 문서와 speckit 순서를 준수한다. 외부 의존성이나 엔진 API 변경은 없다.
+
 ## 요약
 
 입력 GPU 텐서를 엔진에서 발견한 이름에 연결하고 모든 원시 출력을 이름별 GPU 텐서 사전으로 반환한다. TensorRT 10 이름 기반 실행 API와 별도 작업자·CUDA 스트림을 사용한다.

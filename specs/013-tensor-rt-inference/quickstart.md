@@ -1,5 +1,17 @@
 # TensorRT 추론 검증 안내
 
+## 영상별 프로파일 및 timeout_ms 검증
+
+검증 결과 (2026-10-10): TensorRT 추론 24개, local 공유 배치 11개, YOLO 38개, CudaAsync 38개, 탐지 보고서 14개, TensorRT 예제 처리 6개, 파이프라인 설정 7개를 실행했다. 총 138개 중 136개 통과·2개 조건부 건너뛰기다. 실제 다중 프로파일 엔진을 Step configure로 선택한 개별·공유 배치 실행, 동일 형상의 서로 다른 프로파일 수집 분리·세션 재사용·실패 격리, 반복자 실행 중 프로파일 변경과 설정 오류 시 상태 보존, timeout_ms 변환과 이전 키 오류를 확인했다.
+
+TensorRTInference 설정을 기본값과 경계값으로 검증하고 동일 반복자에서 프로파일을 바꿔 세션 재생성을 확인한다. 공유 경로는 같은 GPU·형상의 요청을 서로 다른 프로파일로 보내 수집·세션 분리와 오류 격리를 확인한다. 모델 YAML timeout_ms는 YOLO·TensorRT 설정과 GPU 배치 테스트로 검증한다. 이전 timeout과 모델 profile_index는 이동 안내 오류여야 한다. 실제 다중 프로파일 엔진은 Step configure로 선택하고 두 모드 GPU 출력을 확인한다.
+
+## 모델 YAML 옵션 검증
+
+검증 결과 (2026-10-10): TensorRT 추론 23개, 공유 TensorRT 배치 3개, CudaAsync 38개, 탐지 보고서 14개, 예제 TensorRT 처리 6개, 공통 수집 경로 7개를 실행했다. 총 91개 중 90개 통과·1개 조건부 건너뛰기다. 실제 TensorRT 10.10 다중 프로파일 엔진에서 프로파일 0 범위 밖 입력의 거부와 프로파일 1의 개별·공유 배치 GPU 결과를 확인했다. 플러그인 경로 전달·파일 누락·로딩 실패와 모형 엔진의 선택 순서·범위 밖 번호·선택 실패도 통과했다.
+
+TensorRT 추론·local_tensor_rt 테스트를 실행해 설정 생략·profile_index 경계값·plugins 경로 및 선택 순서·범위 밖 번호·실패를 확인한다. 실제 다중 프로파일 엔진은 프로파일 0에서 불가능한 입력을 프로파일 1로 개별·배치 실행한다. 기존 예제 처리·공유 수집·CudaAsync 회귀도 실행한다. 설정 반영은 개별 실행 재시작 및 공유 작업자 프로세스 재시작 후 확인한다.
+
 가상환경의 CUDA PyTorch로 `.venv/Scripts/python.exe -m unittest discover -s tests -p test_tensor_rt_inference.py`를 실행한다. 임의 이름·단일 및 다중 입력·원시 GPU 값·동적 출력·플러그인·비동기 실패·수명 계약을 확인한다.
 
 실제 검증에는 TensorRT 10.10과 동일 GPU에서 만든 엔진이 필요하다. TensorRT가 설치된 환경에서는 테스트가 작은 GPU 연산 엔진을 생성하고 실행한다. 현재 TensorRT가 없으면 실엔진 검증만 건너뛴다.
@@ -31,3 +43,8 @@ TensorRT 14개·공유 배치 3개·전후처리 5개 검증이 모두 통과했
 명세·명확화·계획·작업 대응을 분석했으며 추가 질문과 차단 충돌은 없었다. 기존 CUDA 결과 검증에 clone 금지 조건을 추가하여 구현 전 prediction.clone()에서 실패함을 확인했다. 제거 후 원시 좌표 변환·NMS 중복 제거·클래스 필터·좌표 복원·신뢰도·이름·빈 결과·모델 버퍼 정리와 BoxOverlay의 원본 영상 표시를 확인했다.
 
 test_tensor_rt_processing 6개, test_box_overlay 5개, test_async 37개, test_frame_release 6개로 총 54개가 모두 통과했다. 제공된 실제 plan의 추론·후처리도 포함한다. git diff --check가 통과했고 FR-025~026·SC-012 및 계획·작업의 수렴 점검에서 남은 구현 작업은 없다. 전체 테스트와 성능 수치 측정은 수행하지 않았다.
+# 프레임 간격 명칭 변경 검증
+
+검증 결과 (2026-10-10): TensorRT 추론 18개, 예제 처리 6개, YOLO·배치 38개, 설정 7개를 실행하여 총 69개 중 68개 통과·1개 조건부 건너뛰기였다. TensorRT의 실제 엔진과 CUDA 개별·배치 간격 검증도 통과했다. 이름 변경 전 테스트 실패를 확인한 후 구현했으며 기본값·전체 경계값·이전 키와 두 키 동시 지정 시 상태 보존을 확인했다.
+
+프로젝트 의존성이 설치된 가상환경에서 `.venv/Scripts/python.exe -m unittest discover -s tests -p test_tensor_rt_inference.py`를 실행한다. 설정 기본값·갱신·경계값·이전 키 거부 및 두 실행 모드의 1·4·7번째 입력 선택이 통과해야 한다. CUDA 검증은 사용 가능한 GPU가 필요하며 실행할 수 없는 항목은 건너뛴 수를 기록한다. 예제 YAML의 TensorRTInference 섹션은 `inference_interval_frame: 1`을 사용한다. 기존 설정 이름은 새 이름으로 이전한다.

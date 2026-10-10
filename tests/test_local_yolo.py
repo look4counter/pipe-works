@@ -165,7 +165,7 @@ class LocalYoloTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             model_path = Path(temporary) / "model.pt"
             model_path.write_bytes(b"placeholder")
-            model_path.with_suffix(".yml").write_text("max_batch_size: 2\ntimeout: 500\n", encoding="utf-8")
+            model_path.with_suffix(".yml").write_text("max_batch_size: 2\ntimeout_ms: 500\n", encoding="utf-8")
             calls = []
 
             class Model:
@@ -207,8 +207,13 @@ class LocalYoloTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             model = Path(temporary) / "model.pt"
             self.assertEqual(_batch_settings(model), (1, 0.0))
-            model.with_suffix(".yml").write_text("max_batch_size: 4\ntimeout: 10\n", encoding="utf-8")
+            model.with_suffix(".yml").write_text("max_batch_size: 4\ntimeout_ms: 10\n", encoding="utf-8")
             self.assertEqual(_batch_settings(model), (4, 0.01))
+            for text in ("timeout: 10", "timeout_ms: true", "timeout_ms: -1",
+                         "timeout_ms: .inf", "timeout_ms: .nan", 'timeout_ms: "10"', "timeout_ms: null"):
+                model.with_suffix(".yml").write_text("max_batch_size: 4\n" + text, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "timeout_ms"):
+                    _batch_settings(model)
             requests = Queue()
             deferred = deque()
             first = _InferenceRequest(None, [2], 0.25, 0)

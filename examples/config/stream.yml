@@ -19,10 +19,10 @@ RTSPPublish:
   packet_size: 1452
 
 YoloDetect:
-  classes: [2]
-  confidence: 0.25
   gpu_id: 0
   inference_interval_frame: 1
+  classes: [2]
+  confidence: 0.25
 
 BoxOverlay:
   line_width: 2
@@ -31,7 +31,8 @@ BoxOverlay:
 
 TensorRTInference:
   gpu_id: 0
-  inference_interval: 1
+  inference_interval_frame: 1
+  profile_index: 0
 
 TensorRTPostProcess:
   classes: [2]

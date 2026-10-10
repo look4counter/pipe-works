@@ -164,7 +164,7 @@ RTSP 카메라에서 영상을 읽습니다.
 
 - **입출력**: 단일 텐서 또는 입력 이름별 GPU 텐서 사전 → 출력 이름별 GPU 텐서 사전. 바인딩 이름은 엔진에서 읽습니다.
 - **사용**: `pipeline.step(TensorRTInference(Path("models/model.engine")))`
-- **설정**: 클래스명 YAML의 `gpu_id`, `inference_interval`; 모델 동명 `.yml`의 `plugins`
+- **설정**: 클래스명 YAML의 `gpu_id`, `inference_interval_frame`, `profile_index`(기본 0); 모델 동명 `.yml`의 `plugins`(기본 빈 목록), 배치 수집용 `max_batch_size`·`timeout_ms`
 - **동작**: 전처리·후처리 없이 동기 추론하며 GPU 완료 후 결과를 전달합니다. 연속 입력은 복제하지 않고 오류는 전파합니다. 시간 제한·오류 통과는 공통 Async로 적용합니다.
 - **상세**: [TensorRTInference 안내](docs/pipeworks/embedded/tensor_rt_inference.md)
 

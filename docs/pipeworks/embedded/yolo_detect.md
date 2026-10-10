@@ -43,10 +43,12 @@ YoloDetect:
 
 ```yaml
 max_batch_size: 8
-timeout: 20  # 배치를 모으는 최대 시간, 밀리초
+timeout_ms: 20  # 배치를 모으는 최대 시간, 밀리초
 ```
 
-이 `timeout`은 추론 대기 제한이 아니다. 실제 묶음 크기는 동시에 들어오는 요청 수·동일 추론 옵션·모델 엔진의 배치 지원 범위에 따라 달라진다. 실행 중 classes·confidence·gpu_id·inference_interval_frame 설정 변경은 배치 경로에도 입력 경계에서 전달한다.
+기존 모델 YAML의 `timeout`은 값의 밀리초 단위를 유지해 `timeout_ms`로 변경해야 한다. 이전 키는 변경 안내 오류로 거부한다.
+
+이 `timeout_ms`은 추론 대기 제한이 아니다. 실제 묶음 크기는 동시에 들어오는 요청 수·동일 추론 옵션·모델 엔진의 배치 지원 범위에 따라 달라진다. 실행 중 classes·confidence·gpu_id·inference_interval_frame 설정 변경은 배치 경로에도 입력 경계에서 전달한다.
 
 배치 경로는 기존 동작처럼 실패를 기록하고 `detections=None`으로 원본을 전달한다. 개별 경로의 오류는 예외로 전파한다.
 
