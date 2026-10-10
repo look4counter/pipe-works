@@ -1,5 +1,9 @@
 # 구현 계획: 최신 프레임 디코딩
 
+## 압축 패킷 직접 전달
+
+`src/pipeworks/embedded/nvidia_decode.py`에서 `packet.buffer_ptr`와 `packet.size`를 PacketData의 bsl_data와 bsl에 연결한다. 입력 컨텍스트는 decode 호출 반환까지 보관하고 이후 해제한다. ctypes import와 중간 버퍼를 제거한다. 공개 인터페이스와 의존성 변경은 없다. `tests/test_nvidia_decode.py`의 모의 패킷에 주소·크기 계약을 제공하고 원본 주소·길이·바이트 변환 금지를 검증한다. 보고서·핫스왑 모의 패킷도 갱신한다. 실제 GPU 디코더와 RTSPSource·RTSPPublish 회귀를 확인한다. 미작성 헌장 템플릿 외 추가 원칙은 없으며 한글 문서와 speckit 절차를 따른다.
+
 **명세**: [spec.md](spec.md) | **날짜**: 2026-10-09
 
 ## 요약

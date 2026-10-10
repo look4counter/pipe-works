@@ -2,7 +2,6 @@
 
 from contextvars import copy_context
 from collections import deque
-import ctypes
 import logging
 from threading import Condition, Event, Thread
 import time
@@ -243,14 +242,15 @@ class NvidiaDecode(Step):
                 else:
                     locked_decoder = False
             packet_data = nvc.PacketData()
-            bitstream = ctypes.create_string_buffer(bytes(item.packet))
-            packet_data.bsl_data = ctypes.addressof(bitstream)
-            packet_data.bsl = len(bitstream) - 1
-            if item.packet.pts is not None:
-                packet_data.pts = int(item.packet.pts)
+            # Keep the packet owner alive until the decoder has consumed its bitstream.
+            packet = item.packet
+            packet_data.bsl_data = packet.buffer_ptr
+            packet_data.bsl = packet.size
+            if packet.pts is not None:
+                packet_data.pts = int(packet.pts)
             with torch.cuda.stream(decode_stream):
                 decode(packet_data)
-            del item, bitstream
+            del item, packet
 
         if decoder is not None and not stopped():
             with torch.cuda.stream(decode_stream):

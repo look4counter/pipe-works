@@ -310,8 +310,11 @@ class ReportTests(unittest.TestCase):
         class Packet:
             pts = 1
 
-            def __bytes__(self):
-                return b"data"
+            def __init__(self):
+                import av
+                self._packet = av.Packet(b"data")
+                self.buffer_ptr = self._packet.buffer_ptr
+                self.size = self._packet.size
 
         nvc = SimpleNamespace(
             cudaVideoCodec=SimpleNamespace(H264=1, HEVC=2),

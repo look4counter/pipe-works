@@ -22,9 +22,12 @@ from pipeworks.models import PipelineContext
 class Packet:
     def __init__(self, value, pts=None):
         self.value, self.pts = value, pts
+        self._buffer = ctypes.create_string_buffer(bytes([value]))
+        self.buffer_ptr = ctypes.addressof(self._buffer)
+        self.size = 1
 
     def __bytes__(self):
-        return bytes([self.value])
+        raise AssertionError("packet bytes must not be copied")
 
 
 def context(value=1, codec="h264", pts=None):
@@ -80,6 +83,8 @@ class DecodeTests(unittest.TestCase):
     def test_packet_codec_and_flush_contract(self):
         seen, create = [], []
         def decode(packet):
+            self.assertEqual(packet.bsl_data, item.packet.buffer_ptr)
+            self.assertEqual(packet.bsl, item.packet.size)
             seen.append((ctypes.string_at(packet.bsl_data, packet.bsl), getattr(packet, "pts", None)))
             return []
         delayed = object()

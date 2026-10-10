@@ -551,8 +551,11 @@ class HotswapTests(unittest.TestCase):
         class Packet:
             pts = 4
 
-            def __bytes__(self):
-                return b"compressed"
+            def __init__(self):
+                import av
+                self._packet = av.Packet(b"compressed")
+                self.buffer_ptr = self._packet.buffer_ptr
+                self.size = self._packet.size
 
         class Decoder:
             def GetPixelFormat(self):

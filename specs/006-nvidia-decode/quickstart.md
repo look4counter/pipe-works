@@ -1,5 +1,9 @@
 # 검증 안내: 최신 프레임 디코딩
 
+## 압축 패킷 무복사 검증 (2026-10-10)
+
+`.venv/Scripts/python.exe -m unittest discover -s tests -p test_nvidia_decode.py`에서 바이트 변환 금지와 원본 주소·크기·PTS, 실제 GPU 디코딩을 검증한다. 패턴을 test_rtsp_source.py, test_rtsp_publish.py, test_report.py, test_hotswap.py로 바꿔 관련 회귀를 실행한다. 총 89개 모두 통과했다. 무복사 검증은 구현 전 기존 bytes 변환에서 실패했고 구현 후 통과했다. 외부 RTSP 송출 없이 기존 모의 송출 검증을 사용했다. 수렴 점검에서 FR-015와 SC-010에 대한 남은 작업은 없다.
+
 TensorRT 연속 실행의 메모리 누적 회귀는 `test_repeated_inference_registers_one_allocator_per_binding`에서 출력 바인딩별 등록 수와 이전 출력 내용 보존으로 확인한다. 실제 엔진 반복 실행의 GPU 메모리 안정성은 [조사 결과](research-zero-copy.md)에 기록했다.
 
 기존 파이프라인의 NvidiaDecode를 그대로 사용한다. 별도 큐 Step이나 설정은 필요 없다.
