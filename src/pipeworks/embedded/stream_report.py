@@ -2,32 +2,90 @@
 
 import time
 import sys
-from collections import deque
 from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
 from typing import Iterator
 
 from pipeworks.models import PipelineContext, Step
 
-@dataclass
-class _ReportStats:
-    detection_stats: object | None = None
-    lock: Lock = field(default_factory=Lock)
-    window_started_at: float | None = None
+@dataclass(frozen=True, slots=True)
+class _Sample:
+    at: float
+    seconds: float
+    previous: "_Sample | None"
+    total: float
+    count: int
+    first_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class _History:
+    head: _Sample | None = None
+    chunks: tuple[_Sample, ...] = ()
+
+    def append(self, now: float, seconds: float) -> "_History":
+        previous = self.head
+        chunks = self.chunks
+        if previous is not None and int(previous.at) != int(now):
+            chunks = tuple(head for head in (previous, *chunks) if head.at > now - 10)
+            previous = None
+        head = _Sample(now, seconds, previous,
+                       seconds + (previous.total if previous is not None else 0.0),
+                       1 + (previous.count if previous is not None else 0),
+                       previous.first_at if previous is not None else now)
+        return _History(head, chunks)
+
+    def average(self, now: float) -> float | None:
+        total, count = 0.0, 0
+        heads = (self.head, *self.chunks) if self.head is not None else self.chunks
+        for head in heads:
+            if head.at <= now - 10:
+                break
+            if head.first_at > now - 10 and head.at <= now:
+                total += head.total
+                count += head.count
+                continue
+            # Only the boundary chunk needs individual sample inspection.
+            sample = head
+            while sample is not None and sample.at > now - 10:
+                if sample.at <= now:
+                    total += sample.seconds
+                    count += 1
+                sample = sample.previous
+        return total / count * 1000 if count else None
+
+
+@dataclass(frozen=True, slots=True)
+class _Snapshot:
+    started_at: float | None = None
     completed_frames: int = 0
     processing_seconds: float = 0.0
     completed_inferences: int = 0
     inference_seconds: float = 0.0
-    frame_history: deque = field(default_factory=deque)
-    inference_history: deque = field(default_factory=deque)
-    stage_totals: dict[str, tuple[int, float]] = field(default_factory=dict)
+    frame_history: _History = field(default_factory=_History)
+    inference_history: _History = field(default_factory=_History)
+    stages: tuple[tuple[str, int, float], ...] = ()
     receive_success_at: float | None = None
     receive_failure_at: float | None = None
     publish_success_at: float | None = None
     publish_failure_at: float | None = None
+
+
+@dataclass
+class _ReportStats:
+    detection_stats: object | None = None
+    lock: Lock = field(default_factory=Lock)
+    snapshot: _Snapshot = field(default_factory=_Snapshot)
+
+
+@dataclass(frozen=True, slots=True)
+class _ReportView:
+    metrics: tuple
+    stages: tuple[tuple[str, float], ...]
+    connections: tuple[str, str]
 
 
 _default_stats = _ReportStats()
@@ -50,32 +108,36 @@ def report_scope():
 def record_stage(name: str, seconds: float) -> None:
     stats = _stats()
     with stats.lock:
-        count, total = stats.stage_totals.get(name, (0, 0.0))
-        stats.stage_totals[name] = (count + 1, total + max(0.0, seconds))
+        snapshot = stats.snapshot
+        stages = {name: (count, total) for name, count, total in snapshot.stages}
+        count, total = stages.get(name, (0, 0.0))
+        stages[name] = (count + 1, total + max(0.0, seconds))
+        stats.snapshot = replace(snapshot, stages=tuple(
+            (name, count, total) for name, (count, total) in stages.items()))
 
 
 def record_receive(success: bool) -> None:
     stats = _stats()
-    now = time.perf_counter()
     with stats.lock:
+        now = time.perf_counter()
         if success:
-            stats.receive_success_at = now
+            stats.snapshot = replace(stats.snapshot, receive_success_at=now)
         else:
-            stats.receive_failure_at = now
+            stats.snapshot = replace(stats.snapshot, receive_failure_at=now)
 
 
 def record_publish(success: bool) -> None:
     stats = _stats()
-    now = time.perf_counter()
     with stats.lock:
+        now = time.perf_counter()
         if success:
-            stats.publish_success_at = now
+            stats.snapshot = replace(stats.snapshot, publish_success_at=now)
         else:
-            stats.publish_failure_at = now
+            stats.snapshot = replace(stats.snapshot, publish_failure_at=now)
 
 
-def _connection_status(now: float) -> tuple[str, str]:
-    stats = _stats()
+def _connection_status(now: float, snapshot: _Snapshot | None = None) -> tuple[str, str]:
+    snapshot = _stats().snapshot if snapshot is None else snapshot
 
     def status(succeeded_at: float | None, failed_at: float | None) -> str:
         if failed_at is not None and (succeeded_at is None or failed_at >= succeeded_at):
@@ -84,82 +146,75 @@ def _connection_status(now: float) -> tuple[str, str]:
             return "대기"
         return "중단" if now - succeeded_at > 5.0 else "성공"
 
-    with stats.lock:
-        return (
-            status(stats.receive_success_at, stats.receive_failure_at),
-            status(stats.publish_success_at, stats.publish_failure_at),
-        )
-
-
-def _take_stage_report() -> dict[str, float]:
-    stats = _stats()
-    with stats.lock:
-        averages = {name: total / count * 1000 for name, (count, total) in stats.stage_totals.items()}
-        stats.stage_totals = {}
-        return averages
+    return (
+        status(snapshot.receive_success_at, snapshot.receive_failure_at),
+        status(snapshot.publish_success_at, snapshot.publish_failure_at),
+    )
 
 
 def record_frame(processing_seconds: float) -> None:
     stats = _stats()
-    now = time.perf_counter()
     with stats.lock:
-        if stats.window_started_at is None:
-            stats.window_started_at = now
-        stats.completed_frames += 1
-        stats.processing_seconds += max(0.0, processing_seconds)
-        stats.frame_history.append((now, max(0.0, processing_seconds)))
-        _prune_history(stats.frame_history, now)
+        now = time.perf_counter()
+        snapshot = stats.snapshot
+        seconds = max(0.0, processing_seconds)
+        stats.snapshot = replace(snapshot,
+            started_at=now if snapshot.started_at is None else snapshot.started_at,
+            completed_frames=snapshot.completed_frames + 1,
+            processing_seconds=snapshot.processing_seconds + seconds,
+            frame_history=snapshot.frame_history.append(now, seconds))
 
 
 def record_inference(inference_seconds: float) -> None:
     stats = _stats()
-    now = time.perf_counter()
     with stats.lock:
-        if stats.window_started_at is None:
-            stats.window_started_at = now
-        stats.completed_inferences += 1
-        stats.inference_seconds += max(0.0, inference_seconds)
-        stats.inference_history.append((now, max(0.0, inference_seconds)))
-        _prune_history(stats.inference_history, now)
+        now = time.perf_counter()
+        snapshot = stats.snapshot
+        seconds = max(0.0, inference_seconds)
+        stats.snapshot = replace(snapshot,
+            started_at=now if snapshot.started_at is None else snapshot.started_at,
+            completed_inferences=snapshot.completed_inferences + 1,
+            inference_seconds=snapshot.inference_seconds + seconds,
+            inference_history=snapshot.inference_history.append(now, seconds))
 
 
-def _prune_history(history, now):
-    while history and history[0][0] <= now - 10:
-        history.popleft()
+class _ReportReader:
+    """Observe one published snapshot without locking or changing collectors."""
 
+    def __init__(self, stats: _ReportStats):
+        self.stats = stats
+        snapshot = stats.snapshot
+        self.started_at = snapshot.started_at if snapshot.started_at is not None else time.perf_counter()
+        self.previous = _Snapshot()
 
-def _recent_average(history, now):
-    _prune_history(history, now)
-    return sum(seconds for _, seconds in history) / len(history) * 1000 if history else None
-
-
-def _take_report() -> tuple | None:
-    stats = _stats()
-    now = time.perf_counter()
-    with stats.lock:
-        if stats.window_started_at is None or now - stats.window_started_at < 1.0:
+    def read(self, *, now: float | None = None) -> _ReportView | None:
+        # CPython 3.11 publishes a single object reference. All reachable
+        # statistics are immutable, so writers can replace it while we read.
+        snapshot = self.stats.snapshot
+        now = time.perf_counter() if now is None else now
+        elapsed = now - self.started_at
+        if elapsed < 1.0:
             return None
-        fps = stats.completed_frames / (now - stats.window_started_at)
-        average_ms = (
-            stats.processing_seconds / stats.completed_frames * 1000 if stats.completed_frames else 0.0
+        previous = self.previous
+        frames = snapshot.completed_frames - previous.completed_frames
+        inferences = snapshot.completed_inferences - previous.completed_inferences
+        old_stages = {name: (count, total) for name, count, total in previous.stages}
+        stages = []
+        for name, count, total in snapshot.stages:
+            old_count, old_total = old_stages.get(name, (0, 0.0))
+            if count > old_count:
+                stages.append((name, (total - old_total) / (count - old_count) * 1000))
+        view = _ReportView(
+            (frames / elapsed,
+             (snapshot.processing_seconds - previous.processing_seconds) / frames * 1000 if frames else 0.0,
+             inferences,
+             (snapshot.inference_seconds - previous.inference_seconds) / inferences * 1000 if inferences else None,
+             snapshot.frame_history.average(now), snapshot.inference_history.average(now)),
+            tuple(stages), _connection_status(now, snapshot),
         )
-        inference_count = stats.completed_inferences
-        average_inference_ms = (
-            stats.inference_seconds / inference_count * 1000 if inference_count else None
-        )
-        stats.window_started_at = now
-        stats.completed_frames = 0
-        stats.processing_seconds = 0.0
-        stats.completed_inferences = 0
-        stats.inference_seconds = 0.0
-        return (
-            fps,
-            average_ms,
-            inference_count,
-            average_inference_ms,
-            _recent_average(stats.frame_history, now),
-            _recent_average(stats.inference_history, now),
-        )
+        self.previous = snapshot
+        self.started_at = now
+        return view
 
 
 class StreamReport(Step):
@@ -172,15 +227,14 @@ class StreamReport(Step):
         done = Event()
         output_writer = _current_output_writer()
         context = copy_context()
-        stats = _stats()
-        with stats.lock:
-            if stats.window_started_at is None:
-                stats.window_started_at = time.perf_counter()
+        reader = _ReportReader(_stats())
 
         def report_once() -> None:
-            snapshot = _take_report() or (0.0, 0.0, 0, None, None, None)
-            fps, average_ms, inference_count, average_inference_ms, recent_frame_ms, recent_inference_ms = snapshot
-            receive_status, publish_status = _connection_status(time.perf_counter())
+            snapshot = reader.read()
+            if snapshot is None:
+                return
+            fps, average_ms, inference_count, average_inference_ms, recent_frame_ms, recent_inference_ms = snapshot.metrics
+            receive_status, publish_status = snapshot.connections
             recent_frame = "없음" if recent_frame_ms is None else f"{recent_frame_ms:.1f}ms"
             inference = "없음" if average_inference_ms is None else f"{average_inference_ms:.1f}ms"
             recent_inference = "없음" if recent_inference_ms is None else f"{recent_inference_ms:.1f}ms"
@@ -192,7 +246,7 @@ class StreamReport(Step):
                 f"추론 {inference}/1s, {recent_inference}/10s"
                 + (f" ({inference_count}건)" if inference_count else ""),
             ]
-            stages = _take_stage_report()
+            stages = dict(snapshot.stages)
             labels = (
                 ("batch_queue", "입력 대기"),
                 ("batch_wait", "배치 대기"),

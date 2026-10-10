@@ -54,3 +54,19 @@ T030 → T031 → T032 순서로 수행한다.
 - [x] T034 출력 문자열·테스트·검증 기록을 갱신하고 보고 회귀와 수렴 점검을 완료한다. (FR-022)
 
 T033 → T034 순서로 수행한다.
+
+## 단계 6: 읽기 전용 보고 준비
+
+- [x] T035 `tests/test_report.py`에 보고 측 잠금 금지·스냅샷 불변·독립 보고자·다중 기록·청크 보관 한계와 경계 테스트를 먼저 추가한다. (FR-023~025, SC-011~012)
+
+## 단계 7: 읽기 전용 보고 사용자 시나리오
+
+- [x] T036 [US1] `src/pipeworks/embedded/stream_report.py`의 기록 함수에 누적 불변 스냅샷과 초별 불변 이력을 구현한다. (FR-003, FR-024~025)
+- [x] T037 [US1] `src/pipeworks/embedded/stream_report.py`에 보고자별 차분 관측을 구현하고 StreamReport의 통계 잠금과 공유 자료 수정을 제거한다. (FR-023~025, SC-011)
+- [x] T038 [US1] `tests/test_report.py`의 기존 초기화 테스트를 차분 관측으로 갱신하고 `tests/test_tensor_rt_inference.py`, `tests/test_yolo_detect.py`의 내부 통계 조회를 스냅샷 경로로 갱신한다. 보고·감지·비동기·RTSP·중앙 프로세스 회귀를 검증한다. (SC-001~012)
+
+## 단계 8: 문서와 전체 검증
+
+- [x] T039 `docs/pipeworks/embedded/stream_report.md`, `specs/010-stream-report/quickstart.md`에 기록/표시 책임과 잠금 범위·검증 결과를 기록하고 전체 테스트를 실행한다. (FR-023~025, SC-012)
+
+T035 → T036 → T037 → T038 → T039 순서로 수행한다. 기존 완료 작업을 보존한다. T038의 서로 독립된 테스트 파일은 병렬 실행할 수 있다. 최소 완료 범위는 읽기 전용 보고 이야기 전체이며 출력·이력 정확성과 회귀까지 검증한다.

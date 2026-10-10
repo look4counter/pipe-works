@@ -84,8 +84,8 @@ class YoloDetectTests(unittest.TestCase):
         ) as record, report_scope():
             stats = _stats()
             list(step.process(iter([item])))
-            self.assertEqual(stats.completed_inferences, 1)
-            self.assertAlmostEqual(stats.inference_seconds, .012)
+            self.assertEqual(stats.snapshot.completed_inferences, 1)
+            self.assertAlmostEqual(stats.snapshot.inference_seconds, .012)
         self.assertEqual([call.args[0] for call in record.call_args_list], ["batch_queue", "batch_wait"])
 
     def test_batch_configuration_updates_between_inputs(self):
@@ -356,8 +356,8 @@ class YoloDetectTests(unittest.TestCase):
             stats = _stats()
             with patch("ultralytics.YOLO", return_value=self.mock_model()):
                 list(self.step.process(iter([context()])))
-            self.assertEqual(stats.completed_inferences, 1)
-            self.assertGreater(stats.inference_seconds, 0)
+            self.assertEqual(stats.snapshot.completed_inferences, 1)
+            self.assertGreater(stats.snapshot.inference_seconds, 0)
 
     def test_async_wrapper_handles_delay_and_discards_late_result(self):
         entered, release, cleaned = Event(), Event(), Event()
@@ -391,7 +391,7 @@ class YoloDetectTests(unittest.TestCase):
             self.assertTrue(cleaned.wait(3))
             self.assertFalse(hasattr(item, "detections"))
             self.assertEqual(model.predict.call_count, 1)
-            self.assertEqual(stats.completed_inferences, 1)
+            self.assertEqual(stats.snapshot.completed_inferences, 1)
 
     def test_async_wrapper_handles_prediction_failure(self):
         item, model = context(), self.mock_model()

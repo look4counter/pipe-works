@@ -33,10 +33,10 @@ def build_pipeline() -> Pipeline:
             CudaAsync(
                 # YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt", batch = False),
                 # YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt", batch = True),
-                TensorRTPreProcess(),
+                # TensorRTPreProcess(),
                 TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan", batch = False),
                 # TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan", batch = True),
-                TensorRTPostProcess(),
+                # TensorRTPostProcess(),
                 timeout_ms=20,
             ),
         )

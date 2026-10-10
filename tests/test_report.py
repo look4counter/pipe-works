@@ -15,6 +15,100 @@ from pipeworks.models import PipelineContext
 
 
 class ReportTests(unittest.TestCase):
+    def test_reader_never_locks_or_mutates_published_statistics(self):
+        with report.report_scope():
+            with patch.object(report.time, "perf_counter", return_value=0):
+                report.record_frame(.02)
+                report.record_inference(.005)
+                report.record_stage("encode", .01)
+                report.record_receive(True)
+            stats = report._stats()
+            published = stats.snapshot
+            class ForbiddenLock:
+                def __enter__(self):
+                    raise AssertionError("보고 측은 통계 잠금을 획득하면 안 됩니다.")
+                def __exit__(self, *args):
+                    pass
+            stats.lock = ForbiddenLock()
+            reader = report._ReportReader(stats)
+            view = reader.read(now=1)
+            self.assertEqual(view.metrics, (1, 20, 1, 5, 20, 5))
+            self.assertEqual(dict(view.stages)["encode"], 10)
+            empty = reader.read(now=12)
+            self.assertEqual(empty.metrics[:4], (0, 0, 0, None))
+            self.assertEqual(empty.metrics[4:], (None, None))
+            self.assertEqual(empty.connections, ("중단", "대기"))
+            self.assertIs(stats.snapshot, published)
+            self.assertEqual(stats.snapshot.completed_frames, 1)
+            list(StreamReport().process(iter((PipelineContext(),))))
+
+    def test_independent_readers_do_not_consume_each_others_statistics(self):
+        with report.report_scope():
+            with patch.object(report.time, "perf_counter", return_value=0):
+                report.record_frame(.02)
+                report.record_stage("encode", .01)
+            first, second = report._ReportReader(report._stats()), report._ReportReader(report._stats())
+            self.assertEqual(first.read(now=1), second.read(now=1))
+            with patch.object(report.time, "perf_counter", return_value=1.5):
+                report.record_frame(.04)
+                report.record_stage("encode", .03)
+            first_view = first.read(now=2)
+            second_view = second.read(now=3)
+            self.assertEqual(first_view.metrics[0], 1)
+            self.assertEqual(second_view.metrics[0], .5)
+            self.assertAlmostEqual(first_view.metrics[1], 40)
+            self.assertAlmostEqual(second_view.metrics[1], 40)
+            self.assertAlmostEqual(dict(first_view.stages)["encode"], 30)
+            self.assertAlmostEqual(dict(second_view.stages)["encode"], 30)
+
+    def test_concurrent_writers_publish_consistent_snapshots(self):
+        from contextvars import copy_context
+        with report.report_scope():
+            contexts = [copy_context() for _ in range(4)]
+            def record():
+                for _ in range(200):
+                    report.record_frame(.01)
+                    report.record_inference(.02)
+            threads = [Thread(target=context.run, args=(record,)) for context in contexts]
+            for thread in threads:
+                thread.start()
+            while any(thread.is_alive() for thread in threads):
+                snapshot = report._stats().snapshot
+                self.assertAlmostEqual(snapshot.processing_seconds, snapshot.completed_frames * .01)
+                self.assertAlmostEqual(snapshot.inference_seconds, snapshot.completed_inferences * .02)
+            for thread in threads:
+                thread.join(timeout=2)
+            snapshot = report._stats().snapshot
+            self.assertEqual(snapshot.completed_frames, 800)
+            self.assertEqual(snapshot.completed_inferences, 800)
+
+    def test_history_shares_nodes_and_bounds_retained_chunks(self):
+        with report.report_scope():
+            with patch.object(report.time, "perf_counter", return_value=.1):
+                report.record_frame(.01)
+            first = report._stats().snapshot
+            with patch.object(report.time, "perf_counter", return_value=.2):
+                report.record_frame(.02)
+            second = report._stats().snapshot
+            self.assertIs(second.frame_history.head.previous, first.frame_history.head)
+            for second_at in range(1, 100):
+                with patch.object(report.time, "perf_counter", return_value=second_at + .1):
+                    report.record_frame(.03)
+            history = report._stats().snapshot.frame_history
+            self.assertLessEqual(len(history.chunks), 10)
+            self.assertTrue(all(int(head.at) >= 89 for head in history.chunks))
+            self.assertEqual(first.frame_history.head.count, 1)
+
+    def test_ten_second_cutoff_inside_chunk_uses_individual_samples(self):
+        with report.report_scope():
+            for at, seconds in ((.1, .01), (.6, .03), (9.9, .05)):
+                with patch.object(report.time, "perf_counter", return_value=at):
+                    report.record_frame(seconds)
+            reader = report._ReportReader(report._stats())
+            view = reader.read(now=10.5)
+            self.assertAlmostEqual(view.metrics[4], 40)
+            self.assertAlmostEqual(reader.read(now=11.5).metrics[4], 50)
+
     def test_receive_and_publish_status_transitions(self):
         self.assertEqual(report._connection_status(0), ("대기", "대기"))
         with patch.object(report.time, "perf_counter", return_value=1.0):
@@ -70,7 +164,9 @@ class ReportTests(unittest.TestCase):
                 report.record_frame(0.02)
                 report.record_inference(0.005)
                 report.record_stage("encode", 0.01)
-                list(StreamReport().process(silent_upstream()))
+                with patch.object(report._stats(), "lock") as forbidden_lock:
+                    forbidden_lock.__enter__.side_effect = AssertionError("보고 스레드가 통계 잠금을 획득했습니다.")
+                    list(StreamReport().process(silent_upstream()))
 
         runner = Thread(target=consume)
         runner.start()
@@ -116,36 +212,40 @@ class ReportTests(unittest.TestCase):
 
         first_stats = first.run(report._stats)
         second_stats = second.run(report._stats)
-        first_stats.window_started_at = 0.0
-        second_stats.window_started_at = 0.0
-        with patch.object(report.time, "perf_counter", return_value=1.0):
-            first_result = first.run(report._take_report)
-            second_result = second.run(report._take_report)
+        first_reader = report._ReportReader(first_stats)
+        second_reader = report._ReportReader(second_stats)
+        first_reader.started_at = second_reader.started_at = 0.0
+        first_view = first_reader.read(now=1.0)
+        second_view = second_reader.read(now=1.0)
+        first_result, second_result = first_view.metrics, second_view.metrics
         self.assertEqual(first_result[2], 1)
         self.assertAlmostEqual(first_result[3], 15.0)
         self.assertAlmostEqual(first_result[1], 10.0)
         self.assertEqual(second_result[2], 1)
         self.assertAlmostEqual(second_result[3], 20.0)
         self.assertAlmostEqual(second_result[1], 90.0)
-        self.assertAlmostEqual(first.run(report._take_stage_report)["encode"], 10.0)
-        self.assertAlmostEqual(second.run(report._take_stage_report)["encode"], 90.0)
+        self.assertAlmostEqual(dict(first_view.stages)["encode"], 10.0)
+        self.assertAlmostEqual(dict(second_view.stages)["encode"], 90.0)
 
     def test_stage_timing_averages_only_recorded_work(self):
+        with patch.object(report.time, "perf_counter", return_value=0.0):
+            reader = report._ReportReader(report._stats())
         report.record_stage("batch_queue", 0.02)
         report.record_stage("batch_queue", 0.04)
         report.record_stage("encode", 0.01)
-        stages = report._take_stage_report()
+        stages = dict(reader.read(now=1).stages)
         self.assertAlmostEqual(stages["batch_queue"], 30.0)
         self.assertAlmostEqual(stages["encode"], 10.0)
         self.assertNotIn("publish", stages)
-        self.assertEqual(report._take_stage_report(), {})
+        self.assertEqual(dict(reader.read(now=2).stages), {})
 
 
     def test_fps_and_average_processing_time(self):
         with patch.object(report.time, "perf_counter", side_effect=[10.0, 10.1, 11.0]):
             report.record_frame(0.01)
             report.record_frame(0.02)
-            fps, average_ms, inference_count, average_inference_ms, _, _ = report._take_report()
+            reader = report._ReportReader(report._stats())
+            fps, average_ms, inference_count, average_inference_ms, _, _ = reader.read().metrics
         self.assertAlmostEqual(fps, 2.0)
         self.assertAlmostEqual(average_ms, 15.0)
         self.assertEqual(inference_count, 0)
@@ -156,39 +256,42 @@ class ReportTests(unittest.TestCase):
             with patch.object(report.time, "perf_counter", return_value=0):
                 report.record_frame(.01)
                 report.record_inference(.02)
+            reader = report._ReportReader(report._stats())
             with patch.object(report.time, "perf_counter", return_value=1):
-                first = report._take_report()
+                first = reader.read().metrics
             with patch.object(report.time, "perf_counter", return_value=2):
                 for _ in range(3):
                     report.record_frame(.03)
                 report.record_inference(.06)
             with patch.object(report.time, "perf_counter", return_value=3):
-                second = report._take_report()
+                second = reader.read().metrics
             self.assertAlmostEqual(first[4], 10)
             self.assertAlmostEqual(second[1], 30)
             self.assertAlmostEqual(second[4], 25)
             self.assertAlmostEqual(second[5], 40)
             with patch.object(report.time, "perf_counter", return_value=10):
-                boundary = report._take_report()
+                boundary = reader.read().metrics
             self.assertEqual(boundary[2], 0)
             self.assertIsNone(boundary[3])
             self.assertAlmostEqual(boundary[4], 30)
             self.assertAlmostEqual(boundary[5], 60)
             with patch.object(report.time, "perf_counter", return_value=12):
-                empty = report._take_report()
+                empty = reader.read().metrics
             self.assertIsNone(empty[4])
             self.assertIsNone(empty[5])
 
-    def test_inference_count_and_average_reset_each_interval(self):
+    def test_inference_count_and_average_use_interval_differences(self):
         with patch.object(report.time, "perf_counter", side_effect=[10.0, 10.1, 11.0, 12.0]):
             report.record_inference(0.01)
             report.record_inference(0.02)
-            first = report._take_report()
-            second = report._take_report()
+            reader = report._ReportReader(report._stats())
+            first = reader.read().metrics
+            second = reader.read().metrics
         self.assertEqual(first[2], 2)
         self.assertAlmostEqual(first[3], 15.0)
         self.assertEqual(second[2], 0)
         self.assertIsNone(second[3])
+        self.assertEqual(report._stats().snapshot.completed_inferences, 2)
 
 
 

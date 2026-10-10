@@ -301,7 +301,7 @@ class TensorRTInferenceTests(unittest.TestCase):
             outputs = list(step.process(iter(items)))
         self.assertEqual(outputs, items)
         self.assertEqual([i.model_output is not None for i in items], [True, False, False, True, False, False, True])
-        self.assertEqual(stats.completed_inferences, 3)
+        self.assertEqual(stats.snapshot.completed_inferences, 3)
         self.assertEqual(len(calls), 3)
         for tensor, item in zip(calls, items[::3]):
             self.assertIs(tensor, item.model_input)
@@ -514,7 +514,7 @@ class TensorRTInferenceTests(unittest.TestCase):
             stats = _stats()
             outputs = list(self.step.process(iter(items)))
         self.assertEqual(outputs, items)
-        self.assertEqual(stats.completed_inferences, 3)
+        self.assertEqual(stats.snapshot.completed_inferences, 3)
         self.assertEqual([item.model_output is not None for item in items], [True, False, False, True, False, False, True])
 
 
