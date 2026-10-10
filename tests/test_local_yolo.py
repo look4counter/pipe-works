@@ -24,6 +24,49 @@ def gpu_nv12(height: int, width: int) -> torch.Tensor:
 
 
 class LocalYoloTests(unittest.TestCase):
+    def test_predictor_type_is_shared_on_concurrent_first_use(self):
+        from pipeworks.local_yolo import _GpuDetectionPredictor
+
+        barrier = Barrier(8)
+        results = []
+        predictor_type = type("Predictor", (), {})
+
+        def create():
+            time.sleep(.02)
+            return predictor_type
+
+        def get_type():
+            barrier.wait(timeout=2)
+            results.append(_GpuDetectionPredictor.type())
+
+        with patch.object(_GpuDetectionPredictor, "_type", None), patch.object(
+            _GpuDetectionPredictor, "_create_type", side_effect=create
+        ) as factory:
+            threads = [Thread(target=get_type) for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=2)
+                self.assertFalse(thread.is_alive())
+            self.assertEqual(len(results), 8)
+            self.assertTrue(all(result is predictor_type for result in results))
+            with patch.object(_GpuDetectionPredictor, "_type_lock", None):
+                self.assertIs(_GpuDetectionPredictor.type(), predictor_type)
+            factory.assert_called_once()
+
+    def test_predictor_type_creation_failure_can_be_retried(self):
+        from pipeworks.local_yolo import _GpuDetectionPredictor
+
+        predictor_type = type("Predictor", (), {})
+        with patch.object(_GpuDetectionPredictor, "_type", None), patch.object(
+            _GpuDetectionPredictor, "_create_type", side_effect=[RuntimeError("load failed"), predictor_type]
+        ) as factory:
+            with self.assertRaisesRegex(RuntimeError, "load failed"):
+                _GpuDetectionPredictor.type()
+            self.assertIsNone(_GpuDetectionPredictor._type)
+            self.assertIs(_GpuDetectionPredictor.type(), predictor_type)
+            self.assertEqual(factory.call_count, 2)
+
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
     def test_prepared_rgb_is_not_converted_from_nv12_again(self):
         from pipeworks.local_yolo import _nv12_to_rgb

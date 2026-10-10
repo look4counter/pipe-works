@@ -98,8 +98,21 @@ def _prepare_image(rgb: torch.Tensor) -> torch.Tensor:
 
 
 class _GpuDetectionPredictor:
+    _type = None
+    _type_lock = Lock()
+
     @staticmethod
     def type():
+        predictor_type = _GpuDetectionPredictor._type
+        if predictor_type is not None:
+            return predictor_type
+        with _GpuDetectionPredictor._type_lock:
+            if _GpuDetectionPredictor._type is None:
+                _GpuDetectionPredictor._type = _GpuDetectionPredictor._create_type()
+            return _GpuDetectionPredictor._type
+
+    @staticmethod
+    def _create_type():
         from ultralytics.models.yolo.detect.predict import DetectionPredictor
         from ultralytics.utils import nms
 

@@ -56,3 +56,8 @@ YoloDetect 22개, Async 28개, 기존 YoloDetectBatch 16개, 공유 작업자 6�
 YoloDetect는 inference_interval_frame 기본값 1을 사용한다. 두 모드의 간격 선택·정수 검증·실행 중 설정 변경은 유지하며 이전 키는 변경 안내 오류로 거부한다. TensorRTInference 설정은 변경하지 않았다. 예제 YAML과 YOLO·Async·파이프라인·핫스왑 문서 및 README의 YOLO 항목을 갱신했다.
 
 FR-017·SC-009와 T042~T045의 일관성 분석에서 차단 충돌이 없었으며 구현 전 새 설정 검증의 실패를 확인했다. YOLO 23개·배치 15개·Async 28개를 실행해 실패 없이 통과했고 엔진 파일 부재로 1개를 건너뛰었다. 전체 테스트는 반복하지 않았다.
+# 예측기 타입 캐시 검증 (2026-10-10)
+
+`.venv/Scripts/python.exe -m unittest discover -s tests -p test_local_yolo.py`로 동시 최초 접근·재사용 시 무잠금 반환·생성 실패 재시도를 검증한다. 동일 명령의 패턴을 `test_yolo_detect.py`, `test_yolo_batch.py`로 바꿔 개별 및 배치 회귀를 확인한다.
+
+결과: 총 47개 중 45개 통과, 2개 건너뜀. `git diff --check` 통과. FR-018, SC-010과 기존 GPU 처리 계약을 현재 구현과 대조한 수렴 점검에서 남은 작업은 없다.
