@@ -102,6 +102,42 @@ except KeyboardInterrupt:
 
 ## 📝 YAML 설정 파일
 
+### 생성자와 YAML의 우선순위
+
+설정 가능한 내장 Step은 **YAML 값 → 생성자 값 → 기본값** 순서로 옵션을 선택합니다. YAML 섹션이나 옵션이 없으면 생성자 값을 사용합니다. 실행 중 YAML에서 옵션을 삭제하면 최초 생성자 값으로 돌아갑니다. YAML에 지정한 `0`, `false`, 빈 목록, `null`은 누락으로 취급하지 않으며 해당 옵션의 검증 규칙을 적용합니다. 설정 파일 자체가 없는 경우의 오류 처리는 기존과 같습니다.
+
+```python
+inference = TensorRTInference(
+    Path("model.engine"), gpu_id=2, profile_index=1,
+    inference_interval_frame=3,
+)
+pipeline.step(inference)
+```
+
+```yaml
+TensorRTInference:
+  profile_index: 0
+```
+
+위 설정에서는 `gpu_id=2`, `profile_index=0`, `inference_interval_frame=3`이 적용됩니다. YAML에서 `profile_index`를 삭제하면 생성자 값인 `1`로 돌아갑니다. URL·모델 경로와 `batch`는 기존처럼 생성자에서 지정합니다.
+
+적용 대상은 `RTSPSource`, `RTSPPublish`, `NvidiaDecode`, `NvidiaEncode`, `YoloDetect`, `TensorRTInference`, `CudaAsync`입니다. `Tap`은 내부 Step에 설정을 전달하고, `CudaAsync` 내부 Step은 기존처럼 최상위 클래스명 섹션으로 설정합니다.
+
+사용자 정의 Step은 자신의 `configure()` 구현을 유지합니다. 같은 우선순위를 사용하려면 공통 지원을 다음처럼 적용할 수 있습니다. `_set_config_defaults()`는 생성자 값을 보관한 뒤 빈 설정으로 `configure()`를 호출하므로 필요한 상태를 먼저 초기화합니다.
+
+```python
+class CustomStep(Step):
+    def __init__(self, *, threshold=0.5):
+        self._set_config_defaults(threshold=threshold)
+
+    def configure(self, config):
+        config = self._resolve_config(config)
+        self.threshold = config.threshold
+
+    def process(self, inputs):
+        yield from inputs
+```
+
 ### 구조
 
 ```yaml

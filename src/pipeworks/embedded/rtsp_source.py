@@ -12,10 +12,15 @@ logger = logging.getLogger(__name__)
 
 
 class RTSPSource(Step):
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, *, reconnect: bool = True,
+                 reconnect_interval_ms: float = 3000, transport: str = "tcp",
+                 timeout_ms: float = 5000) -> None:
         self.url = url
+        self._set_config_defaults(reconnect=reconnect, reconnect_interval_ms=reconnect_interval_ms,
+                                  transport=transport, timeout_ms=timeout_ms)
 
     def configure(self, config: SimpleNamespace) -> None:
+        config = self._resolve_config(config)
         if hasattr(config, "reconnect_interval"):
             raise ValueError("reconnect_interval 대신 밀리초 단위의 reconnect_interval_ms를 사용하세요.")
         reconnect_interval_ms = getattr(config, "reconnect_interval_ms", 3000)

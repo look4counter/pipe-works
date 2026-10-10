@@ -1,5 +1,17 @@
 # 구현 계획: 단계별 YAML 설정과 동적 컨텍스트
 
+## 후속 설계: YAML 우선, 생성자 기본값 보존
+
+기존 Python 3.11.9, SimpleNamespace, unittest와 의존성을 사용한다. 새 외부 의존성이나 프레임 처리 연산은 추가하지 않는다. 헌장은 미작성 템플릿이므로 원칙 검증은 생략한다. 한글 문서와 전체 speckit 절차를 준수한다.
+
+`Step`에 `_set_config_defaults(**defaults)`와 `_resolve_config(config)`를 제공한다. 전자는 생성자 옵션을 깊은 복사로 보관하고 빈 설정으로 기존 검증을 실행한다. 후자는 보관한 생성자 옵션과 YAML 속성을 합쳐 새 SimpleNamespace를 반환한다. YAML의 키 존재 여부로 우선순위를 결정하고 최초 기본값은 갱신하지 않는다. 목록이 설정 처리 중 변경되어도 보관한 기본값은 영향을 받지 않는다.
+
+RTSPSource/RTSPPublish에 reconnect, reconnect_interval_ms, transport, timeout_ms와 송출 packet_size를 키워드 인자로 추가한다. NvidiaDecode는 gpu_id, NvidiaEncode는 gpu_id/fps, YoloDetect는 classes/confidence/gpu_id/inference_interval_frame, TensorRTInference는 gpu_id/inference_interval_frame/profile_index를 추가한다. CudaAsync는 기존 timeout_ms를 최초 기준으로 보관한다. 각 configure의 시작에서 병합하며 기존 검증과 이전 키 거부는 유지한다. batch와 필수 URL/모델 경로는 기존 생성자 전용 계약을 유지한다.
+
+Pipeline, Hotswap, Tap의 설정 전달 구조는 변경하지 않는다. Hotswap의 기존 최상위 속성 복구는 잘못된 설정에도 적용된다. CudaAsync 내부 Step의 최상위 클래스명 설정도 유지한다. 사용자 정의 Step은 공통 지원을 선택적으로 사용할 수 있고 기존 configure 구현은 유지한다.
+
+검증은 `tests/test_step_config_defaults.py`에서 7개 Step의 생성자 값, 부분 YAML, 덮어쓰기 후 삭제, 거짓 값, 잘못된 값, 기본값 목록 격리, Pipeline/Tap/CudaAsync 등록과 Hotswap 오류 복구를 확인한다. 이어 기존 구성·RTSP·인코딩·디코딩·추론·비동기·핫스왑 검증을 실행한다. 사용 안내는 `docs/pipeworks/pipeline.md`에 우선순위와 사용자 정의 Step 예제를 추가한다. 설계 후 미해결 질문과 원칙 충돌은 없다.
+
 **기준**: [명세](spec.md)
 
 ## 후속 설계: RTSP 제한 시간 밀리초 통일

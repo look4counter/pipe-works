@@ -10,8 +10,11 @@ from pipeworks.embedded.stream_report import record_frame, record_stage
 
 
 class NvidiaEncode(Step):
+    def __init__(self, *, gpu_id: int = 0, fps: float = 30) -> None:
+        self._set_config_defaults(gpu_id=gpu_id, fps=fps)
 
     def configure(self, config: SimpleNamespace) -> None:
+        config = self._resolve_config(config)
         self.gpu_id = getattr(config, "gpu_id", 0)
         self.fps = getattr(config, "fps", 30)
         if self.fps <= 0:

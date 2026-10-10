@@ -54,3 +54,15 @@ T018 → T019 → T020 → T021 → T022 순서로 수행한다. 기존 사용�
 - [x] T027 검증 결과를 quickstart에 기록하고 수렴 점검으로 남은 작업을 확인한다. (FR-015, FR-016, SC-012, SC-013)
 
 T023 → T024 → T025 → T026 → T027 순서로 수행한다.
+
+## 단계 6: YAML과 생성자 우선순위
+
+- [x] T028 `specs/003-step-yaml-config/spec.md`, `plan.md`, `contracts/config-defaults.md`의 명세·명확화·계획·작업 일관성을 분석한다. (FR-017~FR-021)
+- [x] T029 [US3] `tests/test_step_config_defaults.py`에 생성자·부분 YAML·옵션 삭제·거짓 값·기본값 격리·내부 Step 전달·오류 복구 검증을 작성하고 구현 전 실패를 확인한다. (SC-014~SC-016)
+- [x] T030 [US3] `src/pipeworks/models.py`에 최초 생성자 설정 저장과 YAML 병합 지원을 구현한다. (FR-018~FR-020)
+- [x] T031 [US3] `src/pipeworks/embedded/`의 RTSPSource, RTSPPublish, NvidiaDecode, NvidiaEncode, YoloDetect, TensorRTInference, CudaAsync 생성자와 configure에 공통 정책을 적용한다. (FR-017~FR-021)
+- [x] T032 [US3] `docs/pipeworks/pipeline.md`에 우선순위·옵션 삭제·사용자 정의 Step 적용 예제를 작성한다. (FR-021)
+- [x] T033 관련 기존 검증을 실행하고 `specs/003-step-yaml-config/quickstart.md`에 결과를 기록한다. (SC-014~SC-016)
+- [x] T034 현재 코드와 `specs/003-step-yaml-config/`의 명세·계획·작업을 수렴 점검한다. (FR-017~FR-021, SC-014~SC-016)
+
+의존성: T028 → T029 → T030 → T031 → T032 → T033 → T034. 독립 검증은 모델이나 GPU 실행 없이 구성 값으로 수행한다. 병렬 가능한 검증 파일 읽기는 함께 수행하며 구현 작업은 순차 진행한다. 최소 전달 범위는 US3의 7개 내장 Step과 공통 지원이다.

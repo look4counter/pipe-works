@@ -242,6 +242,7 @@ class CudaAsync(Step):
             for step in steps
         )
         self.timeout_ms = timeout_ms
+        self._config_defaults = {"timeout_ms": timeout_ms}
         self._session_lock = Lock()
 
     def __getstate__(self):
@@ -260,6 +261,7 @@ class CudaAsync(Step):
             raise ValueError("timeout_ms는 유한한 0 이상의 숫자여야 합니다.")
 
     def configure(self, config: SimpleNamespace) -> None:
+        config = self._resolve_config(config)
         timeout = getattr(config, "timeout_ms", self.timeout_ms)
         self._validate_timeout(timeout)
         if any(key != "timeout_ms" for key in vars(config)):

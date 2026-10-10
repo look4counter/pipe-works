@@ -61,17 +61,18 @@ def _predict(model, image, classes, confidence, gpu_id, stream):
 
 
 class YoloDetect(Step):
-    def __init__(self, model_path: Path, *, batch: bool = False) -> None:
+    def __init__(self, model_path: Path, *, batch: bool = False,
+                 classes: list[int] | None = None, confidence: float = 0.25,
+                 gpu_id: int = 0, inference_interval_frame: int = 1) -> None:
         if not isinstance(batch, bool):
             raise ValueError("batch는 불리언이어야 합니다.")
         self.model_path = Path(model_path)
         self.batch = batch
-        self.classes: list[int] | None = None
-        self.confidence = 0.25
-        self.gpu_id = 0
-        self.inference_interval_frame = 1
+        self._set_config_defaults(classes=classes, confidence=confidence, gpu_id=gpu_id,
+                                  inference_interval_frame=inference_interval_frame)
 
     def configure(self, config: SimpleNamespace) -> None:
+        config = self._resolve_config(config)
         if hasattr(config, "inference_interval"):
             raise ValueError("inference_interval 대신 프레임 단위의 inference_interval_frame을 사용하세요.")
         classes = getattr(config, "classes", None)

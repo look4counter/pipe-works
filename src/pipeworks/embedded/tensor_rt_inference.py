@@ -263,16 +263,17 @@ class _EngineSession:
 
 
 class TensorRTInference(Step):
-    def __init__(self, model_path: Path, *, batch: bool = False):
+    def __init__(self, model_path: Path, *, batch: bool = False, gpu_id: int = 0,
+                 inference_interval_frame: int = 1, profile_index: int = 0):
         if not isinstance(batch, bool):
             raise ValueError("batch는 불리언이어야 합니다.")
         self.batch = batch
         self.model_path = Path(model_path)
-        self.gpu_id = 0
-        self.inference_interval_frame = 1
-        self.profile_index = 0
+        self._set_config_defaults(gpu_id=gpu_id, inference_interval_frame=inference_interval_frame,
+                                  profile_index=profile_index)
 
     def configure(self, config: SimpleNamespace):
+        config = self._resolve_config(config)
         if hasattr(config, "inference_interval"):
             raise ValueError("inference_interval 대신 프레임 단위의 inference_interval_frame을 사용하세요.")
         gpu_id = getattr(config, "gpu_id", 0)
