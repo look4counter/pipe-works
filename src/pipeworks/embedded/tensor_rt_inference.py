@@ -155,6 +155,7 @@ class _EngineSession:
             raise ValueError(f"profile_index {profile_index}가 엔진 프로파일 범위를 벗어났습니다. "
                              f"프로파일 수: {self.engine.num_optimization_profiles}")
         self.inputs, self.outputs, self.dtypes = [], [], {}
+        self.input_shapes, self.profile_shapes = {}, {}
         for index in range(self.engine.num_io_tensors):
             name = self.engine.get_tensor_name(index)
             if self.engine.get_tensor_location(name) != trt.TensorLocation.DEVICE:
@@ -164,6 +165,12 @@ class _EngineSession:
             self.dtypes[name] = _torch_dtype(trt, self.engine.get_tensor_dtype(name))
             target = self.inputs if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT else self.outputs
             target.append(name)
+            if target is self.inputs:
+                shape = tuple(self.engine.get_tensor_shape(name))
+                self.input_shapes[name] = shape
+                if any(size < 0 for size in shape):
+                    minimum, _, maximum = self.engine.get_tensor_profile_shape(name, profile_index)
+                    self.profile_shapes[name] = (tuple(minimum), tuple(maximum))
         if not self.inputs or not self.outputs:
             raise ValueError("TensorRT 엔진에는 입력과 출력이 필요합니다.")
         self.context = self.engine.create_execution_context()
@@ -214,12 +221,13 @@ class _EngineSession:
                 raise ValueError(f"TensorRT 입력 자료형 불일치: {name}, 필요: {self.dtypes[name]}, 제공: {tensor.dtype}")
             if tensor.device != stream.device or not tensor.is_contiguous():
                 raise ValueError(f"TensorRT 입력은 실행 GPU의 연속 텐서여야 합니다: {name}")
-            expected = tuple(self.engine.get_tensor_shape(name))
+            expected = self.input_shapes[name]
             if (len(expected) != tensor.ndim
                     or any(size >= 0 and size != actual for size, actual in zip(expected, tensor.shape))):
                 raise ValueError(f"TensorRT 입력 형상 불일치: {name}")
-            if any(size < 0 for size in expected):
-                minimum, _, maximum = self.engine.get_tensor_profile_shape(name, self.profile_index)
+            bounds = self.profile_shapes.get(name)
+            if bounds is not None:
+                minimum, maximum = bounds
                 if any(actual < low or actual > high
                        for actual, low, high in zip(tensor.shape, minimum, maximum)):
                     raise ValueError(f"TensorRT 입력 형상이 프로파일 {self.profile_index} 범위를 벗어났습니다: {name}")

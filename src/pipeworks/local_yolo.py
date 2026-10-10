@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 from queue import Queue
 from pipeworks.batch_collector import collect_batch
+from pipeworks.model_worker import get_model_worker
 from threading import Event, Lock, Thread
 import time
 
@@ -17,6 +18,7 @@ from pipeworks.detection_profile import Profile, span, use
 
 _workers: dict[Path, "_ModelWorker"] = {}
 _workers_lock = Lock()
+_worker_paths = {}
 _INPUT_SIZE = 640
 
 
@@ -224,14 +226,7 @@ class _ModelWorker:
 
 
 def infer(model_path: Path, image: torch.Tensor, classes, confidence: float, gpu_id: int, *, ready_event=None, on_inference_complete=None, on_profile_complete=None):
-    model_path = model_path.resolve()
-    if not model_path.is_file():
-        raise FileNotFoundError(model_path)
-    with _workers_lock:
-        worker = _workers.get(model_path)
-        if worker is None:
-            worker = _ModelWorker(model_path)
-            _workers[model_path] = worker
+    worker = get_model_worker(model_path, _workers, _worker_paths, _workers_lock, _ModelWorker)
     request = _InferenceRequest(image, classes, confidence, gpu_id, ready_event)
     request.profile_enabled = on_profile_complete is not None
     worker.requests.put(request)

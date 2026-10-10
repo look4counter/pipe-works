@@ -11,6 +11,42 @@ from pipeworks import local_tensor_rt as batch
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
 class BatchTests(unittest.TestCase):
+    def test_loaded_session_survives_file_deletion_but_reload_checks_file(self):
+        loaded, broken = [], [False]
+        class Session:
+            def __init__(self, path, *args):
+                path.read_bytes()
+                loaded.append(path)
+            def infer(self, inputs, stream, context):
+                if broken[0]:
+                    raise RuntimeError("engine failed")
+                return {"output": inputs + 1}
+            def close(self):
+                pass
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "cached.plan"
+            path.write_bytes(b"engine")
+            value = torch.ones((1, 3), device="cuda")
+            with patch.object(batch, "_EngineSession", Session):
+                first = batch.infer(path, value)
+                path.unlink()
+                with patch.object(Path, "resolve", side_effect=AssertionError("resolve")), patch.object(
+                    Path, "is_file", side_effect=AssertionError("is_file")
+                ):
+                    second = batch.infer(path, value)
+                torch.testing.assert_close(first["output"], second["output"])
+                self.assertEqual(loaded, [path])
+                broken[0] = True
+                with self.assertRaisesRegex(RuntimeError, "engine failed"):
+                    batch.infer(path, value)
+                broken[0] = False
+                with self.assertRaisesRegex(RuntimeError, "FileNotFoundError"):
+                    batch.infer(path, value)
+                path.write_bytes(b"restored")
+                torch.testing.assert_close(batch.infer(path, value)["output"], value + 1)
+                self.assertEqual(loaded, [path, path])
+
     def test_profiles_are_not_mixed_and_failed_session_is_isolated(self):
         created, calls = [], []
         broken = [False]

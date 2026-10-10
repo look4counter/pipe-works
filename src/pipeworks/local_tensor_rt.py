@@ -12,12 +12,14 @@ import time
 import torch
 
 from pipeworks.batch_collector import collect_batch
+from pipeworks.model_worker import get_model_worker
 from pipeworks.embedded.tensor_rt_inference import _EngineSession, _engine_settings, _load_model_config, _validate_profile_index
 from pipeworks.detection_profile import Profile, span, use
 
 
 _workers = {}
 _workers_lock = Lock()
+_worker_paths = {}
 
 
 @dataclass
@@ -134,9 +136,6 @@ class _ModelWorker:
 
 def infer(model_path: Path, inputs, gpu_id: int = 0, *, profile_index=0, ready_event=None, on_inference_complete=None, on_profile_complete=None):
     """Collect batch-one inputs and return batch-one GPU output mappings."""
-    path = Path(model_path).resolve()
-    if not path.is_file():
-        raise FileNotFoundError(path)
     if isinstance(gpu_id, bool) or not isinstance(gpu_id, int) or gpu_id < 0:
         raise ValueError("gpu_id must be a nonnegative integer.")
     _validate_profile_index(profile_index)
@@ -155,10 +154,7 @@ def infer(model_path: Path, inputs, gpu_id: int = 0, *, profile_index=0, ready_e
         ready_event.record(torch.cuda.current_stream(gpu_id))
     request = _Request(inputs.copy() if isinstance(inputs, dict) else inputs, gpu_id, key, ready_event, profile_index)
     request.profile_enabled = on_profile_complete is not None
-    with _workers_lock:
-        worker = _workers.get(path)
-        if worker is None:
-            worker = _workers[path] = _ModelWorker(path)
+    worker = get_model_worker(model_path, _workers, _worker_paths, _workers_lock, _ModelWorker)
     worker.requests.put(request)
     request.done.wait()
     if on_profile_complete is not None and request.profile is not None:

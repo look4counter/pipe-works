@@ -249,6 +249,25 @@ class SettingsTests(unittest.TestCase):
 
 
 class ProfileSelectionTests(unittest.TestCase):
+    def test_initialization_reads_dynamic_input_metadata_once_per_session(self):
+        with patch.object(self.api.engine, "get_tensor_shape", wraps=self.api.engine.get_tensor_shape) as shape, \
+             patch.object(self.api.engine, "get_tensor_profile_shape", wraps=self.api.engine.get_tensor_profile_shape) as bounds:
+            first = _EngineSession(self.path, profile_index=0)
+            shape.assert_called_once_with(self.api.inputs[0])
+            bounds.assert_called_once_with(self.api.inputs[0], 0)
+            second = _EngineSession(self.path, profile_index=1)
+            self.assertEqual(shape.call_count, 2)
+            self.assertEqual(bounds.call_args_list, [((self.api.inputs[0], 0),), ((self.api.inputs[0], 1),)])
+            first.close()
+            second.close()
+
+    def test_fixed_input_does_not_query_profile_bounds(self):
+        with patch.object(self.api.engine, "get_tensor_shape", return_value=(2, 2)) as shape, \
+             patch.object(self.api.engine, "get_tensor_profile_shape", side_effect=AssertionError("fixed input profile query")):
+            session = _EngineSession(self.path)
+            shape.assert_called_once_with(self.api.inputs[0])
+            session.close()
+
     def setUp(self):
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -283,6 +302,32 @@ class ProfileSelectionTests(unittest.TestCase):
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
 class TensorRTInferenceTests(unittest.TestCase):
+    def test_cached_input_metadata_preserves_dynamic_validation_and_output_queries(self):
+        minimum, maximum = [1, 2], [8, 2]
+        with patch.object(self.api.engine, "get_tensor_profile_shape", return_value=(minimum, [2, 2], maximum)):
+            session = _EngineSession(self.path, profile_index=1)
+        self.addCleanup(session.close)
+        maximum[0] = 1
+        context = session.context
+        with patch.object(self.api.engine, "get_tensor_shape", side_effect=AssertionError("engine shape query")), \
+             patch.object(self.api.engine, "get_tensor_profile_shape", side_effect=AssertionError("profile query")), \
+             patch.object(context, "get_tensor_shape", wraps=context.get_tensor_shape) as output_shape, \
+             patch.object(context, "get_tensor_strides", wraps=context.get_tensor_strides) as strides:
+            for rows in (1, 4):
+                item = self.item()
+                with torch.cuda.stream(item.cuda_stream):
+                    tensor = torch.ones((rows, 2), device="cuda")
+                    output = session.infer(tensor, item.cuda_stream, copy_context())
+                self.assertEqual(tuple(output[self.api.outputs[0]].shape), (rows, 2))
+            self.assertEqual(output_shape.call_count, 4)
+            self.assertEqual(strides.call_count, 6)
+            item = self.item()
+            with torch.cuda.stream(item.cuda_stream):
+                with self.assertRaisesRegex(ValueError, "프로파일 1 범위"):
+                    session.infer(torch.ones((9, 2), device="cuda"), item.cuda_stream, copy_context())
+                with self.assertRaisesRegex(ValueError, "입력 형상 불일치"):
+                    session.infer(torch.ones((2, 3), device="cuda"), item.cuda_stream, copy_context())
+
     def test_batch_submits_inputs_events_interval_and_statistics(self):
         step = TensorRTInference(self.path, batch=True)
         step.configure(SimpleNamespace(inference_interval_frame=3))

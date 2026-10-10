@@ -1,5 +1,9 @@
 # TensorRT 추론 연구
 
+## 고정 메타데이터 캐시 조사
+
+결정: engine의 입력 선언 형상과 선택 프로파일 범위를 세션별 tuple로 저장한다. [NVIDIA 엔진 API](https://docs.nvidia.com/deeplearning/tensorrt/latest/_static/python-api/infer/Core/Engine.html)와 [동적 형상 가이드](https://docs.nvidia.com/deeplearning/tensorrt/latest/inference-library/dynamic-shapes-basics.html)는 엔진의 선언 정보와 실행 컨텍스트의 실제 형상을 구분한다. 현재 세션의 profile_index는 고정이고 변경 시 새 세션을 만들므로 캐시 유효 범위가 명확하다. 실행 컨텍스트 shape와 stride까지 캐시하는 대안은 동적 입력·출력 계약을 깨므로 제외한다. 매 요청 고정 정보 조회를 유지하는 대안은 불필요한 바인딩 호출을 남겨 제외한다. 부가 메모리는 입력 수·rank에 비례하는 작은 메타데이터이며 전체 성능 개선률을 보장하지 않는다.
+
 ## 영상별 프로파일과 시간 명칭 결정
 
 - 결정: 모델 파일이 같은 요청은 작업자를 공유하되 GPU·프로파일별 세션을 분리한다. 근거: 영상별 프로파일을 동일 형상 요청 수집에도 반영해야 하고 한 프로파일 실패가 다른 프로파일 세션을 폐기해서는 안 된다.

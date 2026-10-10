@@ -1,5 +1,11 @@
 # 구현 계획: TensorRT 추론 전용 단계
 
+## 고정 입력 메타데이터 캐시 계획
+
+`src/pipeworks/embedded/tensor_rt_inference.py`의 _EngineSession 초기화에서 입력 이름별 engine shape를 tuple로 저장하고 동적 차원이 있으면 선택 프로파일의 최소·최대 shape를 tuple로 저장한다. _bind는 이 사전으로 기존 입력 검증을 수행한다. context.set_input_shape/infer_shapes/get_tensor_shape/get_tensor_strides와 출력 할당기 reset은 계속 실행별로 수행한다. 캐시는 개별 세션 및 공유 배치의 GPU·프로파일별 세션에 귀속되므로 재생성 시 자동 갱신된다.
+
+`tests/test_tensor_rt_inference.py`에서 최초 조회 횟수·고정 입력의 범위 조회 생략·반복 동적 형상 및 범위 검증·출력/stride 조회 유지·세션별 메타데이터 분리를 검증한다. 실제 CUDA·기존 실제 엔진 및 local_tensor_rt 공유 세션 회귀를 수행하고 공개 문서·검증 기록을 갱신한다. 추가 의존성·공개 설정은 없다. 헌장은 미작성 템플릿이며 한글 문서와 speckit 절차를 따른다. 사용자 예제 변경과 앞선 경로 캐시 변경은 보존한다.
+
 ## 영상별 프로파일 이동 계획
 
 Python 3.11·기존 CUDA/TensorRT 실행 기반을 유지한다. tensor_rt_inference.py의 configure에 profile_index 검증과 원자적 갱신을 추가하고 개별 세션 재생성 키를 (gpu_id, profile_index)로 변경한다. 모델 설정은 plugins만 반환하며 이전 profile_index·timeout 키를 이동·변경 안내 오류로 거부한다. local_tensor_rt.py의 infer는 profile_index 키워드 인자를 받아 요청·호환 키·세션 키에 반영하며 실패 시 해당 세션만 제거한다. GPU 스트림은 GPU별로 유지하고 같은 작업자에서 순차 실행한다.

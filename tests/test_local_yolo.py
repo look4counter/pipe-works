@@ -24,6 +24,32 @@ def gpu_nv12(height: int, width: int) -> torch.Tensor:
 
 
 class LocalYoloTests(unittest.TestCase):
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
+    def test_loaded_model_is_reused_without_path_queries_after_file_deletion(self):
+        loaded = []
+        class Model:
+            def __init__(self, path):
+                Path(path).read_bytes()
+                loaded.append(path)
+            def predict(self, images, **options):
+                from ultralytics.engine.results import Results
+                return [Results(image.permute(1, 2, 0), path="image", names={},
+                                boxes=torch.empty((0, 6), device="cuda")) for image in images]
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "cached.pt"
+            path.write_bytes(b"model")
+            image = gpu_nv12(64, 64)
+            with patch("ultralytics.YOLO", Model):
+                first = infer(path, image, None, .25, 0)
+                path.unlink()
+                with patch.object(Path, "resolve", side_effect=AssertionError("resolve")), patch.object(
+                    Path, "is_file", side_effect=AssertionError("is_file")
+                ):
+                    second = infer(path, image, None, .25, 0)
+            self.assertEqual(first.orig_shape, second.orig_shape)
+            self.assertEqual(len(loaded), 1)
+
     def test_predictor_type_is_shared_on_concurrent_first_use(self):
         from pipeworks.local_yolo import _GpuDetectionPredictor
 
