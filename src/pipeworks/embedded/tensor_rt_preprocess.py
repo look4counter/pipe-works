@@ -135,6 +135,19 @@ class TensorRTPreProcess(Step):
                 "input_name은 null 또는 비어 있지 않은 문자열이어야 합니다."
             )
         self.__dict__.update(config)
+        self._constant_cache = {}
+
+    def _constant(self, pixels, name):
+        key = (pixels.device, pixels.dtype, name)
+        entry = self._constant_cache.get(key)
+        if entry is None:
+            value = pixels.new_tensor(getattr(self, name)).view(1, 3, 1, 1)
+            # Constants may subsequently be used on a different CUDA stream.
+            if pixels.is_cuda:
+                torch.cuda.current_stream(pixels.device).synchronize()
+            self._constant_cache[key] = value
+            return value
+        return entry
 
     def _read_frame(self, item):
         frame = getattr(item, "frame", None)
@@ -199,19 +212,19 @@ class TensorRTPreProcess(Step):
                 1, round(width * ratio)
             )
             ratio_xy = (ratio, ratio)
-        output = F.interpolate(
-            pixels.unsqueeze(0),
-            size=(resized_h, resized_w),
-            mode="bilinear",
-            align_corners=False,
-        )
+        output = pixels.unsqueeze(0)
+        if (resized_h, resized_w) != (height, width):
+            output = F.interpolate(
+                output, size=(resized_h, resized_w),
+                mode="bilinear", align_corners=False,
+            )
         if self.resize_mode == "letterbox":
             pad_h, pad_w = target_h - resized_h, target_w - resized_w
             if self.auto:
                 pad_h, pad_w = pad_h % self.stride, pad_w % self.stride
             top, left = (pad_h // 2, pad_w // 2) if self.center else (0, 0)
             if pad_h or pad_w:
-                padding = output.new_tensor(self.padding_value).view(1, 3, 1, 1)
+                padding = self._constant(output, "padding_value")
                 padded = output.new_empty((1, 3, resized_h + pad_h, resized_w + pad_w))
                 padded.copy_(padding)
                 padded[:, :, top : top + resized_h, left : left + resized_w] = output
@@ -232,9 +245,15 @@ class TensorRTPreProcess(Step):
         return output, transform
 
     def _normalize(self, pixels):
-        mean = pixels.new_tensor(self.mean).view(1, 3, 1, 1)
-        std = pixels.new_tensor(self.std).view(1, 3, 1, 1)
-        output = (pixels * self.scale - mean) / std
+        # _pixels always owns storage independent of the source frame.
+        # Keep the original arithmetic order, including extreme valid settings.
+        output = pixels
+        if self.scale != 1:
+            output.mul_(self.scale)
+        if any(value != 0 for value in self.mean):
+            output.sub_(self._constant(output, "mean"))
+        if any(value != 1 for value in self.std):
+            output.div_(self._constant(output, "std"))
         if self.layout == "nhwc":
             output = output.permute(0, 2, 3, 1)
         return output.to(dtype=getattr(torch, self.dtype)).contiguous()
