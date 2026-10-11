@@ -70,11 +70,11 @@ class ModelIdGpuTests(unittest.TestCase):
 
     def prediction(self, item, model_id, score=0.9):
         next(TensorRTPreProcess(size=(8, 8)).process(iter([item])))
-        with torch.cuda.stream(item.model_cuda_stream):
+        with torch.cuda.stream(item.cuda_stream):
             prediction = torch.zeros((1, 84, 10), device="cuda")
             prediction[0, :4, 0] = prediction.new_tensor([3.0, 3.0, 2.0, 2.0])
             prediction[0, 6, 0] = score
-        item.model_cuda_stream.synchronize()
+        item.cuda_stream.synchronize()
         item.model_id = model_id
         item.model_output = {"output0": prediction}
 
@@ -121,7 +121,6 @@ class ModelIdGpuTests(unittest.TestCase):
             "model_input",
             "model_output",
             "tensor_rt_transform",
-            "model_cuda_stream",
         ):
             self.assertFalse(hasattr(item, name))
 
@@ -301,7 +300,7 @@ class ModelIdGpuTests(unittest.TestCase):
             def process(self, inputs):
                 for item in inputs:
                     item.model_id = self.model_id
-                    with torch.cuda.stream(item.model_cuda_stream):
+                    with torch.cuda.stream(item.cuda_stream):
                         prediction = torch.zeros((1, 84, 10), device="cuda")
                         prediction[0, :4, 0] = prediction.new_tensor(
                             [3.0, 3.0, 2.0, 2.0]

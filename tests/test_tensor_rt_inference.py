@@ -762,6 +762,24 @@ class TensorRTInferenceTests(unittest.TestCase):
             list(self.step.process(iter((item,))))
         self.assertEqual(observed, [(caller, item.model_input.data_ptr())])
 
+    def test_direct_inference_uses_each_context_stream(self):
+        original = _EngineSession.infer
+        observed = []
+        items = [self.item(2), self.item(4)]
+        streams = [item.cuda_stream for item in items]
+
+        def infer(session, tensors, stream, context):
+            observed.append((stream, torch.cuda.current_stream().cuda_stream))
+            return original(session, tensors, stream, context)
+
+        with patch.object(_EngineSession, "infer", infer):
+            list(self.step.process(iter(items)))
+        self.assertEqual(observed, [(stream, stream.cuda_stream) for stream in streams])
+        for item, stream in zip(items, streams):
+            self.assertIs(item.cuda_stream, stream)
+            self.assertFalse(hasattr(item, "model_cuda_stream"))
+        self.assertEqual(len(self.api.contexts), 1)
+
     def test_interval_and_request_scope_statistics(self):
         self.step.inference_interval_frame = 3
         items = [self.item() for _ in range(7)]

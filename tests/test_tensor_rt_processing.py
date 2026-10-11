@@ -39,9 +39,7 @@ class ProcessingTests(unittest.TestCase):
         item.cuda_stream.synchronize()
         self.assertEqual(tuple(item.model_input.shape), (1, 3, 640, 640))
         self.assertTrue(item.model_input.is_cuda)
-        self.assertNotEqual(
-            item.model_cuda_stream.cuda_stream, item.cuda_stream.cuda_stream
-        )
+        self.assertFalse(hasattr(item, "model_cuda_stream"))
         self.assertEqual(item.model_input.dtype, torch.float32)
         self.assertTrue(torch.equal(item.frame, original))
         self.assertAlmostEqual(item.model_input[0, 0, 0, 0].item(), 114 / 255, places=5)
@@ -142,7 +140,6 @@ class ProcessingTests(unittest.TestCase):
                     "model_input",
                     "model_output",
                     "tensor_rt_transform",
-                    "model_cuda_stream",
                 )
             )
         )
@@ -180,7 +177,6 @@ class ProcessingTests(unittest.TestCase):
                     "model_input",
                     "model_output",
                     "tensor_rt_transform",
-                    "model_cuda_stream",
                 )
             )
         )

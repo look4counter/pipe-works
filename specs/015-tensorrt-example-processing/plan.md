@@ -64,7 +64,7 @@ examples/step/tensor_rt_pre_process.py와 tensor_rt_post_process.py의 빈 파�
 examples/01_single_stream_rtsp_style.py의 클래스명·plan 경로·불필요 batch 인자를 수정하고 examples/config/stream.yml에 두 단계 설정을 추가한다. tests/test_tensor_rt_processing.py는 실제 CUDA 합성 입력과 출력을 검증한다. test_box_overlay.py의 예제 순서 검증은 TensorRT 경로에 맞춘다. 실제 엔진 추론도 가능한 환경에서 검증한다. 헌법은 미작성 템플릿으로 원칙 검사를 생략한다.
 ## 스트림·버퍼 후속 계획
 
-전처리 반복자에 장치별 모델 CUDA 스트림을 보관하고 영상 생산 완료 이벤트를 기록·대기한 뒤 변환한다. model_cuda_stream을 입력 생산자 정보로 전달하며 전처리 완료도 확인한다. TensorRTInference는 해당 스트림을 우선 사용한다. 후처리는 모델 스트림에서 NMS·복원을 수행하고 finally에서 완료 확인·임시 속성 및 지역 참조를 정리한다. 예외·출력 누락도 같은 정책을 사용한다. tests/test_tensor_rt_processing.py에 분리·정리 검증을 추가하고 실제 plan·Async를 검증한다.
+전처리·직접 추론·후처리는 cuda_stream을 사용한다. 공유 배치 작업자는 입력 준비 이벤트를 기다린다. 후처리 finally에서 완료 확인·임시 속성 및 지역 참조를 정리하며 cuda_stream은 보존한다.
 
 ## 범용 내장 전처리 구현 계획
 
@@ -83,3 +83,13 @@ tests/test_tensor_rt_preprocess.py는 구성·YAML 우선순위·잘못된 입�
 ## 전체 YAML 옵션 노출 계획
 
 examples/config/stream.yml에 누락된 stride, scaleup, center, padding_value, crop_size, mean, std, input_name을 기본값으로 추가한다. 의미가 헷갈릴 수 있는 모드·최소 패딩·자르기·정규화·입력 이름은 짧은 한글 주석으로 안내한다. 기존 나머지 옵션 값은 유지한다. YAML을 읽어 생성자 시그니처의 키 전체와 대조하고 configure 결과가 기본 생성자와 같은지 검증한다. 동작 변경이 없으므로 새 테스트 파일이나 GPU 전체 검증은 추가하지 않는다.
+
+## 수정 설계: cuda_stream 통일
+
+Python 3.11.9와 기존 CUDA·unittest를 사용한다. 별도 의존성은 추가하지 않으며 헌장은 미작성 템플릿이다. 전처리의 장치별 모델 스트림 캐시와 current_model_stream 참조·생산 이벤트 대기를 제거하고 item.cuda_stream 또는 현재 스트림을 사용한다. 추론은 입력 준비 이벤트를 같은 생산 스트림에 기록하고 개별 실행 스트림을 입력마다 선택한다. 공유 작업자 내부 스트림은 유지한다. 후처리는 입력 cuda_stream에서 실행하며 이 속성을 정리하지 않는다. CudaAsync 범위의 모델 스트림을 덮어쓰거나 일반 기능을 바꾸지 않는다.
+
+tests/test_tensor_rt_preprocess.py·test_tensor_rt_processing.py·test_tensor_rt_model_ids.py·test_tensor_rt_inference.py의 스트림 계약을 검증하고 test_local_tensor_rt.py·test_frame_release.py·test_async.py·최적화 회귀를 실행한다. docs/pipeworks/embedded/와 docs/reference/reference.js의 설명을 갱신한다.
+
+## 원격 실행 테스트 구성 보완 계획
+
+ tests/test_async.py의 두 원격 실행 테스트에만 SimpleNamespace(development=False)를 추가한다. 실행 코드와 기존 직렬화 검증은 유지한다. 해당 테스트 두 개를 먼저 실행하고 test_async.py 전체와 공백 검사를 수행한다.

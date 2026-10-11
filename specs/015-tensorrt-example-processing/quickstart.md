@@ -50,7 +50,7 @@ TensorRTPostProcess 최상위 YAML 섹션에서 classes·confidence·iou·max_de
 최종 수렴 점검에서 FR-001~004와 SC-001~002를 코드·예제·설정·검증에 대조했다. 추가 구현 작업은 없다.
 ## 스트림 분리 검증
 
-전처리·후처리는 별도 model_cuda_stream을 사용하고 원본 cuda_stream은 유지한다. 영상 준비 이벤트 이후 전처리하며 TensorRTInference는 모델 스트림을 입력 생산자로 확인한다. 각 처리 완료를 확인해 결과 수명을 보장한다. 후처리 성공·결과 누락·실패에서 model_input·model_output·복원 정보·모델 스트림 참조를 제거한다. PyTorch 캐시는 강제로 비우지 않는다.
+전처리·직접 추론·후처리는 cuda_stream을 유지하며 같은 스트림에서 실행한다. 공유 배치는 입력 준비 이벤트를 내부 작업자 스트림에 연결한다. 후처리 성공·결과 누락·실패에서 model_input·model_output·복원 정보·model_id를 제거하며 cuda_stream은 보존한다. PyTorch 캐시는 강제로 비우지 않는다.
 
 FR-005~006과 SC-003의 일관성을 분석했고 차단 충돌이 없었다. 실제 CUDA에서 스트림 핸들 분리·원본 영상 보존·좌표 복원·실패 후 버퍼 정리와 제공된 plan 추론을 확인했다. 전후처리 5개와 Async 35개 테스트가 모두 통과했다. 최종 수렴 점검에서 추가 구현 작업은 없다.
 
@@ -102,3 +102,16 @@ BoxOverlay와 TensorRTPostProcess를 직접 생성한 뒤 제공 YAML의 두 섹
 - 다중 스트림 예제 실행 검증은 기존 step.post_process 모듈 누락으로 제한된다. 해당 예제 및 누락 모듈은 이번 범위에서 수정하지 않았다.
 
 재현: tests·src·examples를 탐색 경로에 두고 unittest 기본 로더로 test_box_overlay, test_tensor_rt_processing, test_tensor_rt_postprocess_optimized, test_tensor_rt_model_ids, test_tensor_rt_preprocess, test_yolo_model_ids를 함께 실행한다. 보고 테스트는 .venv/Scripts/python.exe -m unittest discover -s tests -p test_detection_report.py로 별도 실행한다.
+
+## TensorRT 스트림 통일 검증
+
+- 전처리·후처리·좌표 변환·모델 ID 관련 44개 테스트가 통과했다.
+- 직접 추론·공유 배치·프레임 해제·비동기·보고 관련 93개 테스트 중 91개가 통과했다. 실제 TensorRT 엔진 실행과 프레임별 스트림 교체 검증을 포함한다.
+- 나머지 2개는 기존 원격 실행 테스트의 SimpleNamespace.development 속성 누락으로 실패했다. 이번 스트림 변경 범위 밖이며 이전에도 확인된 실패다.
+- 세 TensorRT 구현과 HTML 공통 데이터에 model_cuda_stream 또는 current_model_stream 참조가 없음을 확인했다. git diff --check는 통과했다.
+- 환경에 Ruff 모듈이 없어 Ruff 포맷 검사는 실행하지 못했다.
+- 수렴 점검: FR-031~034와 SC-014~015의 구현·테스트·문서 반영을 확인했다. 현재 변경 범위에서 추가 구현 작업은 없다.
+
+## 원격 실행 테스트 구성 수정 검증
+
+두 원격 실행 테스트의 가짜 파이프라인에 development=False를 추가했다. 대상 2개 테스트와 test_async.py 전체 38개 테스트가 통과했다. git diff --check도 통과했다. 앞선 스트림 통일 검증에서 기록한 development 속성 누락 오류는 이번 수정으로 해결했다.

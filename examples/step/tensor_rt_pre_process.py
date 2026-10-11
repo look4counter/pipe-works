@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 
 from pipeworks.detection_profile import begin, span, use
-from pipeworks.execution import current_model_stream, release_frame
+from pipeworks.execution import release_frame
 from pipeworks.image import nv12_to_rgb
 from pipeworks.image_transform import ImageTransform
 from pipeworks.models import PipelineContext, Step
@@ -262,7 +262,6 @@ class TensorRTPreProcess(Step):
         return output.to(dtype=getattr(torch, self.dtype)).contiguous()
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
-        streams = {}
         for item in inputs:
             profile = begin("TensorRT")
             if profile is not None:
@@ -270,25 +269,14 @@ class TensorRTPreProcess(Step):
             stream = None
             try:
                 frame, pixel_format = self._read_frame(item)
-                producer = getattr(item, "cuda_stream", None)
-                if producer is None:
-                    producer = torch.cuda.current_stream(frame.device)
-                if producer.device != frame.device:
+                stream = getattr(item, "cuda_stream", None)
+                if stream is None:
+                    stream = torch.cuda.current_stream(frame.device)
+                    item.cuda_stream = stream
+                if stream.device != frame.device:
                     raise ValueError(
                         "입력 CUDA 스트림과 frame의 GPU가 일치해야 합니다."
                     )
-                stream = current_model_stream() or streams.get(frame.device)
-                if stream is None:
-                    stream = streams[frame.device] = torch.cuda.Stream(
-                        device=frame.device
-                    )
-                if stream.device != frame.device:
-                    raise ValueError(
-                        "모델 CUDA 스트림과 frame의 GPU가 일치해야 합니다."
-                    )
-                ready = torch.cuda.Event()
-                ready.record(producer)
-                stream.wait_event(ready)
                 with (
                     use(profile),
                     span("preprocess", stream),
@@ -307,7 +295,6 @@ class TensorRTPreProcess(Step):
                     output if self.input_name is None else {self.input_name: output}
                 )
                 item.tensor_rt_transform = transform
-                item.model_cuda_stream = stream
             except Exception:
                 if stream is not None:
                     stream.synchronize()

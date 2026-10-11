@@ -14,7 +14,6 @@ import yaml
 
 from pipeworks.embedded.stream_report import record_inference
 from pipeworks.models import PipelineContext, Step
-from pipeworks.execution import current_model_stream
 from pipeworks.detection_profile import _current, begin, span
 
 
@@ -400,11 +399,10 @@ class TensorRTInference(Step):
                 or tensor.device.index != self.gpu_id
             ):
                 raise ValueError("model_input GPU must match gpu_id.")
-        producer = current_model_stream() or getattr(item, "model_cuda_stream", None)
-        if producer is None:
-            producer = getattr(item, "cuda_stream", None)
+        producer = getattr(item, "cuda_stream", None)
         if producer is None:
             producer = torch.cuda.current_stream(self.gpu_id)
+            item.cuda_stream = producer
         if producer.device.index != self.gpu_id:
             raise ValueError("Input CUDA stream GPU must match gpu_id.")
         ready = torch.cuda.Event()
@@ -488,9 +486,7 @@ class TensorRTInference(Step):
                             session.close()
                         session = None
                         session_settings = settings
-                        stream = current_model_stream() or torch.cuda.Stream(
-                            device=self.gpu_id
-                        )
+                    stream = item.cuda_stream
                     with torch.cuda.stream(stream):
                         try:
                             # Keep input ordering on the GPU, including caller-owned streams.

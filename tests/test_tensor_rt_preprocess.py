@@ -166,9 +166,7 @@ class GpuTests(unittest.TestCase):
         transform = item.tensor_rt_transform
         self.assertEqual((transform.ratio, transform.left, transform.top), (2, 0, 2))
         self.assertEqual(transform.ratio_xy, (2, 2))
-        self.assertNotEqual(
-            item.cuda_stream.cuda_stream, item.model_cuda_stream.cuda_stream
-        )
+        self.assertFalse(hasattr(item, "model_cuda_stream"))
 
     def test_auto_padding_rounding_and_scaleup(self):
         item = self.image(height=3, width=5)
@@ -285,7 +283,8 @@ class GpuTests(unittest.TestCase):
 
         with _model_stream_scope(stream), _frame_scope(release):
             self.run_step(item, size=(2, 4), resize_mode="stretch", scale=1)
-        self.assertIs(item.model_cuda_stream, stream)
+        self.assertFalse(hasattr(item, "model_cuda_stream"))
+        self.assertIsNot(item.cuda_stream, stream)
         self.assertEqual(len(released), 1)
         self.assertEqual(item.model_input[0, 0, 0, 0].item(), 10)
         item.cuda_stream.synchronize()
@@ -304,10 +303,8 @@ class GpuTests(unittest.TestCase):
                 next(TensorRTPreProcess().process(iter([item])))
         if torch.cuda.device_count() > 1:
             item = self.image()
-            with (
-                _model_stream_scope(torch.cuda.Stream(device=1)),
-                self.assertRaises(ValueError),
-            ):
+            item.cuda_stream = torch.cuda.Stream(device=1)
+            with self.assertRaises(ValueError):
                 next(TensorRTPreProcess().process(iter([item])))
 
 

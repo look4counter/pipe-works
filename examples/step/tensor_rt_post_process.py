@@ -11,7 +11,6 @@ from ultralytics.utils.ops import xywh2xyxy
 from ultralytics.utils.nms import non_max_suppression
 
 from pipeworks.models import Step
-from pipeworks.execution import current_model_stream
 from pipeworks.detection_profile import span, use
 
 
@@ -102,9 +101,7 @@ class TensorRTPostProcess(Step):
                 if getattr(item, "model_output", None) is not None
                 else "skipped"
             )
-            stream = current_model_stream() or getattr(
-                item, "model_cuda_stream", item.cuda_stream
-            )
+            stream = item.cuda_stream
             outputs = prediction = boxes = None
             try:
                 detections = getattr(item, "detections", None)
@@ -171,7 +168,6 @@ class TensorRTPostProcess(Step):
                     "model_input",
                     "model_output",
                     "tensor_rt_transform",
-                    "model_cuda_stream",
                     "model_id",
                 ):
                     vars(item).pop(name, None)
