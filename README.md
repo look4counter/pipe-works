@@ -42,6 +42,8 @@ pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/{stream_id}"))
 pipeline.run()
 ```
 
+운영과 개발의 중앙 프로세스를 분리하려면 `Pipeline("development", config=Path("stream.yml"), development=True)`로 생성하고 `pipeline.run()`으로 실행합니다. `development` 기본값은 `False`로 운영용입니다. 같은 모드끼리 프로세스와 모델 작업자를 공유합니다. 다른 모드에서는 모델을 따로 로드하고 같은 GPU의 자원은 공유합니다. [중앙 프로세스 그룹 안내](docs/pipeworks/main.md)를 참고하세요.
+
 ### config.yaml (YAML 설정)
 
 ```yaml

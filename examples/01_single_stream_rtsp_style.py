@@ -25,6 +25,7 @@ def build_pipeline() -> Pipeline:
         Pipeline(
             "cobble-detection",
             config=Path(__file__).with_name("config") / "stream.yml",
+            development=True,
         )
         .step(RTSPSource("rtsp://210.99.70.120:1935/live/cctv001.stream"))
         .step(NvidiaDecode())
@@ -34,7 +35,9 @@ def build_pipeline() -> Pipeline:
                 # YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt", batch = False),
                 # YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt", batch = True),
                 TensorRTPreProcess(),
-                TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan", batch = False),
+                TensorRTInference(
+                    Path(__file__).with_name("model") / "yolo11n.plan", batch=False
+                ),
                 # TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan", batch = True),
                 TensorRTPostProcess(),
                 timeout_ms=20,

@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from io import StringIO
 import logging
 import os
+import re
 from multiprocessing.connection import Client, Listener
 from pathlib import Path
 import subprocess
@@ -84,8 +85,21 @@ _LOCK_PATH = Path(tempfile.gettempdir()) / f"pipeworks-{_PROTOCOL}-{_KEY}.lock"
 _launched_servers: list[subprocess.Popen] = []
 
 
-def _connect():
-    return Client(_ADDRESS, family="AF_PIPE")
+def _server_endpoint(server_group="production"):
+    if not isinstance(server_group, str):
+        raise TypeError("server_group은 문자열이어야 합니다.")
+    if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", server_group) is None:
+        raise ValueError("server_group은 영문자·숫자·밑줄·하이픈으로 이루어진 1~64자여야 합니다.")
+    if server_group == "production":
+        return _ADDRESS, _LOCK_PATH
+    group_key = hashlib.sha256(server_group.encode("utf-8")).hexdigest()
+    return (f"{_ADDRESS}-{group_key}",
+            _LOCK_PATH.with_name(f"{_LOCK_PATH.stem}-{group_key}.lock"))
+
+
+def _connect(server_group="production"):
+    address, _ = _server_endpoint(server_group)
+    return Client(address, family="AF_PIPE")
 
 
 def _server_executable() -> str:
@@ -93,10 +107,11 @@ def _server_executable() -> str:
     return str(pythonw) if pythonw.is_file() else sys.executable
 
 
-def _start_server() -> None:
+def _start_server(server_group="production") -> None:
     import msvcrt
 
-    with _LOCK_PATH.open("a+b") as lock:
+    _, lock_path = _server_endpoint(server_group)
+    with lock_path.open("a+b") as lock:
         lock.seek(0)
         while True:
             try:
@@ -106,7 +121,7 @@ def _start_server() -> None:
                 time.sleep(0.05)
         try:
             try:
-                with _connect() as connection:
+                with _connect(server_group) as connection:
                     connection.send_bytes(b"ping")
                     if connection.recv()[0] == "pong":
                         return
@@ -116,7 +131,7 @@ def _start_server() -> None:
             flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
             errors: deque[str] = deque(maxlen=25)
             process = subprocess.Popen(
-                [_server_executable(), "-m", "pipeworks.main"],
+                [_server_executable(), "-m", "pipeworks.main", "--server-group", server_group],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
@@ -135,7 +150,7 @@ def _start_server() -> None:
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 try:
-                    with _connect() as connection:
+                    with _connect(server_group) as connection:
                         connection.send_bytes(b"ping")
                         response = connection.recv()
                     if response[0] == "pong":
@@ -153,6 +168,7 @@ def _start_server() -> None:
 
 
 def run_remote(pipeline) -> None:
+    server_group = "development" if pipeline.development else "production"
     try:
         from pipeworks.hotswap import Hotswap
         from pipeworks.embedded.tap import Tap
@@ -177,10 +193,10 @@ def run_remote(pipeline) -> None:
         raise TypeError("파이프라인을 중앙 프로세스에 전달할 수 없습니다.") from error
 
     try:
-        connection = _connect()
+        connection = _connect(server_group)
     except (OSError, EOFError):
-        _start_server()
-        connection = _connect()
+        _start_server(server_group)
+        connection = _connect(server_group)
     try:
         connection.send_bytes(payload)
         heartbeat_stop = Event()
@@ -286,9 +302,10 @@ def _handle(connection, payload: bytes | None = None) -> None:
             finished.wait(10)
 
 
-def serve() -> None:
+def serve(*, server_group="production") -> None:
+    address, _ = _server_endpoint(server_group)
     try:
-        with _connect() as connection:
+        with _connect(server_group) as connection:
             connection.send_bytes(b"ping")
             if connection.recv()[0] == "pong":
                 print("중앙 스트림 프로세스가 이미 실행 중입니다.")
@@ -311,7 +328,7 @@ def serve() -> None:
                 if active_connections or idle_generation != generation:
                     return
             try:
-                with _connect() as wake:
+                with _connect(server_group) as wake:
                     wake.send_bytes(_IDLE_SHUTDOWN + generation.to_bytes(8, "big"))
             except (EOFError, OSError):
                 pass
@@ -330,7 +347,7 @@ def serve() -> None:
                 if active_connections == 0:
                     schedule_idle_shutdown()
 
-    with Listener(_ADDRESS, family="AF_PIPE") as listener:
+    with Listener(address, family="AF_PIPE") as listener:
         with clients_lock:
             schedule_idle_shutdown()
         try:
@@ -369,4 +386,8 @@ def serve() -> None:
 
 
 if __name__ == "__main__":
-    serve()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="중앙 스트림 프로세스를 실행합니다.")
+    parser.add_argument("--server-group", default="production", help="중앙 프로세스 그룹 (기본: production)")
+    serve(server_group=parser.parse_args().server_group)

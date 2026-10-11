@@ -1,4 +1,5 @@
 import os
+import signal
 from contextlib import redirect_stdout
 from multiprocessing import get_context
 import sys
@@ -18,6 +19,7 @@ from unittest.mock import patch
 from pipeworks import Pipeline
 from pipeworks.embedded import Tap, StreamReport
 from pipeworks.main import _ADDRESS, _KEY, _connect, _server_executable, _start_server, _user_sid
+from pipeworks.main import _server_endpoint, _LOCK_PATH, _launched_servers
 from pipeworks.models import PipelineContext, Step
 
 
@@ -48,6 +50,13 @@ class FailingSource(Step):
     def process(self, inputs):
         raise ValueError("expected failure")
         yield
+
+
+class ProgressSource(RecordingSource):
+    def process(self, inputs):
+        for index, item in enumerate(super().process(inputs)):
+            self.path.with_suffix(".progress").write_text(str(index), encoding="utf-8")
+            yield item
 
 
 class PrintingSource(Step):
@@ -199,6 +208,144 @@ def _run_status_report(directory_name: str, healthy: bool, result) -> None:
 
 
 class CentralProcessTests(unittest.TestCase):
+    def test_development_constructor_contract(self):
+        with TemporaryDirectory() as temporary:
+            config = Path(temporary) / "config.yml"
+            config.write_text("{}", encoding="utf-8")
+            with patch("pipeworks.main._connect") as connect:
+                for value in (None, 0, 1, "true", "development", [], {}):
+                    with self.subTest(value=value), self.assertRaisesRegex(TypeError, "development"):
+                        Pipeline("invalid", config=config, development=value)
+                pipeline = Pipeline("default", config=config)
+                self.assertIs(pipeline.development, False)
+                with self.assertRaises(TypeError):
+                    pipeline.run(server_group="development")
+                connect.assert_not_called()
+            for development in (False, True):
+                pipeline = Pipeline("mode", config=config, development=development)
+                restored = cloudpickle.loads(cloudpickle.dumps(pipeline))
+                self.assertIs(restored.development, development)
+                with patch("pipeworks.main.run_remote") as remote:
+                    pipeline.run()
+                    remote.assert_called_once_with(pipeline)
+        self.assertEqual(_server_endpoint(), (_ADDRESS, _LOCK_PATH))
+        self.assertEqual(_server_endpoint("production"), (_ADDRESS, _LOCK_PATH))
+        self.assertNotEqual(_server_endpoint("development"), _server_endpoint("Development"))
+
+    def test_concurrent_groups_reuse_only_their_own_server(self):
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            groups = [False, True]
+            failures = []
+
+            def run(group, index):
+                try:
+                    self._pipeline(directory, f"{group}-{index}",
+                                   RecordingSource(directory / f"{group}-{index}.pid"), development=group).run()
+                except Exception as error:
+                    failures.append(error)
+
+            threads = [Thread(target=run, args=(group, index)) for group in groups for index in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive())
+            self.assertEqual(failures, [])
+            pids = [[int((directory / f"{group}-{index}.pid").read_text(encoding="utf-8"))
+                     for index in range(2)] for group in groups]
+            self.assertEqual(pids[0][0], pids[0][1])
+            self.assertEqual(pids[1][0], pids[1][1])
+            self.assertNotEqual(pids[0][0], pids[1][0])
+            self.assertNotIn(os.getpid(), pids[0] + pids[1])
+
+    def _open_group_stream(self, directory, group):
+        path = directory / f"{group}.pid"
+        pipeline = self._pipeline(directory, group, ProgressSource(path, continuous=True))
+        cloudpickle.register_pickle_by_value(sys.modules[__name__])
+        _start_server(group)
+        process = _launched_servers[-1]
+        connection = _connect(group)
+        connection.send_bytes(cloudpickle.dumps(pipeline))
+
+        def heartbeat():
+            while True:
+                time.sleep(0.25)
+                try:
+                    connection.send_bytes(b"alive")
+                except (EOFError, OSError):
+                    return
+
+        Thread(target=heartbeat, daemon=True).start()
+        deadline = time.monotonic() + 10
+        while not path.with_suffix(".progress").exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not path.with_suffix(".progress").exists():
+            connection.close()
+            self.fail("그룹 영상이 시작되지 않았습니다.")
+        return connection, path, int(path.read_text(encoding="utf-8")), process
+
+    def _assert_group_progress(self, group, path, pid):
+        with _connect(group) as ping:
+            ping.send_bytes(b"ping")
+            self.assertEqual(ping.recv(), ("pong", pid))
+        before = path.with_suffix(".progress").read_text(encoding="utf-8")
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            if path.with_suffix(".progress").read_text(encoding="utf-8") != before:
+                break
+            time.sleep(0.02)
+        else:
+            self.fail("운영 영상 처리가 계속되지 않았습니다.")
+        self.assertFalse(path.with_suffix(".closed").exists())
+
+    def test_development_crash_does_not_stop_production(self):
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            production = f"test-production-{uuid.uuid4().hex}"
+            development = f"test-development-{uuid.uuid4().hex}"
+            prod, path, prod_pid, _ = self._open_group_stream(directory, production)
+            dev = None
+            try:
+                dev, _, dev_pid, process = self._open_group_stream(directory, development)
+                # Windows venv launchers can have a different PID from the Python server.
+                os.kill(dev_pid, signal.SIGTERM)
+                process.wait(timeout=5)
+                self._assert_group_progress(production, path, prod_pid)
+            finally:
+                if dev is not None:
+                    dev.close()
+                prod.close()
+
+    def test_development_idle_exit_and_restart_are_independent(self):
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            production = f"test-production-{uuid.uuid4().hex}"
+            development = f"test-development-{uuid.uuid4().hex}"
+            prod, path, prod_pid, _ = self._open_group_stream(directory, production)
+            dev = None
+            try:
+                dev, _, dev_pid, process = self._open_group_stream(directory, development)
+                dev.close()
+                dev = None
+                deadline = time.monotonic() + 5
+                while process.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertIsNotNone(process.poll())
+                self._assert_group_progress(production, path, prod_pid)
+                replacement_path = directory / "replacement.pid"
+                replacement = self._pipeline(directory, "replacement", RecordingSource(replacement_path), development=True)
+                # Use the isolated test server while exercising constructor-based routing.
+                with patch("pipeworks.main._connect", side_effect=lambda group: _connect(development)):
+                    with patch("pipeworks.main._start_server", side_effect=lambda group: _start_server(development)):
+                        replacement.run()
+                self.assertNotEqual(dev_pid, int(replacement_path.read_text(encoding="utf-8")))
+                self._assert_group_progress(production, path, prod_pid)
+            finally:
+                if dev is not None:
+                    dev.close()
+                prod.close()
+
     def test_concurrent_stream_reports_keep_receive_status_separate(self):
         with TemporaryDirectory() as temporary:
             context = get_context("spawn")
@@ -454,17 +601,18 @@ class CentralProcessTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "WinError 5"):
                     _start_server()
 
-    def _pipeline(self, directory: Path, name: str, source: Step) -> Pipeline:
+    def _pipeline(self, directory: Path, name: str, source: Step, *, development=False) -> Pipeline:
         config = directory / f"{name}.yml"
         config.write_text("{}", encoding="utf-8")
-        return Pipeline(name, config=config).step(source)
+        return Pipeline(name, config=config, development=development).step(source)
 
     def test_run_executes_in_shared_process(self):
         with TemporaryDirectory() as temporary:
             directory = Path(temporary)
             paths = [directory / "first.pid", directory / "second.pid"]
             pipelines = [self._pipeline(directory, str(index), RecordingSource(path)) for index, path in enumerate(paths)]
-            threads = [Thread(target=pipeline.run) for pipeline in pipelines]
+            threads = [Thread(target=pipelines[0].run),
+                       Thread(target=pipelines[1].run)]
             for thread in threads:
                 thread.start()
             for thread in threads:

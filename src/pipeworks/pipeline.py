@@ -115,8 +115,11 @@ class _LiveConfig:
 
 class Pipeline:
 
-    def __init__(self, name: str, *, config: Path):
+    def __init__(self, name: str, *, config: Path, development: bool = False):
+        if not isinstance(development, bool):
+            raise TypeError("development는 bool이어야 합니다.")
         self.name = name
+        self.development = development
         self.config_path = config.resolve()
         source = config.read_bytes()
         loaded_config = _load_config(source)

@@ -35,6 +35,7 @@ pipeline = Pipeline(
 
 - **name** (str): 파이프라인 이름 (로그, 식별용)
 - **config** (Path): YAML 설정 파일 경로
+- **development** (bool, 기본 `False`): `False`는 운영용, `True`는 개발용 중앙 프로세스를 사용합니다. bool 이외의 값은 거부합니다.
 
 ### Step 등록
 
@@ -81,7 +82,13 @@ pipeline.step(RTSPSource(...))        # X: Source가 먼저 와야 함
 ```python
 # 파이프라인 실행 (블로킹)
 pipeline.run()
+
+# 개발용 중앙 프로세스에서 실행
+development_pipeline = Pipeline("development", config=Path("config.yaml"), development=True)
+development_pipeline.run()
 ```
+
+`run()`은 생성자에서 선택한 모드의 중앙 프로세스에서 실행합니다. `Pipeline(..., development=False)`와 옵션 생략은 운영용이며, `development=True`는 개발용입니다. 같은 모드는 프로세스와 모델 작업자를 공유하고 다른 모드는 별도 프로세스를 사용합니다. 각 프로세스에서 모델을 별도로 로드하며 같은 GPU의 자원과 장치 전체 장애는 공유합니다. 자세한 동작은 [중앙 프로세스](main.md)를 참고하세요.
 
 **동작:**
 - 모든 Step을 순차 연결
