@@ -57,12 +57,14 @@ from step.tensor_rt_post_process import TensorRTPostProcess
 from step.box_overlay import BoxOverlay
 
 for model_id in ("vehicle", "person"):
-    pipeline.step(CudaAsync(
-        TensorRTPreProcess(),
-        TensorRTInference("models/yolo11n.plan", id=model_id),
-        TensorRTPostProcess(),
-        timeout_ms=100,
-    ))
+    pipeline.step(
+        CudaAsync(
+            TensorRTPreProcess(),
+            TensorRTInference("models/yolo11n.plan", id=model_id),
+            TensorRTPostProcess(),
+            timeout_ms=100,
+        )
+    )
 pipeline.step(BoxOverlay())
 ```
 

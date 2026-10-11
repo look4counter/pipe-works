@@ -41,33 +41,66 @@ class RTSPPublishTests(unittest.TestCase):
                 recovered = Output()
                 initial = OSError("open failed") if failure == "open" else failed
                 publisher = self.publisher(reconnect_interval_ms=250)
-                with patch("pipeworks.embedded.rtsp_publish.av.open", side_effect=[initial, recovered]) as opened, patch("pipeworks.embedded.rtsp_publish.time.monotonic", side_effect=[0, 0, .249, .25]):
+                with (
+                    patch(
+                        "pipeworks.embedded.rtsp_publish.av.open",
+                        side_effect=[initial, recovered],
+                    ) as opened,
+                    patch(
+                        "pipeworks.embedded.rtsp_publish.time.monotonic",
+                        side_effect=[0, 0, 0.249, 0.25],
+                    ),
+                ):
                     list(publisher.process(iter([self.bypass_input(0)] * 3)))
                 self.assertEqual(opened.call_count, 2)
                 self.assertEqual(len(recovered.sent), 1)
         self.assertEqual(self.publisher().reconnect_interval_ms, 3000)
 
     def test_invalid_reconnect_interval_configuration(self):
-        configs = [{"reconnect_interval_ms": value} for value in [-1, True, "3000", None, float("nan"), float("inf")]]
-        configs += [{"reconnect_interval": 3}, {"reconnect_interval": 3, "reconnect_interval_ms": 3000}]
+        configs = [
+            {"reconnect_interval_ms": value}
+            for value in [-1, True, "3000", None, float("nan"), float("inf")]
+        ]
+        configs += [
+            {"reconnect_interval": 3},
+            {"reconnect_interval": 3, "reconnect_interval_ms": 3000},
+        ]
         for config in configs:
-            with self.subTest(config=config), self.assertRaisesRegex(ValueError, "reconnect_interval_ms"):
+            with (
+                self.subTest(config=config),
+                self.assertRaisesRegex(ValueError, "reconnect_interval_ms"),
+            ):
                 self.publisher(**config)
 
     def test_timeout_ms_conversion(self):
-        for config, microseconds in [({}, "5000000"), ({"timeout_ms": 0}, "0"), ({"timeout_ms": 250}, "250000"), ({"timeout_ms": 1250.5}, "1250500")]:
+        for config, microseconds in [
+            ({}, "5000000"),
+            ({"timeout_ms": 0}, "0"),
+            ({"timeout_ms": 250}, "250000"),
+            ({"timeout_ms": 1250.5}, "1250500"),
+        ]:
             with self.subTest(config=config):
                 publisher = self.publisher(**config)
-                with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=Output()) as opened:
+                with patch(
+                    "pipeworks.embedded.rtsp_publish.av.open", return_value=Output()
+                ) as opened:
                     list(publisher.process(iter([self.bypass_input(0)])))
-                self.assertEqual(opened.call_args.kwargs["options"]["timeout"], microseconds)
+                self.assertEqual(
+                    opened.call_args.kwargs["options"]["timeout"], microseconds
+                )
                 self.assertEqual(publisher.timeout_ms, config.get("timeout_ms", 5000))
 
     def test_invalid_timeout_configuration(self):
-        configs = [{"timeout_ms": value} for value in [-1, True, "5000", None, float("nan"), float("inf")]]
+        configs = [
+            {"timeout_ms": value}
+            for value in [-1, True, "5000", None, float("nan"), float("inf")]
+        ]
         configs += [{"timeout": 5}, {"timeout": 5, "timeout_ms": 5000}]
         for config in configs:
-            with self.subTest(config=config), self.assertRaisesRegex(ValueError, "timeout_ms"):
+            with (
+                self.subTest(config=config),
+                self.assertRaisesRegex(ValueError, "timeout_ms"),
+            ):
                 self.publisher(**config)
 
     def publisher(self, **config):
@@ -84,8 +117,11 @@ class RTSPPublishTests(unittest.TestCase):
             time_base=Fraction(1, 90000),
         )
         packet = SimpleNamespace(
-            dts=dts, pts=pts, duration=3000,
-            time_base=Fraction(1, 90000), stream=None,
+            dts=dts,
+            pts=pts,
+            duration=3000,
+            time_base=Fraction(1, 90000),
+            stream=None,
         )
         return PipelineContext(packet=packet, video_stream=stream)
 
@@ -94,9 +130,10 @@ class RTSPPublishTests(unittest.TestCase):
         first = self.bypass_input(3000, 3000)
         second = self.bypass_input(3000, 3000)
         second.video_stream = first.video_stream
-        with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output), patch(
-            "pipeworks.embedded.rtsp_publish.record_publish"
-        ) as status:
+        with (
+            patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output),
+            patch("pipeworks.embedded.rtsp_publish.record_publish") as status,
+        ):
             result = list(self.publisher().process(iter([first, second])))
         self.assertEqual([call.args[0] for call in status.call_args_list], [True, True])
         self.assertEqual(result, [])
@@ -117,16 +154,25 @@ class RTSPPublishTests(unittest.TestCase):
     def test_output_options_follow_configuration(self):
         output = Output()
         publisher = self.publisher(transport="udp", timeout_ms=10000, packet_size=1200)
-        with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output) as open_mock:
+        with patch(
+            "pipeworks.embedded.rtsp_publish.av.open", return_value=output
+        ) as open_mock:
             list(publisher.process(iter([self.bypass_input(0)])))
-        self.assertEqual(open_mock.call_args.kwargs["options"], {
-            "rtsp_transport": "udp", "pkt_size": "1200", "timeout": "10000000",
-        })
+        self.assertEqual(
+            open_mock.call_args.kwargs["options"],
+            {
+                "rtsp_transport": "udp",
+                "pkt_size": "1200",
+                "timeout": "10000000",
+            },
+        )
 
     def test_encoder_shape_uses_packet_path(self):
         output = Output()
         context = self.bypass_input(3000, 3000)
-        encoded = PipelineContext(packet=context.packet, video_stream=context.video_stream)
+        encoded = PipelineContext(
+            packet=context.packet, video_stream=context.video_stream
+        )
         with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output):
             result = list(self.publisher().process(iter([encoded])))
         self.assertEqual(result, [])
@@ -136,11 +182,25 @@ class RTSPPublishTests(unittest.TestCase):
     def test_mux_failure_retries_or_raises_by_setting(self):
         failed = Output(fail_mux=True)
         recovered = Output()
-        with patch("pipeworks.embedded.rtsp_publish.av.open", side_effect=[failed, recovered]), patch(
-            "pipeworks.embedded.rtsp_publish.time.monotonic", side_effect=[0, 0, 1, 2]
-        ), patch("pipeworks.embedded.rtsp_publish.record_publish") as status:
-            result = list(self.publisher(reconnect_interval_ms=1000).process(iter([self.bypass_input(0)] * 3)))
-        self.assertEqual([call.args[0] for call in status.call_args_list], [False, True, True])
+        with (
+            patch(
+                "pipeworks.embedded.rtsp_publish.av.open",
+                side_effect=[failed, recovered],
+            ),
+            patch(
+                "pipeworks.embedded.rtsp_publish.time.monotonic",
+                side_effect=[0, 0, 1, 2],
+            ),
+            patch("pipeworks.embedded.rtsp_publish.record_publish") as status,
+        ):
+            result = list(
+                self.publisher(reconnect_interval_ms=1000).process(
+                    iter([self.bypass_input(0)] * 3)
+                )
+            )
+        self.assertEqual(
+            [call.args[0] for call in status.call_args_list], [False, True, True]
+        )
         self.assertEqual(result, [])
         self.assertEqual(failed.closed, 1)
         self.assertEqual(len(recovered.sent), 2)
@@ -149,7 +209,11 @@ class RTSPPublishTests(unittest.TestCase):
         failed = Output(fail_mux=True)
         with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=failed):
             with self.assertRaises(OSError):
-                list(self.publisher(reconnect=False).process(iter([self.bypass_input(0)])))
+                list(
+                    self.publisher(reconnect=False).process(
+                        iter([self.bypass_input(0)])
+                    )
+                )
         self.assertEqual(failed.closed, 1)
 
     def test_stream_configuration_change_reopens_output(self):
@@ -158,7 +222,10 @@ class RTSPPublishTests(unittest.TestCase):
         first = self.bypass_input(0)
         second = self.bypass_input(0)
         second.video_stream.width = 1280
-        with patch("pipeworks.embedded.rtsp_publish.av.open", side_effect=[first_output, second_output]):
+        with patch(
+            "pipeworks.embedded.rtsp_publish.av.open",
+            side_effect=[first_output, second_output],
+        ):
             list(self.publisher().process(iter([first, second])))
         self.assertEqual([packet.dts for packet in first_output.sent], [0])
         self.assertEqual([packet.dts for packet in second_output.sent], [0])
@@ -167,7 +234,10 @@ class RTSPPublishTests(unittest.TestCase):
 
     def test_output_open_failure_and_invalid_time_base(self):
         publisher = self.publisher(reconnect=False)
-        with patch("pipeworks.embedded.rtsp_publish.av.open", side_effect=OSError("open failed")):
+        with patch(
+            "pipeworks.embedded.rtsp_publish.av.open",
+            side_effect=OSError("open failed"),
+        ):
             with self.assertRaises(OSError):
                 list(publisher.process(iter([self.bypass_input(0)])))
 
@@ -179,8 +249,12 @@ class RTSPPublishTests(unittest.TestCase):
 
     def test_encoded_bytes_without_packet_are_rejected(self):
         input = PipelineContext(
-            data=b"encoded", codec="h264", width=640, height=480,
-            time_base=Fraction(1, 90000), fps=30,
+            data=b"encoded",
+            codec="h264",
+            width=640,
+            height=480,
+            time_base=Fraction(1, 90000),
+            fps=30,
         )
         with self.assertRaises(ValueError):
             list(self.publisher().process(iter([input])))

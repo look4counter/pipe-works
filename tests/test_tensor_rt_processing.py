@@ -20,8 +20,15 @@ class ProcessingTests(unittest.TestCase):
         with torch.cuda.stream(stream):
             frame = torch.full((6, 8), 128, dtype=torch.uint8, device="cuda")
             frame[:4] = 16
-        return PipelineContext(model_id="test", frame=frame, pixel_format="NV12", cuda_stream=stream,
-                               video_stream=SimpleNamespace(codec_context=SimpleNamespace(height=4, width=8)))
+        return PipelineContext(
+            model_id="test",
+            frame=frame,
+            pixel_format="NV12",
+            cuda_stream=stream,
+            video_stream=SimpleNamespace(
+                codec_context=SimpleNamespace(height=4, width=8)
+            ),
+        )
 
     def test_preprocess_keeps_input_and_padding_on_gpu(self):
         item = self.frame()
@@ -32,13 +39,17 @@ class ProcessingTests(unittest.TestCase):
         item.cuda_stream.synchronize()
         self.assertEqual(tuple(item.model_input.shape), (1, 3, 640, 640))
         self.assertTrue(item.model_input.is_cuda)
-        self.assertNotEqual(item.model_cuda_stream.cuda_stream, item.cuda_stream.cuda_stream)
+        self.assertNotEqual(
+            item.model_cuda_stream.cuda_stream, item.cuda_stream.cuda_stream
+        )
         self.assertEqual(item.model_input.dtype, torch.float32)
         self.assertTrue(torch.equal(item.frame, original))
         self.assertAlmostEqual(item.model_input[0, 0, 0, 0].item(), 114 / 255, places=5)
         self.assertEqual(item.model_input[0, 0, 320, 320].item(), 0)
 
-    def test_rgb_release_allows_timeout_to_pass_original_without_affecting_model_input(self):
+    def test_rgb_release_allows_timeout_to_pass_original_without_affecting_model_input(
+        self,
+    ):
         from threading import Event
         from pipeworks.embedded import CudaAsync
         from pipeworks.execution import current_model_stream
@@ -63,9 +74,13 @@ class ProcessingTests(unittest.TestCase):
                     working.model_output = None
                     yield working
 
-        wrapper = CudaAsync(TensorRTPreProcess(), SlowInference(), TensorRTPostProcess(), timeout_ms=100)
+        wrapper = CudaAsync(
+            TensorRTPreProcess(), SlowInference(), TensorRTPostProcess(), timeout_ms=100
+        )
         try:
-            with patch.object(torch.Tensor, "clone", side_effect=AssertionError("input clone")):
+            with patch.object(
+                torch.Tensor, "clone", side_effect=AssertionError("input clone")
+            ):
                 self.assertEqual(list(wrapper.process(iter([item]))), [item])
             self.assertTrue(entered.is_set())
             self.assertIs(item.frame, original)
@@ -85,27 +100,55 @@ class ProcessingTests(unittest.TestCase):
         next(TensorRTPreProcess().process(iter([item])))
         with torch.cuda.stream(item.cuda_stream):
             prediction = torch.zeros((1, 84, 10), device="cuda")
-            prediction[0, :4, :3] = torch.tensor([[320, 320, 320], [320, 320, 320], [320, 320, 320], [160, 160, 160]], device="cuda")
-            prediction[0, 6, 0] = .9
-            prediction[0, 6, 1] = .8
-            prediction[0, 4, 2] = .95
+            prediction[0, :4, :3] = torch.tensor(
+                [[320, 320, 320], [320, 320, 320], [320, 320, 320], [160, 160, 160]],
+                device="cuda",
+            )
+            prediction[0, 6, 0] = 0.9
+            prediction[0, 6, 1] = 0.8
+            prediction[0, 4, 2] = 0.95
         item.model_output = {"output0": prediction}
         step = TensorRTPostProcess()
         step.configure(SimpleNamespace(classes=[2]))
-        with patch.object(torch.Tensor, "cpu", side_effect=AssertionError("CPU copy")), patch.object(
-            torch.Tensor, "clone", side_effect=AssertionError("NMS input clone")
+        with (
+            patch.object(torch.Tensor, "cpu", side_effect=AssertionError("CPU copy")),
+            patch.object(
+                torch.Tensor, "clone", side_effect=AssertionError("NMS input clone")
+            ),
         ):
             next(step.process(iter([item])))
         item.cuda_stream.synchronize()
         self.assertEqual(len(item.detections["test"].boxes), 1)
         self.assertTrue(item.detections["test"].boxes.data.is_cuda)
-        self.assertTrue(torch.allclose(item.detections["test"].boxes.xyxy[0], torch.tensor([2, 1, 6, 3], device="cuda", dtype=torch.float32)))
+        self.assertTrue(
+            torch.allclose(
+                item.detections["test"].boxes.xyxy[0],
+                torch.tensor([2, 1, 6, 3], device="cuda", dtype=torch.float32),
+            )
+        )
         self.assertEqual(item.detections["test"].names[2], "car")
-        self.assertAlmostEqual(item.detections["test"].boxes.conf[0].item(), .9, places=5)
+        self.assertAlmostEqual(
+            item.detections["test"].boxes.conf[0].item(), 0.9, places=5
+        )
         self.assertEqual(item.detections["test"].boxes.cls[0].item(), 2)
-        self.assertTrue(torch.equal(prediction[0, :4, 0], torch.tensor([160, 240, 480, 400], device="cuda")))
-        self.assertFalse(any(hasattr(item, name) for name in ("model_input", "model_output", "tensor_rt_transform", "model_cuda_stream")))
+        self.assertTrue(
+            torch.equal(
+                prediction[0, :4, 0], torch.tensor([160, 240, 480, 400], device="cuda")
+            )
+        )
+        self.assertFalse(
+            any(
+                hasattr(item, name)
+                for name in (
+                    "model_input",
+                    "model_output",
+                    "tensor_rt_transform",
+                    "model_cuda_stream",
+                )
+            )
+        )
         from step.box_overlay import BoxOverlay
+
         overlay = BoxOverlay()
         overlay.configure(SimpleNamespace(line_width=1, line_color="#00ff00"))
         frame, detections = item.frame, item.detections
@@ -131,7 +174,17 @@ class ProcessingTests(unittest.TestCase):
         item.model_output = {"wrong": torch.zeros(1, device="cuda")}
         with self.assertRaises(ValueError):
             next(TensorRTPostProcess().process(iter([item])))
-        self.assertFalse(any(hasattr(item, name) for name in ("model_input", "model_output", "tensor_rt_transform", "model_cuda_stream")))
+        self.assertFalse(
+            any(
+                hasattr(item, name)
+                for name in (
+                    "model_input",
+                    "model_output",
+                    "tensor_rt_transform",
+                    "model_cuda_stream",
+                )
+            )
+        )
 
     def test_postprocess_delegates_to_an_unrelated_transform(self):
         item = self.frame()
@@ -142,25 +195,28 @@ class ProcessingTests(unittest.TestCase):
 
             def restore_boxes_(self, boxes):
                 called.append(torch.cuda.current_stream())
-                boxes[:, :4] = boxes.new_tensor([1., 1., 3., 3.])
+                boxes[:, :4] = boxes.new_tensor([1.0, 1.0, 3.0, 3.0])
                 return boxes
 
         item.tensor_rt_transform = OtherTransform()
         with torch.cuda.stream(item.cuda_stream):
             prediction = torch.zeros((1, 84, 10), device="cuda")
             prediction[0, :4, 0] = 10
-            prediction[0, 6, 0] = .9
+            prediction[0, 6, 0] = 0.9
         item.model_output = {"output0": prediction}
         next(TensorRTPostProcess().process(iter([item])))
         self.assertEqual(len(called), 1)
         self.assertEqual(called[0].cuda_stream, item.cuda_stream.cuda_stream)
-        torch.testing.assert_close(item.detections["test"].boxes.xyxy,
-                                   prediction.new_tensor([[1., 1., 3., 3.]]))
+        torch.testing.assert_close(
+            item.detections["test"].boxes.xyxy,
+            prediction.new_tensor([[1.0, 1.0, 3.0, 3.0]]),
+        )
         self.assertEqual(item.detections["test"].orig_shape, (4, 8))
         self.assertFalse(hasattr(item, "tensor_rt_transform"))
 
     def test_actual_plan_processing(self):
         from pipeworks.embedded import TensorRTInference
+
         plan = Path(__file__).resolve().parents[1] / "examples/model/yolo11n.plan"
         if not plan.is_file():
             self.skipTest("예제 엔진이 없습니다.")
@@ -177,7 +233,12 @@ class ProcessingTests(unittest.TestCase):
 
 class ConfigurationTests(unittest.TestCase):
     def test_invalid_postprocess_configuration(self):
-        for config in (SimpleNamespace(confidence=True), SimpleNamespace(iou=float("nan")), SimpleNamespace(classes=[80]), SimpleNamespace(max_det=0), SimpleNamespace(output_name="")):
+        for config in (
+            SimpleNamespace(confidence=True),
+            SimpleNamespace(iou=float("nan")),
+            SimpleNamespace(classes=[80]),
+            SimpleNamespace(max_det=0),
+            SimpleNamespace(output_name=""),
+        ):
             with self.subTest(config=config), self.assertRaises(ValueError):
                 TensorRTPostProcess().configure(config)
-

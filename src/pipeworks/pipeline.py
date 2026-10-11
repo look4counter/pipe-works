@@ -109,12 +109,13 @@ class _LiveConfig:
                 except Exception:
                     if digest is not None:
                         self.failed_digest = digest
-                    logger.exception("변경된 파이프라인 설정을 적용하지 못했습니다: %s", self.path)
+                    logger.exception(
+                        "변경된 파이프라인 설정을 적용하지 못했습니다: %s", self.path
+                    )
             return SimpleNamespace(**self.data.get(name, {}))
 
 
 class Pipeline:
-
     def __init__(self, name: str, *, config: Path, development: bool = False):
         if not isinstance(development, bool):
             raise TypeError("development는 bool이어야 합니다.")
@@ -128,8 +129,14 @@ class Pipeline:
         self.steps: list[Step] = []
 
     def step(self, step: Step):
-        registered = step if isinstance(step, Hotswap) or is_embedded_step(step) else Hotswap(step)
-        original = registered.wrapped_step if isinstance(registered, Hotswap) else registered
+        registered = (
+            step
+            if isinstance(step, Hotswap) or is_embedded_step(step)
+            else Hotswap(step)
+        )
+        original = (
+            registered.wrapped_step if isinstance(registered, Hotswap) else registered
+        )
         section = type(original).__name__
         step_config = getattr(self.config, section, {})
         if not isinstance(step_config, dict):
@@ -150,19 +157,30 @@ class Pipeline:
         from pipeworks.embedded.stream_report import report_scope
         from pipeworks.embedded.tap import Tap
 
-        with report_scope(enabled=_has_stream_report(self.steps)), closing(_LiveConfig(self.config_path, vars(self.config), self._config_digest)) as watcher:
+        with (
+            report_scope(enabled=_has_stream_report(self.steps)),
+            closing(
+                _LiveConfig(self.config_path, vars(self.config), self._config_digest)
+            ) as watcher,
+        ):
             inputs = iter(())
             for index, step in enumerate(self.steps):
                 _watch_async_children(step, watcher, vars(self.config))
                 if stop_event is not None:
                     setattr(step, "_pipeworks_stop_event", stop_event)
-                section = type(step.wrapped_step).__name__ if isinstance(step, Hotswap) else type(step).__name__
+                section = (
+                    type(step.wrapped_step).__name__
+                    if isinstance(step, Hotswap)
+                    else type(step).__name__
+                )
                 provider = lambda name=section: watcher.section(name)
                 if isinstance(step, Tap):
                     inner = step.step
                     if not isinstance(inner, Hotswap):
                         inner = Hotswap(inner, watch_code=False, recover_errors=False)
-                        inner._config = SimpleNamespace(**vars(self.config).get(section, {}))
+                        inner._config = SimpleNamespace(
+                            **vars(self.config).get(section, {})
+                        )
                         step.step = inner
                     inner._config_provider = provider
                     running_step = step
@@ -170,11 +188,22 @@ class Pipeline:
                     if isinstance(step, Hotswap):
                         running_step = step
                     else:
-                        running_step = Hotswap(step, source=index == 0, watch_code=False, recover_errors=False)
-                        running_step._config = SimpleNamespace(**vars(self.config).get(section, {}))
+                        running_step = Hotswap(
+                            step,
+                            source=index == 0,
+                            watch_code=False,
+                            recover_errors=False,
+                        )
+                        running_step._config = SimpleNamespace(
+                            **vars(self.config).get(section, {})
+                        )
                     running_step._config_provider = provider
                     if stop_event is not None:
-                        setattr(running_step.wrapped_step, "_pipeworks_stop_event", stop_event)
+                        setattr(
+                            running_step.wrapped_step,
+                            "_pipeworks_stop_event",
+                            stop_event,
+                        )
                 inputs = running_step.process(inputs)
 
             try:

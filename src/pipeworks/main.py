@@ -79,7 +79,9 @@ def _user_sid() -> str:
     return rows[0][1]
 
 
-_KEY = hashlib.sha256((str(Path(__file__).resolve().parent) + _user_sid()).encode()).hexdigest()[:20]
+_KEY = hashlib.sha256(
+    (str(Path(__file__).resolve().parent) + _user_sid()).encode()
+).hexdigest()[:20]
 _ADDRESS = rf"\\.\pipe\pipeworks-{_PROTOCOL}-{_KEY}"
 _LOCK_PATH = Path(tempfile.gettempdir()) / f"pipeworks-{_PROTOCOL}-{_KEY}.lock"
 _launched_servers: list[subprocess.Popen] = []
@@ -89,12 +91,16 @@ def _server_endpoint(server_group="production"):
     if not isinstance(server_group, str):
         raise TypeError("server_group은 문자열이어야 합니다.")
     if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", server_group) is None:
-        raise ValueError("server_group은 영문자·숫자·밑줄·하이픈으로 이루어진 1~64자여야 합니다.")
+        raise ValueError(
+            "server_group은 영문자·숫자·밑줄·하이픈으로 이루어진 1~64자여야 합니다."
+        )
     if server_group == "production":
         return _ADDRESS, _LOCK_PATH
     group_key = hashlib.sha256(server_group.encode("utf-8")).hexdigest()
-    return (f"{_ADDRESS}-{group_key}",
-            _LOCK_PATH.with_name(f"{_LOCK_PATH.stem}-{group_key}.lock"))
+    return (
+        f"{_ADDRESS}-{group_key}",
+        _LOCK_PATH.with_name(f"{_LOCK_PATH.stem}-{group_key}.lock"),
+    )
 
 
 def _connect(server_group="production"):
@@ -131,14 +137,22 @@ def _start_server(server_group="production") -> None:
             flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
             errors: deque[str] = deque(maxlen=25)
             process = subprocess.Popen(
-                [_server_executable(), "-m", "pipeworks.main", "--server-group", server_group],
+                [
+                    _server_executable(),
+                    "-m",
+                    "pipeworks.main",
+                    "--server-group",
+                    server_group,
+                ],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 creationflags=flags,
                 close_fds=True,
             )
-            _launched_servers[:] = [item for item in _launched_servers if item.poll() is None]
+            _launched_servers[:] = [
+                item for item in _launched_servers if item.poll() is None
+            ]
             _launched_servers.append(process)
 
             def collect_errors() -> None:
@@ -159,7 +173,9 @@ def _start_server(server_group="production") -> None:
                     if process.poll() is not None:
                         time.sleep(0.05)
                         detail = "\n".join(errors) or f"종료 코드 {process.returncode}"
-                        raise RuntimeError(f"중앙 스트림 프로세스가 시작 중 종료되었습니다:\n{detail}")
+                        raise RuntimeError(
+                            f"중앙 스트림 프로세스가 시작 중 종료되었습니다:\n{detail}"
+                        )
                     time.sleep(0.05)
             raise TimeoutError("중앙 스트림 프로세스 시작 시간이 초과되었습니다.")
         finally:
@@ -366,10 +382,16 @@ def serve(*, server_group="production") -> None:
                     finally:
                         connection.close()
                     continue
-                if payload.startswith(_IDLE_SHUTDOWN) and len(payload) == len(_IDLE_SHUTDOWN) + 8:
+                if (
+                    payload.startswith(_IDLE_SHUTDOWN)
+                    and len(payload) == len(_IDLE_SHUTDOWN) + 8
+                ):
                     connection.close()
                     with clients_lock:
-                        if active_connections == 0 and idle_generation == int.from_bytes(payload[-8:], "big"):
+                        if (
+                            active_connections == 0
+                            and idle_generation == int.from_bytes(payload[-8:], "big")
+                        ):
                             break
                     continue
                 with clients_lock:
@@ -378,7 +400,9 @@ def serve(*, server_group="production") -> None:
                     if idle_timer is not None:
                         idle_timer.cancel()
                         idle_timer = None
-                Thread(target=handle_client, args=(connection, payload), daemon=True).start()
+                Thread(
+                    target=handle_client, args=(connection, payload), daemon=True
+                ).start()
         finally:
             with clients_lock:
                 if idle_timer is not None:
@@ -389,5 +413,9 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="중앙 스트림 프로세스를 실행합니다.")
-    parser.add_argument("--server-group", default="production", help="중앙 프로세스 그룹 (기본: production)")
+    parser.add_argument(
+        "--server-group",
+        default="production",
+        help="중앙 프로세스 그룹 (기본: production)",
+    )
     serve(server_group=parser.parse_args().server_group)

@@ -24,8 +24,11 @@ class _LockedBuffer:
         self.pool, self.pointer, self.completion = pool, pointer, ready
         self.ready = ready
         self.__cuda_array_interface__ = {
-            "version": 3, "shape": pool.shape, "strides": pool.strides,
-            "typestr": pool.typestr, "data": (pointer, False),
+            "version": 3,
+            "shape": pool.shape,
+            "strides": pool.strides,
+            "typestr": pool.typestr,
+            "data": (pointer, False),
         }
 
     def __del__(self):
@@ -46,14 +49,20 @@ class _DecoderBuffers:
         self.locked = set()
         self.retired = []
         self.closed = False
-        width, height, size = decoder.GetWidth(), decoder.GetHeight(), decoder.GetFrameSize()
+        width, height, size = (
+            decoder.GetWidth(),
+            decoder.GetHeight(),
+            decoder.GetFrameSize(),
+        )
         name = getattr(pixel_format, "name", str(pixel_format)).upper()
-        layouts = {"NV12": (height * 3 // 2, "|u1", 1),
-                   "P016": (height * 3 // 2, "<u2", 2),
-                   "NV16": (height * 2, "|u1", 1),
-                   "P216": (height * 2, "<u2", 2),
-                   "YUV444": (height * 3, "|u1", 1),
-                   "YUV444_16BIT": (height * 3, "<u2", 2)}
+        layouts = {
+            "NV12": (height * 3 // 2, "|u1", 1),
+            "P016": (height * 3 // 2, "<u2", 2),
+            "NV16": (height * 2, "|u1", 1),
+            "P216": (height * 2, "<u2", 2),
+            "YUV444": (height * 3, "|u1", 1),
+            "YUV444_16BIT": (height * 3, "<u2", 2),
+        }
         if name not in layouts:
             raise ValueError(f"무복사 디코딩에서 지원하지 않는 픽셀 형식: {name}")
         rows, self.typestr, element_size = layouts[name]
@@ -93,7 +102,7 @@ class _DecoderBuffers:
             with self.condition:
                 if len(self.locked) < self.limit:
                     return True
-                self.condition.wait(.001)
+                self.condition.wait(0.001)
         return False
 
     def acquire(self):
@@ -155,7 +164,7 @@ class _FrameQueue:
                     return item
                 if self.finished:
                     return None
-                self.condition.wait(.1)
+                self.condition.wait(0.1)
 
     def finish(self, error=None):
         with self.condition:
@@ -193,11 +202,18 @@ class NvidiaDecode(Step):
                 return
             for frame in frames:
                 if callable(getattr(frame, "__dlpack__", None)):
-                    raise RuntimeError("GPU 디코딩에는 GetLockedFrame 잠금 API가 필요합니다.")
-                slot.publish(PipelineContext(
-                    frame=frame, video_stream=video_stream, cuda_stream=consumer_stream,
-                    pixel_format=pixel_format, decoded_at=time.perf_counter(),
-                ))
+                    raise RuntimeError(
+                        "GPU 디코딩에는 GetLockedFrame 잠금 API가 필요합니다."
+                    )
+                slot.publish(
+                    PipelineContext(
+                        frame=frame,
+                        video_stream=video_stream,
+                        cuda_stream=consumer_stream,
+                        pixel_format=pixel_format,
+                        decoded_at=time.perf_counter(),
+                    )
+                )
 
         def decode(packet_data):
             nonlocal pixel_format
@@ -216,11 +232,16 @@ class NvidiaDecode(Step):
                 if not buffers.available(stopped):
                     return
                 frame, owner = buffers.acquire()
-                slot.publish(PipelineContext(
-                    frame=frame, _decode_buffer=owner, video_stream=video_stream,
-                    cuda_stream=consumer_stream, pixel_format=pixel_format,
-                    decoded_at=time.perf_counter(),
-                ))
+                slot.publish(
+                    PipelineContext(
+                        frame=frame,
+                        _decode_buffer=owner,
+                        video_stream=video_stream,
+                        cuda_stream=consumer_stream,
+                        pixel_format=pixel_format,
+                        decoded_at=time.perf_counter(),
+                    )
+                )
                 del frame, owner
             buffers.reap()
 
@@ -229,18 +250,26 @@ class NvidiaDecode(Step):
                 return
             if decoder is None:
                 video_stream = item.video_stream
-                codec_ids = {"h264": nvc.cudaVideoCodec.H264,
-                             "hevc": nvc.cudaVideoCodec.HEVC, "h265": nvc.cudaVideoCodec.HEVC}
+                codec_ids = {
+                    "h264": nvc.cudaVideoCodec.H264,
+                    "hevc": nvc.cudaVideoCodec.HEVC,
+                    "h265": nvc.cudaVideoCodec.HEVC,
+                }
                 decode_stream = torch.cuda.Stream(device=self.gpu_id)
                 consumer_stream = torch.cuda.Stream(device=self.gpu_id)
                 decoder = nvc.CreateDecoder(
-                    gpuid=self.gpu_id, codec=codec_ids[video_stream.codec.name.lower()],
-                    usedevicememory=True, outputColorType=nvc.OutputColorType.NATIVE,
-                    latency=nvc.DisplayDecodeLatencyType.NATIVE, cudastream=decode_stream.cuda_stream,
+                    gpuid=self.gpu_id,
+                    codec=codec_ids[video_stream.codec.name.lower()],
+                    usedevicememory=True,
+                    outputColorType=nvc.OutputColorType.NATIVE,
+                    latency=nvc.DisplayDecodeLatencyType.NATIVE,
+                    cudastream=decode_stream.cuda_stream,
                 )
                 pixel_format = decoder.GetPixelFormat()
-                if all(callable(getattr(decoder, name, None)) for name in
-                       ("GetNumDecodedFrame", "GetLockedFrame", "UnlockFrame")):
+                if all(
+                    callable(getattr(decoder, name, None))
+                    for name in ("GetNumDecodedFrame", "GetLockedFrame", "UnlockFrame")
+                ):
                     # Geometry becomes available after the first packet is decoded.
                     locked_decoder = True
                 else:
@@ -289,7 +318,11 @@ class NvidiaDecode(Step):
                                 error = caught
                 slot.finish(error)
 
-        worker = Thread(target=lambda: context.run(produce), name="pipeworks-nvidia-decode", daemon=True)
+        worker = Thread(
+            target=lambda: context.run(produce),
+            name="pipeworks-nvidia-decode",
+            daemon=True,
+        )
         worker.start()
         try:
             while True:

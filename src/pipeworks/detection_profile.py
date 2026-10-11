@@ -15,14 +15,26 @@ from pipeworks.models import Step
 
 _current = ContextVar("pipeworks_detection_profile", default=None)
 LABELS = {
-    "preprocess": "전처리", "queue": "배치 큐 대기", "input_wait": "입력 동기화",
-    "input_copy": "입력 결합", "prepare": "모델 준비", "inference": "모델 실행",
-    "postprocess": "후처리", "output_copy": "출력 복사",
-    "completion_wait": "GPU 완료 대기", "other": "기타 실행 비용",
+    "preprocess": "전처리",
+    "queue": "배치 큐 대기",
+    "input_wait": "입력 동기화",
+    "input_copy": "입력 결합",
+    "prepare": "모델 준비",
+    "inference": "모델 실행",
+    "postprocess": "후처리",
+    "output_copy": "출력 복사",
+    "completion_wait": "GPU 완료 대기",
+    "other": "기타 실행 비용",
     "total": "전체",
 }
-STATES = {"completed": "완료", "skipped": "간격 건너뜀", "busy": "작업자 바쁨",
-          "timeout": "타임아웃", "error": "오류", "partial": "부분 종료"}
+STATES = {
+    "completed": "완료",
+    "skipped": "간격 건너뜀",
+    "busy": "작업자 바쁨",
+    "timeout": "타임아웃",
+    "error": "오류",
+    "partial": "부분 종료",
+}
 
 
 @dataclass
@@ -94,17 +106,25 @@ class DetectionStats:
                 result = {}
                 for name, samples in groups.items():
                     gpu = [s.gpu_ms for s in samples if s.gpu_ms is not None]
-                    result[name] = (sum(s.seconds for s in samples) * 1000 / len(samples),
-                                    len(samples), sum(gpu) / len(gpu) if gpu else None, len(gpu))
+                    result[name] = (
+                        sum(s.seconds for s in samples) * 1000 / len(samples),
+                        len(samples),
+                        sum(gpu) / len(gpu) if gpu else None,
+                        len(gpu),
+                    )
                 return result
 
-            return {"window": averages(since), "recent": averages(now - 10),
-                    "states": Counter(s for at, s in states if at > since),
-                    "recent_states": Counter(s for _, s in states)}
+            return {
+                "window": averages(since),
+                "recent": averages(now - 10),
+                "states": Counter(s for at, s in states if at > since),
+                "recent_states": Counter(s for _, s in states),
+            }
 
 
 def store():
     from pipeworks.embedded.stream_report import _stats
+
     stats = _stats()
     with stats.lock:
         if stats.detection_stats is None:
@@ -140,7 +160,10 @@ class Profile:
         self.add("total", total)
         if self.stats is not None:
             # 리포트 스레드가 읽는 표본은 이후 단계의 수정과 분리한다.
-            samples = {name: Sample(s.seconds, list(s.events), s.gpu_ms) for name, s in self.parts.items()}
+            samples = {
+                name: Sample(s.seconds, list(s.events), s.gpu_ms)
+                for name, s in self.parts.items()
+            }
             self.stats.record(self.kind, samples, status)
 
 
@@ -171,7 +194,10 @@ def span(name, stream=None):
     started = time.perf_counter()
     events = None
     if stream is not None:
-        events = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        events = (
+            torch.cuda.Event(enable_timing=True),
+            torch.cuda.Event(enable_timing=True),
+        )
         events[0].record(stream)
     try:
         yield
@@ -189,8 +215,10 @@ class DetectionReport(Step):
 
     def _write(self, stats, since):
         snapshot = stats.snapshot(self.kind, since)
-        counts = " | ".join(f"{label} {snapshot['states'][name]}/{snapshot['recent_states'][name]}"
-                            for name, label in STATES.items())
+        counts = " | ".join(
+            f"{label} {snapshot['states'][name]}/{snapshot['recent_states'][name]}"
+            for name, label in STATES.items()
+        )
         lines = [f"{type(self).__name__} | 건수 1s/10s | {counts}"]
 
         def format_value(row):
@@ -201,13 +229,16 @@ class DetectionReport(Step):
             return f"CPU {cpu:.2f}ms(n={count}), GPU {gpu_text}"
 
         for name, label in LABELS.items():
-            lines.append(f"  {label}: {format_value(snapshot['window'].get(name))}/1s | "
-                         f"{format_value(snapshot['recent'].get(name))}/10s")
+            lines.append(
+                f"  {label}: {format_value(snapshot['window'].get(name))}/1s | "
+                f"{format_value(snapshot['recent'].get(name))}/10s"
+            )
         sys.stdout.write("\n".join(lines) + "\n")
         sys.stdout.flush()
 
     def process(self, inputs):
         from pipeworks.main import _current_output_writer, _use_output_writer
+
         stats = store()
         stats.activate(self.kind)
         done = Event()
@@ -225,7 +256,9 @@ class DetectionReport(Step):
                 while not done.wait(1):
                     context.run(report)
 
-        thread = Thread(target=worker, name=f"pipeworks-{self.kind}-report", daemon=True)
+        thread = Thread(
+            target=worker, name=f"pipeworks-{self.kind}-report", daemon=True
+        )
         thread.start()
         try:
             yield from inputs

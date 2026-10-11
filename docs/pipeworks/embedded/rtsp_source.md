@@ -116,9 +116,9 @@ RTSPSource:
 
 ```python
 context = PipelineContext(
-    video_stream=av.VideoStream,    # 비디오 스트림 객체
-    packet=av.Packet,               # H.264/H.265 패킷
-    pixel_format="NV12",            # 픽셀 포맷 (하드웨어 디코딩 사용 시)
+    video_stream=av.VideoStream,  # 비디오 스트림 객체
+    packet=av.Packet,  # H.264/H.265 패킷
+    pixel_format="NV12",  # 픽셀 포맷 (하드웨어 디코딩 사용 시)
     # ... GPU 처리 관련 필드
 )
 ```

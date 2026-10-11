@@ -68,7 +68,11 @@ def _prepare(request):
     stream = getattr(source, "cuda_stream", None)
     fields = vars(source).copy()
     frame = fields.get("frame")
-    if frame is not None and not isinstance(frame, torch.Tensor) and hasattr(frame, "__dlpack__"):
+    if (
+        frame is not None
+        and not isinstance(frame, torch.Tensor)
+        and hasattr(frame, "__dlpack__")
+    ):
         with torch.cuda.stream(stream) if stream is not None else nullcontext():
             fields["frame"] = torch.from_dlpack(frame)
     request.owner = PipelineContext(**fields)
@@ -118,24 +122,42 @@ class _InputSlot(Iterator[PipelineContext]):
             if request is None:
                 if self.closed:
                     raise StopIteration
-                raise RuntimeError("CudaAsync 단계는 출력 전에 추가 입력을 요구할 수 없습니다.")
+                raise RuntimeError(
+                    "CudaAsync 단계는 출력 전에 추가 입력을 요구할 수 없습니다."
+                )
             if request.consumed:
-                raise RuntimeError("CudaAsync 단계는 입력마다 정확히 한 번 출력해야 합니다.")
+                raise RuntimeError(
+                    "CudaAsync 단계는 입력마다 정확히 한 번 출력해야 합니다."
+                )
             request.consumed = True
             return request.item
 
     def finish(self, request, result):
         with self.condition:
             request.completed_at = time.monotonic()
-            borrowed_frame = any(getattr(item, "_decode_buffer", None) is not None
-                                 for item in (request.owner, request.item, result) if item is not None)
-            if not self.closed and not request.expired.is_set() and request.completed_at <= request.deadline:
+            borrowed_frame = any(
+                getattr(item, "_decode_buffer", None) is not None
+                for item in (request.owner, request.item, result)
+                if item is not None
+            )
+            if (
+                not self.closed
+                and not request.expired.is_set()
+                and request.completed_at <= request.deadline
+            ):
                 # Separate the output before suspended stage generators relinquish
                 # native input fields. Tensor storage itself remains shared.
-                request.result = PipelineContext(**vars(result)) if borrowed_frame and result is not None else result
+                request.result = (
+                    PipelineContext(**vars(result))
+                    if borrowed_frame and result is not None
+                    else result
+                )
             if borrowed_frame and request.input_drained:
                 for item in (request.owner, request.item, result):
-                    if item is not None and getattr(item, "_decode_buffer", None) is not None:
+                    if (
+                        item is not None
+                        and getattr(item, "_decode_buffer", None) is not None
+                    ):
                         vars(item).pop("frame", None)
                         vars(item).pop("_decode_buffer", None)
                 request.input_tensors.clear()
@@ -148,8 +170,12 @@ class _InputSlot(Iterator[PipelineContext]):
                 return
             if not request.consumed:
                 raise RuntimeError("입력을 받은 뒤에만 사용 종료를 알릴 수 있습니다.")
-            if ready_event is not None and not callable(getattr(ready_event, "query", None)):
-                raise TypeError("ready_event는 query 메서드를 가진 완료 이벤트여야 합니다.")
+            if ready_event is not None and not callable(
+                getattr(ready_event, "query", None)
+            ):
+                raise TypeError(
+                    "ready_event는 query 메서드를 가진 완료 이벤트여야 합니다."
+                )
             if frame:
                 request.frame_release_requested = True
                 request.frame_release_event = ready_event
@@ -171,7 +197,9 @@ class _InputSlot(Iterator[PipelineContext]):
         try:
             return bool(event.query())
         except Exception:
-            logger.exception("CudaAsync 원본 사용 종료 이벤트를 확인하지 못해 해당 프레임을 폐기합니다.")
+            logger.exception(
+                "CudaAsync 원본 사용 종료 이벤트를 확인하지 못해 해당 프레임을 폐기합니다."
+            )
             return False
 
     def close(self):
@@ -196,7 +224,9 @@ class _StageInput(Iterator[PipelineContext]):
 
     def __next__(self):
         if self.consumed:
-            raise RuntimeError("CudaAsync 단계는 입력마다 정확히 한 번 출력해야 합니다.")
+            raise RuntimeError(
+                "CudaAsync 단계는 입력마다 정확히 한 번 출력해야 합니다."
+            )
         self.consumed = True
         return self.item
 
@@ -210,7 +240,9 @@ class _Stage(Iterator[PipelineContext]):
     def __next__(self):
         item = next(self.upstream)
         request = self.slot.request
-        if isinstance(self.upstream, _Stage) and (request.expired.is_set() or time.monotonic() >= request.deadline):
+        if isinstance(self.upstream, _Stage) and (
+            request.expired.is_set() or time.monotonic() >= request.deadline
+        ):
             return item
         self.inputs.item, self.inputs.consumed = item, False
         try:
@@ -218,7 +250,9 @@ class _Stage(Iterator[PipelineContext]):
                 self.outputs = iter(self.step.process(self.inputs))
             output = next(self.outputs)
             if not self.inputs.consumed or not isinstance(output, PipelineContext):
-                raise RuntimeError("CudaAsync 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다.")
+                raise RuntimeError(
+                    "CudaAsync 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다."
+                )
             return output
         finally:
             self.inputs.item = None
@@ -237,7 +271,8 @@ class CudaAsync(Step):
         self.steps = steps
         self.step = steps[0]
         self._hot_steps = tuple(
-            step if isinstance(step, Hotswap) or is_embedded_step(step)
+            step
+            if isinstance(step, Hotswap) or is_embedded_step(step)
             else Hotswap(step, recover_errors=False)
             for step in steps
         )
@@ -256,8 +291,12 @@ class CudaAsync(Step):
 
     @staticmethod
     def _validate_timeout(value):
-        if (isinstance(value, bool) or not isinstance(value, (int, float))
-                or not math.isfinite(value) or value < 0):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+        ):
             raise ValueError("timeout_ms는 유한한 0 이상의 숫자여야 합니다.")
 
     def configure(self, config: SimpleNamespace) -> None:
@@ -265,7 +304,9 @@ class CudaAsync(Step):
         timeout = getattr(config, "timeout_ms", self.timeout_ms)
         self._validate_timeout(timeout)
         if any(key != "timeout_ms" for key in vars(config)):
-            raise ValueError("Async는 timeout_ms만 받습니다. 내부 Step은 최상위 클래스명 섹션으로 설정하세요.")
+            raise ValueError(
+                "Async는 timeout_ms만 받습니다. 내부 Step은 최상위 클래스명 섹션으로 설정하세요."
+            )
         self.timeout_ms = timeout
 
     def _consume(self, slot):
@@ -286,17 +327,45 @@ class CudaAsync(Step):
                         request.input_drained = True
                         return None
                     producer = getattr(request.item, "cuda_stream", None)
-                    device = producer.device if producer is not None else next((t.device for t in request.input_tensors if t.is_cuda), None)
+                    device = (
+                        producer.device
+                        if producer is not None
+                        else next(
+                            (t.device for t in request.input_tensors if t.is_cuda), None
+                        )
+                    )
                     stream = model_streams.get(device)
                     if device is not None and stream is None:
-                        stream = model_streams[device] = torch.cuda.Stream(device=device)
+                        stream = model_streams[device] = torch.cuda.Stream(
+                            device=device
+                        )
                     try:
-                        callback = (lambda event, current=request: slot.release_input(current, event)) if len(self.steps) == 1 else (lambda event: None)
-                        frame_callback = lambda event, current=request: slot.release_input(current, event, frame=True)
-                        with _input_scope(callback), _frame_scope(frame_callback), _model_stream_scope(stream):
-                            with torch.cuda.stream(stream) if stream is not None else nullcontext():
+                        callback = (
+                            (
+                                lambda event, current=request: slot.release_input(
+                                    current, event
+                                )
+                            )
+                            if len(self.steps) == 1
+                            else (lambda event: None)
+                        )
+                        frame_callback = lambda event, current=request: (
+                            slot.release_input(current, event, frame=True)
+                        )
+                        with (
+                            _input_scope(callback),
+                            _frame_scope(frame_callback),
+                            _model_stream_scope(stream),
+                        ):
+                            with (
+                                torch.cuda.stream(stream)
+                                if stream is not None
+                                else nullcontext()
+                            ):
                                 if outputs is None:
-                                    if len(self.steps) == 1 and not isinstance(self._hot_steps[0], Hotswap):
+                                    if len(self.steps) == 1 and not isinstance(
+                                        self._hot_steps[0], Hotswap
+                                    ):
                                         outputs = iter(self.step.process(slot))
                                     else:
                                         outputs = slot
@@ -311,7 +380,9 @@ class CudaAsync(Step):
                                 torch.cuda.current_stream(tensor.device).synchronize()
                         request.input_drained = True
                     if not request.consumed or not isinstance(output, PipelineContext):
-                        raise RuntimeError("CudaAsync 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다.")
+                        raise RuntimeError(
+                            "CudaAsync 단계는 입력 하나당 PipelineContext 하나를 출력해야 합니다."
+                        )
                     if getattr(output, "_pipeworks_hotswap_epoch", None) == ():
                         del output._pipeworks_hotswap_epoch
                     return output
@@ -345,7 +416,11 @@ class CudaAsync(Step):
             names = {cls.__name__ for cls in type(original).__mro__}
             if "YoloDetect" in names:
                 kinds.add("YOLO")
-            elif names & {"TensorRTPreProcess", "TensorRTInference", "TensorRTPostProcess"}:
+            elif names & {
+                "TensorRTPreProcess",
+                "TensorRTInference",
+                "TensorRTPostProcess",
+            }:
                 kinds.add("TensorRT")
 
         def consume():
@@ -373,10 +448,14 @@ class CudaAsync(Step):
                         request.error = error
                         for kind in kinds:
                             status(kind, "error")
-                        logger.exception("CudaAsync 입력 준비에 실패하여 원본을 전달합니다.")
+                        logger.exception(
+                            "CudaAsync 입력 준비에 실패하여 원본을 전달합니다."
+                        )
                     request.prepared.set()
                     if worker is None:
-                        worker = Thread(target=consume, name="pipeworks-async", daemon=True)
+                        worker = Thread(
+                            target=consume, name="pipeworks-async", daemon=True
+                        )
                         try:
                             worker.start()
                         except Exception:
@@ -393,11 +472,18 @@ class CudaAsync(Step):
                             del fields
                         else:
                             request.expired.set()
-                            if not request.done.is_set() or request.completed_at > request.deadline:
+                            if (
+                                not request.done.is_set()
+                                or request.completed_at > request.deadline
+                            ):
                                 for kind in kinds:
                                     status(kind, "timeout")
-                            input_finished = request.done.is_set() and request.input_drained
-                            drop_frame = not input_finished and not slot.input_released(request)
+                            input_finished = (
+                                request.done.is_set() and request.input_drained
+                            )
+                            drop_frame = not input_finished and not slot.input_released(
+                                request
+                            )
                         request.result = None
                     if drop_frame:
                         del item

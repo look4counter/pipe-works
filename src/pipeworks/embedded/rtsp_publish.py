@@ -11,17 +11,31 @@ logger = logging.getLogger(__name__)
 
 
 class RTSPPublish(Step):
-    def __init__(self, url: str, *, reconnect: bool = True,
-                 reconnect_interval_ms: float = 3000, transport: str = "tcp",
-                 timeout_ms: float = 5000, packet_size: int = 1452) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        reconnect: bool = True,
+        reconnect_interval_ms: float = 3000,
+        transport: str = "tcp",
+        timeout_ms: float = 5000,
+        packet_size: int = 1452,
+    ) -> None:
         self.url = url
-        self._set_config_defaults(reconnect=reconnect, reconnect_interval_ms=reconnect_interval_ms,
-                                  transport=transport, timeout_ms=timeout_ms, packet_size=packet_size)
+        self._set_config_defaults(
+            reconnect=reconnect,
+            reconnect_interval_ms=reconnect_interval_ms,
+            transport=transport,
+            timeout_ms=timeout_ms,
+            packet_size=packet_size,
+        )
 
     def configure(self, config: SimpleNamespace) -> None:
         config = self._resolve_config(config)
         if hasattr(config, "reconnect_interval"):
-            raise ValueError("reconnect_interval 대신 밀리초 단위의 reconnect_interval_ms를 사용하세요.")
+            raise ValueError(
+                "reconnect_interval 대신 밀리초 단위의 reconnect_interval_ms를 사용하세요."
+            )
         reconnect_interval_ms = getattr(config, "reconnect_interval_ms", 3000)
         if (
             isinstance(reconnect_interval_ms, bool)
@@ -71,7 +85,9 @@ class RTSPPublish(Step):
                 video_stream = getattr(input, "video_stream", None)
                 packet = getattr(input, "packet", None)
                 if packet is None or video_stream is None:
-                    raise ValueError("RTSP 송출 입력에 패킷과 비디오 스트림이 필요합니다.")
+                    raise ValueError(
+                        "RTSP 송출 입력에 패킷과 비디오 스트림이 필요합니다."
+                    )
 
                 codec = video_stream.codec_context
                 stream_key = (
@@ -125,7 +141,11 @@ class RTSPPublish(Step):
                         logger.warning("RTSP 출력 연결 실패, 재시도 예정: %s", error)
                         continue
 
-                packet_time_base = packet.time_base or video_stream.time_base or output_stream.time_base
+                packet_time_base = (
+                    packet.time_base
+                    or video_stream.time_base
+                    or output_stream.time_base
+                )
                 if packet_time_base is None:
                     raise ValueError("RTSP 패킷에 time_base가 없습니다.")
                 packet_time_base = Fraction(packet_time_base)
@@ -140,16 +160,41 @@ class RTSPPublish(Step):
                         dts = packet.pts
                     elif last_dts is not None:
                         previous_dts, previous_base = last_dts
-                        duration = packet.duration if packet.duration and packet.duration > 0 else 1
-                        dts = floor(Fraction(previous_dts) * previous_base / packet_time_base) + duration
+                        duration = (
+                            packet.duration
+                            if packet.duration and packet.duration > 0
+                            else 1
+                        )
+                        dts = (
+                            floor(
+                                Fraction(previous_dts)
+                                * previous_base
+                                / packet_time_base
+                            )
+                            + duration
+                        )
                     else:
                         dts = 0
                     packet.dts = dts
                 if last_dts is not None:
                     previous_dts, previous_base = last_dts
-                    if Fraction(dts) * packet_time_base <= Fraction(previous_dts) * previous_base:
-                        duration = packet.duration if packet.duration and packet.duration > 0 else 1
-                        corrected = floor(Fraction(previous_dts) * previous_base / packet_time_base) + duration
+                    if (
+                        Fraction(dts) * packet_time_base
+                        <= Fraction(previous_dts) * previous_base
+                    ):
+                        duration = (
+                            packet.duration
+                            if packet.duration and packet.duration > 0
+                            else 1
+                        )
+                        corrected = (
+                            floor(
+                                Fraction(previous_dts)
+                                * previous_base
+                                / packet_time_base
+                            )
+                            + duration
+                        )
                         if packet.pts is not None:
                             packet.pts += corrected - dts
                         packet.dts = dts = corrected

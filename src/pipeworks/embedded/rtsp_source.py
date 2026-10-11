@@ -12,17 +12,29 @@ logger = logging.getLogger(__name__)
 
 
 class RTSPSource(Step):
-    def __init__(self, url: str, *, reconnect: bool = True,
-                 reconnect_interval_ms: float = 3000, transport: str = "tcp",
-                 timeout_ms: float = 5000) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        reconnect: bool = True,
+        reconnect_interval_ms: float = 3000,
+        transport: str = "tcp",
+        timeout_ms: float = 5000,
+    ) -> None:
         self.url = url
-        self._set_config_defaults(reconnect=reconnect, reconnect_interval_ms=reconnect_interval_ms,
-                                  transport=transport, timeout_ms=timeout_ms)
+        self._set_config_defaults(
+            reconnect=reconnect,
+            reconnect_interval_ms=reconnect_interval_ms,
+            transport=transport,
+            timeout_ms=timeout_ms,
+        )
 
     def configure(self, config: SimpleNamespace) -> None:
         config = self._resolve_config(config)
         if hasattr(config, "reconnect_interval"):
-            raise ValueError("reconnect_interval 대신 밀리초 단위의 reconnect_interval_ms를 사용하세요.")
+            raise ValueError(
+                "reconnect_interval 대신 밀리초 단위의 reconnect_interval_ms를 사용하세요."
+            )
         reconnect_interval_ms = getattr(config, "reconnect_interval_ms", 3000)
         if (
             isinstance(reconnect_interval_ms, bool)
@@ -56,7 +68,9 @@ class RTSPSource(Step):
     def process(self, _: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         stop = getattr(self, "_pipeworks_stop_event", None)
         cancel = current_source_cancel()
-        while (stop is None or not stop.is_set()) and (cancel is None or not cancel.is_set()):
+        while (stop is None or not stop.is_set()) and (
+            cancel is None or not cancel.is_set()
+        ):
             container = None
             try:
                 container = av.open(
@@ -72,7 +86,9 @@ class RTSPSource(Step):
 
                 video_stream = video_streams[0]
                 for packet in container.demux(video_stream):
-                    if (stop is not None and stop.is_set()) or (cancel is not None and cancel.is_set()):
+                    if (stop is not None and stop.is_set()) or (
+                        cancel is not None and cancel.is_set()
+                    ):
                         return
                     if packet.size > 0:
                         record_receive(True)
@@ -80,7 +96,9 @@ class RTSPSource(Step):
 
                 record_receive(False)
                 if not self.reconnect:
-                    raise RuntimeError("RTSP 입력 스트림이 종료되어 파이프라인 실행을 중단합니다.")
+                    raise RuntimeError(
+                        "RTSP 입력 스트림이 종료되어 파이프라인 실행을 중단합니다."
+                    )
                 logger.warning(
                     "RTSP 입력 스트림이 종료되었습니다. %gms 후 재연결을 시도합니다.",
                     self.reconnect_interval_ms,
@@ -111,7 +129,7 @@ class RTSPSource(Step):
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         break
-                    cancel.wait(min(.1, remaining))
+                    cancel.wait(min(0.1, remaining))
             elif stop is not None:
                 stop.wait(self.reconnect_interval_ms / 1000)
             else:

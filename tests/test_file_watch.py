@@ -57,7 +57,9 @@ class FileWatchTests(unittest.TestCase):
     def test_idle_and_shared_read(self):
         first, second = self.subscribe(), self.subscribe()
         first.snapshot()
-        with patch.object(Path, "read_bytes", autospec=True, side_effect=Path.read_bytes) as read:
+        with patch.object(
+            Path, "read_bytes", autospec=True, side_effect=Path.read_bytes
+        ) as read:
             for _ in range(1000):
                 self.assertEqual(first.snapshot(), second.snapshot())
             self.assertEqual(read.call_count, 0)
@@ -71,9 +73,11 @@ class FileWatchTests(unittest.TestCase):
         subscription = self.subscribe()
         subscription.snapshot()
         done = Event()
+
         def callback():
             self.service.mark_changed(self.path)
             done.set()
+
         with self.service.lock:
             thread = Thread(target=callback)
             thread.start()
@@ -84,6 +88,7 @@ class FileWatchTests(unittest.TestCase):
     def test_config_consumers_share_snapshot_and_recover_silent_loss(self):
         from pipeworks.pipeline import _LiveConfig
         from hashlib import sha256
+
         self.path.write_bytes(b"Step:\n  offset: 1\n")
         digest = sha256(self.path.read_bytes()).hexdigest()
         with patch("pipeworks.file_watch._shared_service", return_value=self.service):
@@ -93,7 +98,9 @@ class FileWatchTests(unittest.TestCase):
             self.addCleanup(second.close)
             first.section("Step")
             second.section("Step")
-            with patch.object(Path, "read_bytes", autospec=True, side_effect=Path.read_bytes) as read:
+            with patch.object(
+                Path, "read_bytes", autospec=True, side_effect=Path.read_bytes
+            ) as read:
                 for _ in range(1000):
                     first.last_check = second.last_check = float("-inf")
                     first.section("Step")
@@ -107,7 +114,9 @@ class FileWatchTests(unittest.TestCase):
                 self.assertEqual(read.call_count, 1)
             self.path.write_bytes(b"Step:\n  offset: 3\n")
             first.last_check = float("-inf")
-            with patch("pipeworks.file_watch.monotonic", return_value=time.monotonic() + 31):
+            with patch(
+                "pipeworks.file_watch.monotonic", return_value=time.monotonic() + 31
+            ):
                 self.assertEqual(first.section("Step").offset, 3)
 
     def test_silent_loss_with_preserved_metadata(self):
@@ -117,7 +126,9 @@ class FileWatchTests(unittest.TestCase):
         self.path.write_bytes(b"other")
         os.utime(self.path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
         self.assertEqual(subscription.snapshot(), before)
-        with patch("pipeworks.file_watch.monotonic", return_value=time.monotonic() + 31):
+        with patch(
+            "pipeworks.file_watch.monotonic", return_value=time.monotonic() + 31
+        ):
             self.assertEqual(subscription.snapshot().source, b"other")
 
     def test_read_failure_remains_retryable(self):
@@ -132,16 +143,22 @@ class FileWatchTests(unittest.TestCase):
 
     def test_unrelated_directory_events_do_not_invalidate_file(self):
         from watchdog.events import DirModifiedEvent, FileModifiedEvent
+
         subscription = self.subscribe()
         subscription.snapshot()
-        with patch.object(Path, "read_bytes", autospec=True, side_effect=Path.read_bytes) as read:
+        with patch.object(
+            Path, "read_bytes", autospec=True, side_effect=Path.read_bytes
+        ) as read:
             self.service.handler.dispatch(DirModifiedEvent(str(self.path.parent)))
-            self.service.handler.dispatch(FileModifiedEvent(str(self.path.with_name("other.py"))))
+            self.service.handler.dispatch(
+                FileModifiedEvent(str(self.path.with_name("other.py")))
+            )
             subscription.snapshot()
             self.assertEqual(read.call_count, 0)
 
     def test_garbage_collection_releases_subscription(self):
         import gc
+
         subscription = FileSubscription(self.path, service=self.service)
         subscription.snapshot()
         observer = self.service.observer

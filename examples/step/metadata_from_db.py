@@ -5,7 +5,6 @@ from threading import Event, Thread
 
 
 class MetadataFromDB(Step):
-
     def configure(self, config: SimpleNamespace) -> None:
         pass
 

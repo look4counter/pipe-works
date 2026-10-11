@@ -25,10 +25,7 @@
 from pipeworks.models import PipelineContext
 
 # Source Step에서 생성
-context = PipelineContext(
-    video_stream=video_stream,
-    packet=packet
-)
+context = PipelineContext(video_stream=video_stream, packet=packet)
 
 # Processing Step에서 필드 추가
 context.detections = {"yolo11n.pt": yolo_results}
@@ -49,17 +46,17 @@ print(context.custom_field)
 
 ```python
 # RTSPSource에서 생성
-context.video_stream      # av.VideoStream
-context.packet            # av.Packet
-context.pixel_format      # 픽셀 포맷 (e.g., NV12)
+context.video_stream  # av.VideoStream
+context.packet  # av.Packet
+context.pixel_format  # 픽셀 포맷 (e.g., NV12)
 
 # YoloDetect에서 추가
-context.detections        # YOLO/TensorRT 공통 {모델 ID: 결과 또는 None}
-context.cuda_stream       # CUDA 스트림 (GPU 처리 시)
+context.detections  # YOLO/TensorRT 공통 {모델 ID: 결과 또는 None}
+context.cuda_stream  # CUDA 스트림 (GPU 처리 시)
 
 # StreamReport에서 추가
-context.inference_time_ms # 추론 시간 (ms)
-context.receive_time      # 수신 시간 (unix timestamp)
+context.inference_time_ms  # 추론 시간 (ms)
+context.receive_time  # 수신 시간 (unix timestamp)
 ```
 
 #### 필드 접근 패턴
@@ -69,10 +66,10 @@ context.receive_time      # 수신 시간 (unix timestamp)
 detections = context.detections
 
 # 2. 안전한 접근 (필드 없으면 None)
-detections = getattr(context, 'detections', None)
+detections = getattr(context, "detections", None)
 
 # 3. 필드 존재 확인
-if hasattr(context, 'detections'):
+if hasattr(context, "detections"):
     print(context.detections)
 
 # 4. 모든 필드 조회
@@ -92,11 +89,12 @@ from pipeworks.models import Step, PipelineContext
 from typing import Iterator
 from types import SimpleNamespace
 
+
 class MyStep(Step):
     def configure(self, config: SimpleNamespace) -> None:
         """YAML 설정을 읽어서 자신의 속성을 설정합니다."""
         pass
-    
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         """입력을 받아 처리 후 출력합니다."""
         pass
@@ -120,12 +118,12 @@ class MyStep(Step):
         self.threshold = 0.5  # 기본값
         self.gpu_id = 0
         self.max_batch_size = 32
-    
+
     def configure(self, config: SimpleNamespace) -> None:
         # config는 YAML의 "MyStep" 섹션
-        self.threshold = getattr(config, 'threshold', 0.5)
-        self.gpu_id = getattr(config, 'gpu_id', 0)
-        self.max_batch_size = getattr(config, 'max_batch_size', 32)
+        self.threshold = getattr(config, "threshold", 0.5)
+        self.gpu_id = getattr(config, "gpu_id", 0)
+        self.max_batch_size = getattr(config, "max_batch_size", 32)
 ```
 
 **호출 시점:**
@@ -140,15 +138,15 @@ class MyStep(Step):
 def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
     for context in inputs:
         # 1. 이전 Step의 결과 읽기
-        if hasattr(context, 'detections'):
+        if hasattr(context, "detections"):
             detections = context.detections
-        
+
         # 2. 처리
         result = self.my_processing(context)
-        
+
         # 3. 결과를 context에 저장
         context.my_result = result
-        
+
         # 4. 다음 Step으로 전달
         yield context
 ```
@@ -173,6 +171,7 @@ class RobustStep(Step):
             except Exception as error:
                 # 에러를 기록하되 파이프라인 계속 실행
                 import logging
+
                 logging.error(f"처리 실패: {error}")
                 # context를 그대로 전달 또는 스킵
                 yield context  # 계속 진행
@@ -190,8 +189,8 @@ class RobustStep(Step):
 ```python
 class LogStep(Step):
     def configure(self, config: SimpleNamespace) -> None:
-        self.verbose = getattr(config, 'verbose', False)
-    
+        self.verbose = getattr(config, "verbose", False)
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
             if self.verbose:
@@ -204,11 +203,11 @@ class LogStep(Step):
 ```python
 class FilterStep(Step):
     def configure(self, config: SimpleNamespace) -> None:
-        self.min_confidence = getattr(config, 'min_confidence', 0.5)
-    
+        self.min_confidence = getattr(config, "min_confidence", 0.5)
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
-            if hasattr(context, 'detections'):
+            if hasattr(context, "detections"):
                 # detections가 있을 때만 전달
                 if context.detections.size > 0:
                     yield context
@@ -223,12 +222,12 @@ class FilterStep(Step):
 ```python
 class TransformStep(Step):
     def configure(self, config: SimpleNamespace) -> None:
-        self.scale = getattr(config, 'scale', 1.0)
-    
+        self.scale = getattr(config, "scale", 1.0)
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
             # 데이터 변환
-            if hasattr(context, 'data'):
+            if hasattr(context, "data"):
                 context.scaled_data = context.data * self.scale
             yield context
 ```
@@ -238,26 +237,26 @@ class TransformStep(Step):
 ```python
 class BatchStep(Step):
     def configure(self, config: SimpleNamespace) -> None:
-        self.batch_size = getattr(config, 'batch_size', 32)
-    
+        self.batch_size = getattr(config, "batch_size", 32)
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         batch = []
         for context in inputs:
             batch.append(context)
-            
+
             if len(batch) >= self.batch_size:
                 # 배치 처리
                 results = self.process_batch(batch)
                 for result in results:
                     yield result
                 batch = []
-        
+
         # 마지막 배치 처리 (불완전한 배치)
         if batch:
             results = self.process_batch(batch)
             for result in results:
                 yield result
-    
+
     def process_batch(self, batch):
         # 배치 처리 로직
         return batch  # 또는 변환된 배치

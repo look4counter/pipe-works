@@ -1,7 +1,16 @@
 from pipeworks.batch_collector import collect_batch
 
+
 def _collect(requests, deferred, size, timeout):
-    return collect_batch(requests, deferred, size, timeout, key=lambda r: r.options, received_at=lambda r: r.received_at)
+    return collect_batch(
+        requests,
+        deferred,
+        size,
+        timeout,
+        key=lambda r: r.options,
+        received_at=lambda r: r.received_at,
+    )
+
 
 from collections import deque
 from pathlib import Path
@@ -27,26 +36,41 @@ class LocalYoloTests(unittest.TestCase):
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
     def test_loaded_model_is_reused_without_path_queries_after_file_deletion(self):
         loaded = []
+
         class Model:
             def __init__(self, path):
                 Path(path).read_bytes()
                 loaded.append(path)
+
             def predict(self, images, **options):
                 from ultralytics.engine.results import Results
-                return [Results(image.permute(1, 2, 0), path="image", names={},
-                                boxes=torch.empty((0, 6), device="cuda")) for image in images]
+
+                return [
+                    Results(
+                        image.permute(1, 2, 0),
+                        path="image",
+                        names={},
+                        boxes=torch.empty((0, 6), device="cuda"),
+                    )
+                    for image in images
+                ]
 
         with TemporaryDirectory() as directory:
             path = Path(directory) / "cached.pt"
             path.write_bytes(b"model")
             image = gpu_nv12(64, 64)
             with patch("ultralytics.YOLO", Model):
-                first = infer(path, image, None, .25, 0)
+                first = infer(path, image, None, 0.25, 0)
                 path.unlink()
-                with patch.object(Path, "resolve", side_effect=AssertionError("resolve")), patch.object(
-                    Path, "is_file", side_effect=AssertionError("is_file")
+                with (
+                    patch.object(
+                        Path, "resolve", side_effect=AssertionError("resolve")
+                    ),
+                    patch.object(
+                        Path, "is_file", side_effect=AssertionError("is_file")
+                    ),
                 ):
-                    second = infer(path, image, None, .25, 0)
+                    second = infer(path, image, None, 0.25, 0)
             self.assertEqual(first.orig_shape, second.orig_shape)
             self.assertEqual(len(loaded), 1)
 
@@ -58,16 +82,19 @@ class LocalYoloTests(unittest.TestCase):
         predictor_type = type("Predictor", (), {})
 
         def create():
-            time.sleep(.02)
+            time.sleep(0.02)
             return predictor_type
 
         def get_type():
             barrier.wait(timeout=2)
             results.append(_GpuDetectionPredictor.type())
 
-        with patch.object(_GpuDetectionPredictor, "_type", None), patch.object(
-            _GpuDetectionPredictor, "_create_type", side_effect=create
-        ) as factory:
+        with (
+            patch.object(_GpuDetectionPredictor, "_type", None),
+            patch.object(
+                _GpuDetectionPredictor, "_create_type", side_effect=create
+            ) as factory,
+        ):
             threads = [Thread(target=get_type) for _ in range(8)]
             for thread in threads:
                 thread.start()
@@ -84,9 +111,14 @@ class LocalYoloTests(unittest.TestCase):
         from pipeworks.local_yolo import _GpuDetectionPredictor
 
         predictor_type = type("Predictor", (), {})
-        with patch.object(_GpuDetectionPredictor, "_type", None), patch.object(
-            _GpuDetectionPredictor, "_create_type", side_effect=[RuntimeError("load failed"), predictor_type]
-        ) as factory:
+        with (
+            patch.object(_GpuDetectionPredictor, "_type", None),
+            patch.object(
+                _GpuDetectionPredictor,
+                "_create_type",
+                side_effect=[RuntimeError("load failed"), predictor_type],
+            ) as factory,
+        ):
             with self.assertRaisesRegex(RuntimeError, "load failed"):
                 _GpuDetectionPredictor.type()
             self.assertIsNone(_GpuDetectionPredictor._type)
@@ -96,6 +128,7 @@ class LocalYoloTests(unittest.TestCase):
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
     def test_prepared_rgb_is_not_converted_from_nv12_again(self):
         from pipeworks.local_yolo import _nv12_to_rgb
+
         with TemporaryDirectory() as temporary:
             path = Path(temporary) / "rgb.pt"
             path.write_bytes(b"placeholder")
@@ -109,13 +142,25 @@ class LocalYoloTests(unittest.TestCase):
 
                 def predict(self, images, **options):
                     from ultralytics.engine.results import Results
-                    return [Results(image.permute(1, 2, 0), path="image", names={},
-                                    boxes=torch.empty((0, 6), device="cuda")) for image in images]
 
-            with patch("ultralytics.YOLO", Model), patch(
-                "pipeworks.local_yolo._nv12_to_rgb", side_effect=AssertionError("duplicate RGB conversion")
+                    return [
+                        Results(
+                            image.permute(1, 2, 0),
+                            path="image",
+                            names={},
+                            boxes=torch.empty((0, 6), device="cuda"),
+                        )
+                        for image in images
+                    ]
+
+            with (
+                patch("ultralytics.YOLO", Model),
+                patch(
+                    "pipeworks.local_yolo._nv12_to_rgb",
+                    side_effect=AssertionError("duplicate RGB conversion"),
+                ),
             ):
-                result = infer(path, rgb, None, .25, 0, ready_event=ready)
+                result = infer(path, rgb, None, 0.25, 0, ready_event=ready)
             self.assertEqual(result.orig_shape, (64, 96))
             self.assertTrue(torch.equal(result.orig_img.permute(2, 0, 1), rgb))
 
@@ -133,12 +178,25 @@ class LocalYoloTests(unittest.TestCase):
                 def predict(self, images, **options):
                     from ultralytics.engine.results import Results
 
-                    return [Results(image.permute(1, 2, 0), path="image", names={},
-                                    boxes=torch.empty((0, 6), device="cuda")) for image in images]
+                    return [
+                        Results(
+                            image.permute(1, 2, 0),
+                            path="image",
+                            names={},
+                            boxes=torch.empty((0, 6), device="cuda"),
+                        )
+                        for image in images
+                    ]
 
             with patch("ultralytics.YOLO", Model):
-                result = infer(model_path, gpu_nv12(64, 64), None, 0.25, 0,
-                               on_inference_complete=durations.append)
+                result = infer(
+                    model_path,
+                    gpu_nv12(64, 64),
+                    None,
+                    0.25,
+                    0,
+                    on_inference_complete=durations.append,
+                )
 
             self.assertEqual(tuple(result.orig_shape), (64, 64))
             self.assertEqual(len(durations), 1)
@@ -171,11 +229,22 @@ class LocalYoloTests(unittest.TestCase):
                 def predict(self, images, **options):
                     from ultralytics.engine.results import Results
 
-                    return [Results(image.permute(1, 2, 0), path="image", names={},
-                                    boxes=torch.tensor([[100., 200., 300., 400., 0.9, 2.]], device="cuda"))
-                            for image in images]
+                    return [
+                        Results(
+                            image.permute(1, 2, 0),
+                            path="image",
+                            names={},
+                            boxes=torch.tensor(
+                                [[100.0, 200.0, 300.0, 400.0, 0.9, 2.0]], device="cuda"
+                            ),
+                        )
+                        for image in images
+                    ]
 
-            with patch("ultralytics.YOLO", Model), patch("pipeworks.local_yolo.torch.cuda.Event", CompletionEvent):
+            with (
+                patch("ultralytics.YOLO", Model),
+                patch("pipeworks.local_yolo.torch.cuda.Event", CompletionEvent),
+            ):
                 result = infer(model_path, gpu_nv12(64, 96), None, 0.25, 0)
 
             self.assertEqual(len(events), 2)
@@ -207,11 +276,20 @@ class LocalYoloTests(unittest.TestCase):
 
                     if not ready.waited:
                         raise AssertionError("GPU 복제 완료를 기다리지 않았습니다.")
-                    return [Results(image.permute(1, 2, 0), path="image", names={},
-                                    boxes=torch.empty((0, 6), device="cuda")) for image in images]
+                    return [
+                        Results(
+                            image.permute(1, 2, 0),
+                            path="image",
+                            names={},
+                            boxes=torch.empty((0, 6), device="cuda"),
+                        )
+                        for image in images
+                    ]
 
             with patch("ultralytics.YOLO", Model):
-                result = infer(model_path, gpu_nv12(64, 64), None, 0.25, 0, ready_event=ready)
+                result = infer(
+                    model_path, gpu_nv12(64, 64), None, 0.25, 0, ready_event=ready
+                )
             self.assertTrue(ready.waited)
             self.assertEqual(tuple(result.orig_shape), (64, 64))
 
@@ -219,7 +297,12 @@ class LocalYoloTests(unittest.TestCase):
     def test_real_models_keep_input_and_results_on_gpu(self):
         for suffix in ("pt", "engine"):
             with self.subTest(suffix=suffix):
-                model = Path(__file__).resolve().parents[1] / "examples" / "model" / f"yolo11n.{suffix}"
+                model = (
+                    Path(__file__).resolve().parents[1]
+                    / "examples"
+                    / "model"
+                    / f"yolo11n.{suffix}"
+                )
                 if not model.is_file():
                     self.skipTest(f"모델 파일이 없습니다: {model}")
                 image = gpu_nv12(64, 96)
@@ -234,7 +317,9 @@ class LocalYoloTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             model_path = Path(temporary) / "model.pt"
             model_path.write_bytes(b"placeholder")
-            model_path.with_suffix(".yml").write_text("max_batch_size: 2\ntimeout_ms: 500\n", encoding="utf-8")
+            model_path.with_suffix(".yml").write_text(
+                "max_batch_size: 2\ntimeout_ms: 500\n", encoding="utf-8"
+            )
             calls = []
 
             class Model:
@@ -245,8 +330,15 @@ class LocalYoloTests(unittest.TestCase):
                     from ultralytics.engine.results import Results
 
                     calls.append(("predict", tuple(images.shape), options["device"]))
-                    return [Results(image.permute(1, 2, 0), path="image", names={},
-                                    boxes=torch.empty((0, 6), device="cuda")) for image in images]
+                    return [
+                        Results(
+                            image.permute(1, 2, 0),
+                            path="image",
+                            names={},
+                            boxes=torch.empty((0, 6), device="cuda"),
+                        )
+                        for image in images
+                    ]
 
             barrier = Barrier(2)
             results = []
@@ -254,18 +346,31 @@ class LocalYoloTests(unittest.TestCase):
 
             def request(height, width):
                 barrier.wait()
-                results.append(infer(model_path, gpu_nv12(height, width), [2], 0.5, 0,
-                                     on_inference_complete=durations.append))
+                results.append(
+                    infer(
+                        model_path,
+                        gpu_nv12(height, width),
+                        [2],
+                        0.5,
+                        0,
+                        on_inference_complete=durations.append,
+                    )
+                )
 
             with patch("ultralytics.YOLO", Model):
-                threads = [Thread(target=request, args=(64, 64)), Thread(target=request, args=(64, 96))]
+                threads = [
+                    Thread(target=request, args=(64, 64)),
+                    Thread(target=request, args=(64, 96)),
+                ]
                 for thread in threads:
                     thread.start()
                 for thread in threads:
                     thread.join(timeout=5)
                     self.assertFalse(thread.is_alive())
 
-            self.assertEqual({tuple(result.orig_shape) for result in results}, {(64, 64), (64, 96)})
+            self.assertEqual(
+                {tuple(result.orig_shape) for result in results}, {(64, 64), (64, 96)}
+            )
             self.assertEqual(len([call for call in calls if call[0] == "load"]), 1)
             self.assertIn(("predict", (2, 3, 640, 640), 0), calls)
             self.assertTrue(all(result.boxes.data.is_cuda for result in results))
@@ -276,11 +381,22 @@ class LocalYoloTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             model = Path(temporary) / "model.pt"
             self.assertEqual(_batch_settings(model), (1, 0.0))
-            model.with_suffix(".yml").write_text("max_batch_size: 4\ntimeout_ms: 10\n", encoding="utf-8")
+            model.with_suffix(".yml").write_text(
+                "max_batch_size: 4\ntimeout_ms: 10\n", encoding="utf-8"
+            )
             self.assertEqual(_batch_settings(model), (4, 0.01))
-            for text in ("timeout: 10", "timeout_ms: true", "timeout_ms: -1",
-                         "timeout_ms: .inf", "timeout_ms: .nan", 'timeout_ms: "10"', "timeout_ms: null"):
-                model.with_suffix(".yml").write_text("max_batch_size: 4\n" + text, encoding="utf-8")
+            for text in (
+                "timeout: 10",
+                "timeout_ms: true",
+                "timeout_ms: -1",
+                "timeout_ms: .inf",
+                "timeout_ms: .nan",
+                'timeout_ms: "10"',
+                "timeout_ms: null",
+            ):
+                model.with_suffix(".yml").write_text(
+                    "max_batch_size: 4\n" + text, encoding="utf-8"
+                )
                 with self.assertRaisesRegex(ValueError, "timeout_ms"):
                     _batch_settings(model)
             requests = Queue()

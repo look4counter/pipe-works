@@ -92,20 +92,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class ConfigurableStep(Step):
     def __init__(self):
         self.threshold = 0.5
         self.debug = False
-    
+
     def configure(self, config: SimpleNamespace) -> None:
         # YAML의 변경을 감지하고 여기서 적용됨
         old_threshold = self.threshold
-        self.threshold = getattr(config, 'threshold', 0.5)
-        self.debug = getattr(config, 'debug', False)
-        
+        self.threshold = getattr(config, "threshold", 0.5)
+        self.debug = getattr(config, "debug", False)
+
         if self.threshold != old_threshold and self.debug:
             logger.info(f"Threshold 변경: {old_threshold} → {self.threshold}")
-    
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
             if self.debug:
@@ -142,10 +143,11 @@ from types import SimpleNamespace
 from typing import Iterator
 from pipeworks.models import PipelineContext, Step
 
+
 class MyDetector(Step):
     def configure(self, config: SimpleNamespace) -> None:
-        self.sensitivity = getattr(config, 'sensitivity', 0.5)
-    
+        self.sensitivity = getattr(config, "sensitivity", 0.5)
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
             # 초기 로직
@@ -158,8 +160,8 @@ class MyDetector(Step):
 ```python
 class MyDetector(Step):
     def configure(self, config: SimpleNamespace) -> None:
-        self.sensitivity = getattr(config, 'sensitivity', 0.5)
-    
+        self.sensitivity = getattr(config, "sensitivity", 0.5)
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
             # 수정된 로직
@@ -231,7 +233,7 @@ pipeline = Pipeline("dev-pipeline", config=Path("config.yaml"))
 # Hotswap의 check_interval 직접 설정 (초 단위)
 step = Hotswap(
     MyStep(),
-    check_interval=1.0  # 1초마다 확인 (기본값: 0.5초)
+    check_interval=1.0,  # 1초마다 확인 (기본값: 0.5초)
 )
 pipeline.step(step)
 pipeline.run()
@@ -247,7 +249,7 @@ from my_step import MyStep
 
 step = Hotswap(
     MyStep(),
-    watch_code=False  # 코드 변경 감시 비활성화
+    watch_code=False,  # 코드 변경 감시 비활성화
 )
 ```
 
@@ -261,7 +263,7 @@ from my_step import MyStep
 
 step = Hotswap(
     MyStep(),
-    recover_errors=False  # 에러 복구 비활성화 (즉시 파이프라인 중단)
+    recover_errors=False,  # 에러 복구 비활성화 (즉시 파이프라인 중단)
 )
 ```
 
@@ -310,7 +312,7 @@ StatefulStep:
 ```python
 step = Hotswap(
     MyStep(),
-    watch_code=False  # 코드 재로드 X, 설정만 적용
+    watch_code=False,  # 코드 재로드 X, 설정만 적용
 )
 ```
 

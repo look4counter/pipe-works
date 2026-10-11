@@ -12,6 +12,7 @@ from typing import Iterator
 
 from pipeworks.models import PipelineContext, Step
 
+
 @dataclass(frozen=True, slots=True)
 class _History:
     samples: tuple[tuple[float, float], ...] = ()
@@ -67,14 +68,21 @@ class _ReportStats:
             _prune(self.frame_history, now)
             _prune(self.inference_history, now)
             self.snapshot = _Snapshot(
-                published_at=now, started_at=self.started_at,
-                completed_frames=self.completed_frames, processing_seconds=self.processing_seconds,
-                completed_inferences=self.completed_inferences, inference_seconds=self.inference_seconds,
+                published_at=now,
+                started_at=self.started_at,
+                completed_frames=self.completed_frames,
+                processing_seconds=self.processing_seconds,
+                completed_inferences=self.completed_inferences,
+                inference_seconds=self.inference_seconds,
                 frame_history=_History(tuple(self.frame_history)),
                 inference_history=_History(tuple(self.inference_history)),
-                stages=tuple((name, values[0], values[1]) for name, values in self.stages.items()),
-                receive_success_at=self.receive_success_at, receive_failure_at=self.receive_failure_at,
-                publish_success_at=self.publish_success_at, publish_failure_at=self.publish_failure_at,
+                stages=tuple(
+                    (name, values[0], values[1]) for name, values in self.stages.items()
+                ),
+                receive_success_at=self.receive_success_at,
+                receive_failure_at=self.receive_failure_at,
+                publish_success_at=self.publish_success_at,
+                publish_failure_at=self.publish_failure_at,
             )
 
 
@@ -88,10 +96,12 @@ class _Publisher:
         self.entries = {}
         self.stats = ()
         self.done = Event()
-        self.thread = Thread(target=self.run, name="pipeworks-stats-publisher", daemon=True)
+        self.thread = Thread(
+            target=self.run, name="pipeworks-stats-publisher", daemon=True
+        )
 
     def run(self):
-        while not self.done.wait(.1):
+        while not self.done.wait(0.1):
             for stats in self.stats:
                 stats.publish()
 
@@ -141,7 +151,9 @@ class _ReportView:
 
 
 _default_stats = _ReportStats(enabled=False)
-_current_stats: ContextVar[_ReportStats | None] = ContextVar("pipeworks_report_stats", default=None)
+_current_stats: ContextVar[_ReportStats | None] = ContextVar(
+    "pipeworks_report_stats", default=None
+)
 
 
 def _stats() -> _ReportStats:
@@ -193,11 +205,15 @@ def record_publish(success: bool) -> None:
             stats.publish_failure_at = now
 
 
-def _connection_status(now: float, snapshot: _Snapshot | None = None) -> tuple[str, str]:
+def _connection_status(
+    now: float, snapshot: _Snapshot | None = None
+) -> tuple[str, str]:
     snapshot = _stats().snapshot if snapshot is None else snapshot
 
     def status(succeeded_at: float | None, failed_at: float | None) -> str:
-        if failed_at is not None and (succeeded_at is None or failed_at >= succeeded_at):
+        if failed_at is not None and (
+            succeeded_at is None or failed_at >= succeeded_at
+        ):
             return "실패"
         if succeeded_at is None:
             return "대기"
@@ -245,7 +261,11 @@ class _ReportReader:
     def __init__(self, stats: _ReportStats):
         self.stats = stats
         snapshot = stats.snapshot
-        self.started_at = snapshot.started_at if snapshot.started_at is not None else time.perf_counter()
+        self.started_at = (
+            snapshot.started_at
+            if snapshot.started_at is not None
+            else time.perf_counter()
+        )
         self.previous = _Snapshot()
         self.observed_at = self.started_at
 
@@ -257,7 +277,9 @@ class _ReportReader:
         elapsed = now - self.started_at
         if elapsed < 1.0:
             return None
-        published_at = snapshot.published_at if snapshot.published_at is not None else now
+        published_at = (
+            snapshot.published_at if snapshot.published_at is not None else now
+        )
         elapsed = max(0.0, published_at - self.observed_at)
         previous = self.previous
         frames = snapshot.completed_frames - previous.completed_frames
@@ -269,12 +291,24 @@ class _ReportReader:
             if count > old_count:
                 stages.append((name, (total - old_total) / (count - old_count) * 1000))
         view = _ReportView(
-            (frames / elapsed if elapsed else 0.0,
-             (snapshot.processing_seconds - previous.processing_seconds) / frames * 1000 if frames else 0.0,
-             inferences,
-             (snapshot.inference_seconds - previous.inference_seconds) / inferences * 1000 if inferences else None,
-             snapshot.frame_history.average(now), snapshot.inference_history.average(now)),
-            tuple(stages), _connection_status(now, snapshot),
+            (
+                frames / elapsed if elapsed else 0.0,
+                (snapshot.processing_seconds - previous.processing_seconds)
+                / frames
+                * 1000
+                if frames
+                else 0.0,
+                inferences,
+                (snapshot.inference_seconds - previous.inference_seconds)
+                / inferences
+                * 1000
+                if inferences
+                else None,
+                snapshot.frame_history.average(now),
+                snapshot.inference_history.average(now),
+            ),
+            tuple(stages),
+            _connection_status(now, snapshot),
         )
         self.previous = snapshot
         self.started_at = now
@@ -302,11 +336,28 @@ class StreamReport(Step):
             snapshot = reader.read()
             if snapshot is None:
                 return
-            fps, average_ms, inference_count, average_inference_ms, recent_frame_ms, recent_inference_ms = snapshot.metrics
+            (
+                fps,
+                average_ms,
+                inference_count,
+                average_inference_ms,
+                recent_frame_ms,
+                recent_inference_ms,
+            ) = snapshot.metrics
             receive_status, publish_status = snapshot.connections
-            recent_frame = "없음" if recent_frame_ms is None else f"{recent_frame_ms:.1f}ms"
-            inference = "없음" if average_inference_ms is None else f"{average_inference_ms:.1f}ms"
-            recent_inference = "없음" if recent_inference_ms is None else f"{recent_inference_ms:.1f}ms"
+            recent_frame = (
+                "없음" if recent_frame_ms is None else f"{recent_frame_ms:.1f}ms"
+            )
+            inference = (
+                "없음"
+                if average_inference_ms is None
+                else f"{average_inference_ms:.1f}ms"
+            )
+            recent_inference = (
+                "없음"
+                if recent_inference_ms is None
+                else f"{recent_inference_ms:.1f}ms"
+            )
             parts = [
                 f"수신 {receive_status}",
                 f"송신 {publish_status}",
@@ -323,7 +374,9 @@ class StreamReport(Step):
                 ("publish", "송출"),
             )
             detail = " | ".join(
-                f"{label} {stages[name]:.1f}ms" for name, label in labels if name in stages
+                f"{label} {stages[name]:.1f}ms"
+                for name, label in labels
+                if name in stages
             )
             sys.stdout.write(" | ".join(parts) + "\n" + detail + "\n")
             sys.stdout.flush()

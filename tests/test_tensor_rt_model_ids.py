@@ -57,15 +57,21 @@ class ModelIdGpuTests(unittest.TestCase):
         with torch.cuda.stream(stream):
             frame = torch.full((12, 8), 16, device="cuda", dtype=torch.uint8)
             frame[8:] = 128
-        return PipelineContext(frame=frame, detections=detections, cuda_stream=stream,
-                               pixel_format="NV12", video_stream=SimpleNamespace(
-                                   codec_context=SimpleNamespace(height=8, width=8)))
+        return PipelineContext(
+            frame=frame,
+            detections=detections,
+            cuda_stream=stream,
+            pixel_format="NV12",
+            video_stream=SimpleNamespace(
+                codec_context=SimpleNamespace(height=8, width=8)
+            ),
+        )
 
-    def prediction(self, item, model_id, score=.9):
+    def prediction(self, item, model_id, score=0.9):
         next(TensorRTPreProcess(size=(8, 8)).process(iter([item])))
         with torch.cuda.stream(item.model_cuda_stream):
             prediction = torch.zeros((1, 84, 10), device="cuda")
-            prediction[0, :4, 0] = prediction.new_tensor([3., 3., 2., 2.])
+            prediction[0, :4, 0] = prediction.new_tensor([3.0, 3.0, 2.0, 2.0])
             prediction[0, 6, 0] = score
         item.model_cuda_stream.synchronize()
         item.model_id = model_id
@@ -85,11 +91,13 @@ class ModelIdGpuTests(unittest.TestCase):
         self.assertEqual(set(original_mapping), {"vehicle"})
         self.assertEqual(set(item.detections), {"vehicle", "person"})
         person = item.detections["person"]
-        self.prediction(item, "vehicle", score=.7)
+        self.prediction(item, "vehicle", score=0.7)
         next(post.process(iter([item])))
         self.assertIsNot(item.detections["vehicle"], vehicle)
         self.assertIs(item.detections["person"], person)
-        self.assertAlmostEqual(item.detections["vehicle"].boxes.conf[0].item(), .7, places=5)
+        self.assertAlmostEqual(
+            item.detections["vehicle"].boxes.conf[0].item(), 0.7, places=5
+        )
         item.model_id, item.model_output = "vehicle", None
         next(post.process(iter([item])))
         self.assertIsNone(item.detections["vehicle"])
@@ -107,7 +115,13 @@ class ModelIdGpuTests(unittest.TestCase):
         self.assertIs(item.detections["person"], prior)
         self.assertIsNone(item.detections["vehicle"])
         self.assertIs(shared["vehicle"], prior)
-        for name in ("model_id", "model_input", "model_output", "tensor_rt_transform", "model_cuda_stream"):
+        for name in (
+            "model_id",
+            "model_input",
+            "model_output",
+            "tensor_rt_transform",
+            "model_cuda_stream",
+        ):
             self.assertFalse(hasattr(item, name))
 
     def test_output_without_id_is_rejected(self):
@@ -121,23 +135,38 @@ class ModelIdGpuTests(unittest.TestCase):
     def test_batch_and_interval_forward_ids(self):
         for batch in (False, True):
             with self.subTest(batch=batch):
-                step = TensorRTInference("unused.plan", batch=batch, id="person", inference_interval_frame=2)
+                step = TensorRTInference(
+                    "unused.plan", batch=batch, id="person", inference_interval_frame=2
+                )
                 items = [self.frame() for _ in range(3)]
                 for item in items:
                     item.model_input = torch.ones((1, 2), device="cuda")
+
                 class Session:
                     def __init__(self, *args):
                         pass
+
                     def infer(self, *args):
                         return {"output": torch.ones(1, device="cuda")}
+
                     def close(self):
                         pass
-                with patch.object(step, "_model_settings", return_value=()), patch(
-                    "pipeworks.embedded.tensor_rt_inference._EngineSession", Session
-                ), patch("pipeworks.local_tensor_rt.infer", return_value={"output": torch.ones(1, device="cuda")}):
+
+                with (
+                    patch.object(step, "_model_settings", return_value=()),
+                    patch(
+                        "pipeworks.embedded.tensor_rt_inference._EngineSession", Session
+                    ),
+                    patch(
+                        "pipeworks.local_tensor_rt.infer",
+                        return_value={"output": torch.ones(1, device="cuda")},
+                    ),
+                ):
                     list(step.process(iter(items)))
                 self.assertEqual([item.model_id for item in items], ["person"] * 3)
-                self.assertEqual([item.model_output is None for item in items], [False, True, False])
+                self.assertEqual(
+                    [item.model_output is None for item in items], [False, True, False]
+                )
 
     def test_same_engine_serial_results_and_original_input(self):
         plan = ROOT / "examples/model/yolo11n.plan"
@@ -157,26 +186,47 @@ class ModelIdGpuTests(unittest.TestCase):
             self.assertTrue(result.boxes.data.is_cuda)
 
     def result(self, coords):
-        return SimpleNamespace(boxes=SimpleNamespace(xyxy=torch.tensor(coords, device="cuda", dtype=torch.float32).reshape(-1, 4)))
+        return SimpleNamespace(
+            boxes=SimpleNamespace(
+                xyxy=torch.tensor(coords, device="cuda", dtype=torch.float32).reshape(
+                    -1, 4
+                )
+            )
+        )
 
     def test_overlay_selects_all_or_one_id(self):
         for selected in (None, "vehicle", "person", "unknown"):
             with self.subTest(selected=selected):
-                item = self.frame({"vehicle": self.result([[0, 0, 1, 1]]),
-                                   "person": self.result([[5, 5, 6, 6]])})
+                item = self.frame(
+                    {
+                        "vehicle": self.result([[0, 0, 1, 1]]),
+                        "person": self.result([[5, 5, 6, 6]]),
+                    }
+                )
                 torch.cuda.synchronize()
                 overlay = BoxOverlay()
-                overlay.configure(SimpleNamespace(id=selected, line_width=1, keep_previous=False))
+                overlay.configure(
+                    SimpleNamespace(id=selected, line_width=1, keep_previous=False)
+                )
                 next(overlay.process(iter([item])))
                 item.cuda_stream.synchronize()
-                self.assertEqual(item.frame[0, 0].item() == 145, selected in (None, "vehicle"))
-                self.assertEqual(item.frame[5, 5].item() == 145, selected in (None, "person"))
+                self.assertEqual(
+                    item.frame[0, 0].item() == 145, selected in (None, "vehicle")
+                )
+                self.assertEqual(
+                    item.frame[5, 5].item() == 145, selected in (None, "person")
+                )
 
     def test_overlay_keeps_previous_per_id_and_empty_clears_one(self):
         overlay = BoxOverlay()
         overlay.configure(SimpleNamespace(line_width=1))
         items = [
-            self.frame({"vehicle": self.result([[0, 0, 1, 1]]), "person": self.result([[5, 5, 6, 6]])}),
+            self.frame(
+                {
+                    "vehicle": self.result([[0, 0, 1, 1]]),
+                    "person": self.result([[5, 5, 6, 6]]),
+                }
+            ),
             self.frame({"vehicle": None, "person": self.result([])}),
             self.frame({"vehicle": self.result([]), "person": None}),
         ]
@@ -191,8 +241,12 @@ class ModelIdGpuTests(unittest.TestCase):
     def test_overlay_reuses_all_ids_when_async_has_no_results(self):
         overlay = BoxOverlay()
         overlay.configure(SimpleNamespace(line_width=1))
-        first = self.frame({"vehicle": self.result([[0, 0, 1, 1]]),
-                            "person": self.result([[5, 5, 6, 6]])})
+        first = self.frame(
+            {
+                "vehicle": self.result([[0, 0, 1, 1]]),
+                "person": self.result([[5, 5, 6, 6]]),
+            }
+        )
         missing = self.frame()
         del missing.detections
         torch.cuda.synchronize()
@@ -203,6 +257,7 @@ class ModelIdGpuTests(unittest.TestCase):
 
     def test_async_timeout_does_not_mutate_original_mapping(self):
         from threading import Event
+
         entered, unblock = Event(), Event()
         prior = object()
         item = self.frame({"person": prior})
@@ -212,6 +267,7 @@ class ModelIdGpuTests(unittest.TestCase):
         class Slow(Step):
             def configure(self, config):
                 pass
+
             def process(self, inputs):
                 for working in inputs:
                     working.model_id, working.model_output = "vehicle", None
@@ -219,7 +275,9 @@ class ModelIdGpuTests(unittest.TestCase):
                     unblock.wait(5)
                     yield working
 
-        wrapper = CudaAsync(TensorRTPreProcess(), Slow(), TensorRTPostProcess(), timeout_ms=100)
+        wrapper = CudaAsync(
+            TensorRTPreProcess(), Slow(), TensorRTPostProcess(), timeout_ms=100
+        )
         try:
             list(wrapper.process(iter([item])))
             self.assertTrue(entered.is_set())
@@ -235,15 +293,19 @@ class ModelIdGpuTests(unittest.TestCase):
         class SyntheticInference(Step):
             def __init__(self, model_id):
                 self.model_id = model_id
+
             def configure(self, config):
                 pass
+
             def process(self, inputs):
                 for item in inputs:
                     item.model_id = self.model_id
                     with torch.cuda.stream(item.model_cuda_stream):
                         prediction = torch.zeros((1, 84, 10), device="cuda")
-                        prediction[0, :4, 0] = prediction.new_tensor([3., 3., 2., 2.])
-                        prediction[0, 6, 0] = .9
+                        prediction[0, :4, 0] = prediction.new_tensor(
+                            [3.0, 3.0, 2.0, 2.0]
+                        )
+                        prediction[0, 6, 0] = 0.9
                     item.model_output = {"output0": prediction}
                     yield item
 
@@ -251,8 +313,12 @@ class ModelIdGpuTests(unittest.TestCase):
         item.cuda_stream.synchronize()
         original = item.frame.clone()
         for model_id in ("vehicle", "person"):
-            wrapper = CudaAsync(TensorRTPreProcess(size=(8, 8)),
-                                SyntheticInference(model_id), TensorRTPostProcess(), timeout_ms=2000)
+            wrapper = CudaAsync(
+                TensorRTPreProcess(size=(8, 8)),
+                SyntheticInference(model_id),
+                TensorRTPostProcess(),
+                timeout_ms=2000,
+            )
             self.assertEqual(list(wrapper.process(iter([item]))), [item])
         self.assertEqual(set(item.detections), {"vehicle", "person"})
         torch.testing.assert_close(item.frame, original)

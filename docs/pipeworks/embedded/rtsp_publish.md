@@ -64,11 +64,11 @@ RTSPPublish:
 
 ```python
 # context.stream_id = "cam01"
-url="rtsp://mediamtx:8554/{stream_id}"
+url = "rtsp://mediamtx:8554/{stream_id}"
 # → rtsp://mediamtx:8554/cam01
 
 # 여러 카메라
-url="rtsp://mediamtx:8554/output/{stream_id}/high"
+url = "rtsp://mediamtx:8554/output/{stream_id}/high"
 # → rtsp://mediamtx:8554/output/cam01/high
 ```
 

@@ -250,28 +250,29 @@ from types import SimpleNamespace
 from typing import Iterator
 from pipeworks.models import PipelineContext, Step
 
+
 class MyCustomStep(Step):
     def __init__(self):
         self.threshold = 0.5
-    
+
     def configure(self, config: SimpleNamespace) -> None:
         """YAML 설정을 읽어서 자신의 속성을 설정합니다."""
         self.threshold = getattr(config, "threshold", 0.5)
-    
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         """입력을 받아 처리 후 출력합니다."""
         for context in inputs:
             # context는 이전 Step에서 생성한 PipelineContext
             # context.detections, context.packet, context.video_stream 등 접근 가능
-            
+
             # 처리 로직
             result = self.my_processing(context)
-            
+
             # 결과를 context에 저장
             context.my_result = result
-            
+
             yield context
-    
+
     def my_processing(self, context):
         # 실제 처리 코드
         return "processed"
@@ -386,11 +387,13 @@ for cam_id, cam_url in cameras:
     pipeline.step(RTSPPublish(url=f"rtsp://mediamtx:8554/{cam_id}"))
     # 각 파이프라인을 백그라운드에서 실행
     import threading
+
     thread = threading.Thread(target=pipeline.run, daemon=True)
     thread.start()
 
 # 메인 스레드 계속 실행
 import time
+
 while True:
     time.sleep(1)
 ```
@@ -405,13 +408,14 @@ from types import SimpleNamespace
 from typing import Iterator
 from pipeworks.models import PipelineContext, Step
 
+
 class MyFilter(Step):
     def __init__(self):
         self.min_confidence = 0.5
-    
+
     def configure(self, config: SimpleNamespace) -> None:
         self.min_confidence = getattr(config, "min_confidence", 0.5)
-    
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
             results = getattr(context, "detections", None) or {}
@@ -419,8 +423,7 @@ class MyFilter(Step):
             if result is not None:
                 # confidence 필터링
                 filtered = [
-                    det for det in result.boxes.conf
-                    if det >= self.min_confidence
+                    det for det in result.boxes.conf if det >= self.min_confidence
                 ]
                 if filtered:
                     yield context
@@ -536,6 +539,7 @@ import numpy as np
 from types import SimpleNamespace
 from typing import Iterator
 from pipeworks.models import PipelineContext, Step
+
 
 class MyOpenCVStep(Step):
     def configure(self, config: SimpleNamespace) -> None:

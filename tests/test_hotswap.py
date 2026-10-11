@@ -30,7 +30,7 @@ def load_step(path: Path, class_name: str, *args):
 
 
 def metadata_code(first_offset: int, second_offset: int) -> str:
-    return f'''
+    return f"""
 from pipeworks.models import PipelineContext, Step
 
 class Metadata(Step):
@@ -41,7 +41,7 @@ class Metadata(Step):
         for context in inputs:
             yield PipelineContext(value=context.value + {first_offset})
             yield PipelineContext(value=context.value + {second_offset})
-'''
+"""
 
 
 class Accumulator(Step):
@@ -73,6 +73,7 @@ class HotswapTests(unittest.TestCase):
     def test_shared_code_snapshot_at_processing_boundaries(self):
         from pipeworks.file_watch import _WatchService
         from test_file_watch import FakeObserver
+
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "shared.py"
             path.write_text(metadata_code(10, 20), encoding="utf-8")
@@ -83,7 +84,9 @@ class HotswapTests(unittest.TestCase):
                 second = Hotswap(load_step(path, "Metadata"))
                 self.addCleanup(first._file_subscription.close)
                 self.addCleanup(second._file_subscription.close)
-                with patch.object(Path, "read_bytes", autospec=True, side_effect=Path.read_bytes) as read:
+                with patch.object(
+                    Path, "read_bytes", autospec=True, side_effect=Path.read_bytes
+                ) as read:
                     for _ in range(1000):
                         self.assertFalse(first._check_for_update(force=True))
                         self.assertFalse(second._check_for_update(force=True))
@@ -147,7 +150,9 @@ class HotswapTests(unittest.TestCase):
             wrapper.configure(SimpleNamespace(offset=10))
             active_config = SimpleNamespace(offset=10)
             wrapper._config_provider = lambda: active_config
-            iterator = wrapper.process(iter([PipelineContext(value=1), PipelineContext(value=2)]))
+            iterator = wrapper.process(
+                iter([PipelineContext(value=1), PipelineContext(value=2)])
+            )
             self.assertEqual(next(iterator).value, 11)
             path.write_text(code(100), encoding="utf-8")
             active_config = SimpleNamespace(offset=20)
@@ -181,7 +186,9 @@ class HotswapTests(unittest.TestCase):
                 sys.path.remove(str(root))
             sys.modules.pop(helper_name, None)
             wrapper = Hotswap(step, check_interval=0)
-            iterator = wrapper.process(iter([PipelineContext(value=1), PipelineContext(value=2)]))
+            iterator = wrapper.process(
+                iter([PipelineContext(value=1), PipelineContext(value=2)])
+            )
             self.assertEqual(next(iterator).value, 101)
             path.write_text(code(1000), encoding="utf-8")
             before = sys.path.copy()
@@ -222,12 +229,17 @@ class HotswapTests(unittest.TestCase):
             sys.modules[module_name] = module
             sys.path.insert(0, str(root))
             try:
-                exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)
+                exec(
+                    compile(path.read_text(encoding="utf-8"), str(path), "exec"),
+                    module.__dict__,
+                )
                 wrapper = Hotswap(module.UserStep(), check_interval=0)
             finally:
                 sys.path.remove(str(root))
                 sys.modules.pop(f"{package_name}.helper", None)
-            iterator = wrapper.process(iter([PipelineContext(value=1), PipelineContext(value=2)]))
+            iterator = wrapper.process(
+                iter([PipelineContext(value=1), PipelineContext(value=2)])
+            )
             try:
                 self.assertEqual(next(iterator).value, 101)
                 path.write_text(code(1000), encoding="utf-8")
@@ -366,7 +378,9 @@ class HotswapTests(unittest.TestCase):
 
         attempts = []
         with self.assertLogs("pipeworks.hotswap", level="ERROR"):
-            outputs = list(Hotswap(FragileSource(attempts), source=True).process(iter(())))
+            outputs = list(
+                Hotswap(FragileSource(attempts), source=True).process(iter(()))
+            )
         self.assertEqual([item.value for item in outputs], [7])
         self.assertEqual(len(attempts), 2)
 
@@ -403,12 +417,19 @@ class HotswapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "config.yaml"
             config.write_text("{}", encoding="utf-8")
-            pipeline = Pipeline("test", config=config).step(Source()).step(Fragile()).step(Collect())
+            pipeline = (
+                Pipeline("test", config=config)
+                .step(Source())
+                .step(Fragile())
+                .step(Collect())
+            )
             with self.assertLogs("pipeworks.hotswap", level="ERROR"):
                 pipeline._run_local()
 
         self.assertEqual(seen, frames)
-        self.assertTrue(all(output is original for output, original in zip(seen, frames)))
+        self.assertTrue(
+            all(output is original for output, original in zip(seen, frames))
+        )
 
     def test_pipeline_excludes_embedded_steps_from_automatic_hotswap(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -480,7 +501,9 @@ class HotswapTests(unittest.TestCase):
             path = Path(directory) / "counter.py"
             path.write_text(counter_code(0), encoding="utf-8")
             wrapper = Hotswap(load_step(path, "Counter"), check_interval=0)
-            iterator = wrapper.process(iter([PipelineContext(value=1), PipelineContext(value=2)]))
+            iterator = wrapper.process(
+                iter([PipelineContext(value=1), PipelineContext(value=2)])
+            )
             self.assertEqual(next(iterator).value, 1)
             path.write_text(counter_code(100), encoding="utf-8")
             self.assertEqual(next(iterator).value, 103)
@@ -503,7 +526,9 @@ class HotswapTests(unittest.TestCase):
             path.write_text(code(1), encoding="utf-8")
             wrapper = Hotswap(load_step(path, "Configured"), check_interval=0)
             wrapper.configure(SimpleNamespace(offset=10))
-            iterator = wrapper.process(iter([PipelineContext(value=1), PipelineContext(value=2)]))
+            iterator = wrapper.process(
+                iter([PipelineContext(value=1), PipelineContext(value=2)])
+            )
             self.assertEqual(next(iterator).value, 11)
             path.write_text(code(2), encoding="utf-8")
             self.assertEqual(next(iterator).value, 14)
@@ -526,7 +551,9 @@ class HotswapTests(unittest.TestCase):
                 encoding="utf-8",
             )
             original = load_step(path, "Source")
-            iterator = Hotswap(original, check_interval=0, source=True).process(iter(()))
+            iterator = Hotswap(original, check_interval=0, source=True).process(
+                iter(())
+            )
             self.assertEqual(next(iterator).value, 1)
             path.write_text(
                 "from pipeworks.models import Step, PipelineContext\n"
@@ -608,6 +635,7 @@ class HotswapTests(unittest.TestCase):
 
             def __init__(self):
                 import av
+
                 self._packet = av.Packet(b"compressed")
                 self.buffer_ptr = self._packet.buffer_ptr
                 self.size = self._packet.size
@@ -631,11 +659,22 @@ class HotswapTests(unittest.TestCase):
         stream = SimpleNamespace(codec=SimpleNamespace(name="h264"))
         decoder = NvidiaDecode()
         decoder.configure(SimpleNamespace(gpu_id=0))
-        with patch.dict(sys.modules, {"PyNvVideoCodec": fake_nvc}), patch(
-            "pipeworks.embedded.nvidia_decode.torch.cuda.Stream",
-            return_value=SimpleNamespace(cuda_stream=1),
-        ), patch("pipeworks.embedded.nvidia_decode.torch.cuda.stream", return_value=nullcontext()):
-            frames = list(decoder.process(iter([PipelineContext(packet=Packet(), video_stream=stream)])))
+        with (
+            patch.dict(sys.modules, {"PyNvVideoCodec": fake_nvc}),
+            patch(
+                "pipeworks.embedded.nvidia_decode.torch.cuda.Stream",
+                return_value=SimpleNamespace(cuda_stream=1),
+            ),
+            patch(
+                "pipeworks.embedded.nvidia_decode.torch.cuda.stream",
+                return_value=nullcontext(),
+            ),
+        ):
+            frames = list(
+                decoder.process(
+                    iter([PipelineContext(packet=Packet(), video_stream=stream)])
+                )
+            )
         self.assertEqual([frame.frame for frame in frames], ["delayed"])
         self.assertIs(frames[0].video_stream, stream)
 
@@ -646,7 +685,9 @@ class HotswapTests(unittest.TestCase):
             transform = Hotswap(load_step(path, "Metadata"), check_interval=0)
             downstream = Hotswap(Accumulator(), check_interval=0)
             iterator = downstream.process(
-                transform.process(iter([PipelineContext(value=1), PipelineContext(value=2)]))
+                transform.process(
+                    iter([PipelineContext(value=1), PipelineContext(value=2)])
+                )
             )
             self.assertEqual(next(iterator).value, 1)
             path.write_text(metadata_code(1000, 2000), encoding="utf-8")
@@ -659,7 +700,9 @@ class HotswapTests(unittest.TestCase):
             transform = Hotswap(load_step(path, "Metadata"), check_interval=0)
             downstream = Hotswap(NamedAccumulator("camera"), check_interval=0)
             iterator = downstream.process(
-                transform.process(iter([PipelineContext(value=1), PipelineContext(value=2)]))
+                transform.process(
+                    iter([PipelineContext(value=1), PipelineContext(value=2)])
+                )
             )
             self.assertEqual(next(iterator).value, 1)
             path.write_text(metadata_code(1000, 2000), encoding="utf-8")
@@ -685,7 +728,9 @@ class HotswapTests(unittest.TestCase):
             downstream = Hotswap(ConfiguredAccumulator(), check_interval=0)
             downstream.configure(SimpleNamespace(offset=10))
             iterator = downstream.process(
-                transform.process(iter([PipelineContext(value=1), PipelineContext(value=2)]))
+                transform.process(
+                    iter([PipelineContext(value=1), PipelineContext(value=2)])
+                )
             )
             self.assertEqual(next(iterator).value, 11)
             path.write_text(metadata_code(1000, 2000), encoding="utf-8")

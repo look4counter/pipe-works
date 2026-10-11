@@ -8,8 +8,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from pipeworks import Pipeline
 from pipeworks.embedded import (
-    CudaAsync, NvidiaDecode, NvidiaEncode, RTSPPublish, RTSPSource,
-    Tap, TensorRTInference, YoloDetect,
+    CudaAsync,
+    NvidiaDecode,
+    NvidiaEncode,
+    RTSPPublish,
+    RTSPSource,
+    Tap,
+    TensorRTInference,
+    YoloDetect,
 )
 from pipeworks.hotswap import Hotswap
 from pipeworks.models import Step
@@ -51,7 +57,7 @@ class StepConfigDefaultsTests(unittest.TestCase):
 
     def test_custom_step_can_opt_into_constructor_defaults(self):
         class CustomStep(Step):
-            def __init__(self, *, threshold=.5):
+            def __init__(self, *, threshold=0.5):
                 self._set_config_defaults(threshold=threshold)
 
             def configure(self, config):
@@ -60,24 +66,56 @@ class StepConfigDefaultsTests(unittest.TestCase):
             def process(self, inputs):
                 yield from inputs
 
-        step = CustomStep(threshold=.7)
+        step = CustomStep(threshold=0.7)
         step.configure(SimpleNamespace(threshold=0))
         self.assertEqual(step.threshold, 0)
         step.configure(SimpleNamespace())
-        self.assertEqual(step.threshold, .7)
+        self.assertEqual(step.threshold, 0.7)
 
     def cases(self):
         return [
-            (RTSPSource, ("rtsp://input",), {"reconnect": False, "reconnect_interval_ms": 100,
-             "transport": "udp", "timeout_ms": 750}, {"reconnect": True, "timeout_ms": 0}),
-            (RTSPPublish, ("rtsp://output",), {"reconnect": False, "reconnect_interval_ms": 100,
-             "transport": "udp", "timeout_ms": 750, "packet_size": 1200}, {"packet_size": 1400}),
+            (
+                RTSPSource,
+                ("rtsp://input",),
+                {
+                    "reconnect": False,
+                    "reconnect_interval_ms": 100,
+                    "transport": "udp",
+                    "timeout_ms": 750,
+                },
+                {"reconnect": True, "timeout_ms": 0},
+            ),
+            (
+                RTSPPublish,
+                ("rtsp://output",),
+                {
+                    "reconnect": False,
+                    "reconnect_interval_ms": 100,
+                    "transport": "udp",
+                    "timeout_ms": 750,
+                    "packet_size": 1200,
+                },
+                {"packet_size": 1400},
+            ),
             (NvidiaDecode, (), {"gpu_id": 2}, {"gpu_id": 0}),
             (NvidiaEncode, (), {"gpu_id": 2, "fps": 15}, {"fps": 25}),
-            (YoloDetect, (Path("model.pt"),), {"gpu_id": 2, "classes": [1], "confidence": .7,
-             "inference_interval_frame": 3}, {"classes": [], "confidence": .4}),
-            (TensorRTInference, (Path("model.engine"),), {"gpu_id": 2, "profile_index": 1,
-             "inference_interval_frame": 3}, {"profile_index": 0}),
+            (
+                YoloDetect,
+                (Path("model.pt"),),
+                {
+                    "gpu_id": 2,
+                    "classes": [1],
+                    "confidence": 0.7,
+                    "inference_interval_frame": 3,
+                },
+                {"classes": [], "confidence": 0.4},
+            ),
+            (
+                TensorRTInference,
+                (Path("model.engine"),),
+                {"gpu_id": 2, "profile_index": 1, "inference_interval_frame": 3},
+                {"profile_index": 0},
+            ),
             (CudaAsync, (NvidiaDecode(),), {"timeout_ms": 25}, {"timeout_ms": 0}),
         ]
 
@@ -85,7 +123,11 @@ class StepConfigDefaultsTests(unittest.TestCase):
         for cls, args, defaults, overrides in self.cases():
             with self.subTest(step=cls.__name__):
                 step = cls(*args, **defaults)
-                for config in (SimpleNamespace(), SimpleNamespace(**overrides), SimpleNamespace()):
+                for config in (
+                    SimpleNamespace(),
+                    SimpleNamespace(**overrides),
+                    SimpleNamespace(),
+                ):
                     step.configure(config)
                     expected = defaults | vars(config)
                     for name, value in expected.items():
@@ -97,7 +139,7 @@ class StepConfigDefaultsTests(unittest.TestCase):
             (RTSPPublish("output"), {"packet_size": 1452}),
             (NvidiaDecode(), {"gpu_id": 0}),
             (NvidiaEncode(), {"gpu_id": 0, "fps": 30}),
-            (YoloDetect(Path("model.pt")), {"confidence": .25, "classes": None}),
+            (YoloDetect(Path("model.pt")), {"confidence": 0.25, "classes": None}),
             (TensorRTInference(Path("model.engine")), {"profile_index": 0}),
             (CudaAsync(NvidiaDecode()), {"timeout_ms": 5}),
         ]:
@@ -119,8 +161,13 @@ class StepConfigDefaultsTests(unittest.TestCase):
     def test_pipeline_registration_and_async_children(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "stream.yml"
-            config.write_text("TensorRTInference:\n  profile_index: 0\nCudaAsync:\n  timeout_ms: 0\n", encoding="utf-8")
-            inference = TensorRTInference(Path("model.engine"), gpu_id=2, profile_index=1)
+            config.write_text(
+                "TensorRTInference:\n  profile_index: 0\nCudaAsync:\n  timeout_ms: 0\n",
+                encoding="utf-8",
+            )
+            inference = TensorRTInference(
+                Path("model.engine"), gpu_id=2, profile_index=1
+            )
             async_step = CudaAsync(inference, timeout_ms=25)
             Pipeline("test", config=config).step(async_step)
             self.assertEqual(async_step.timeout_ms, 0)

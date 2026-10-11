@@ -18,7 +18,14 @@ from unittest.mock import patch
 
 from pipeworks import Pipeline
 from pipeworks.embedded import Tap, StreamReport
-from pipeworks.main import _ADDRESS, _KEY, _connect, _server_executable, _start_server, _user_sid
+from pipeworks.main import (
+    _ADDRESS,
+    _KEY,
+    _connect,
+    _server_executable,
+    _start_server,
+    _user_sid,
+)
 from pipeworks.main import _server_endpoint, _LOCK_PATH, _launched_servers
 from pipeworks.models import PipelineContext, Step
 
@@ -84,7 +91,9 @@ class ConsoleProbeSource(Step):
     def process(self, inputs):
         import ctypes
 
-        self.path.write_text(str(ctypes.windll.kernel32.GetConsoleWindow()), encoding="utf-8")
+        self.path.write_text(
+            str(ctypes.windll.kernel32.GetConsoleWindow()), encoding="utf-8"
+        )
         print("console probe output", flush=True)
         yield PipelineContext()
 
@@ -149,6 +158,7 @@ class StatusSource(Step):
     def process(self, inputs):
         if self.healthy:
             from pipeworks.embedded.stream_report import record_receive
+
             record_receive(True)
         time.sleep(1.3)
         yield PipelineContext()
@@ -167,7 +177,9 @@ class YoloSource(Step):
 
         image = torch.full((96, 64), 128, dtype=torch.uint8, device="cuda")
         result = infer(self.model_path, image, None, 0.25, 0)
-        self.result_path.write_text(f"{os.getpid()}:{result.orig_shape}", encoding="utf-8")
+        self.result_path.write_text(
+            f"{os.getpid()}:{result.orig_shape}", encoding="utf-8"
+        )
         yield PipelineContext()
 
 
@@ -175,7 +187,9 @@ def _run_forever(directory_name: str) -> None:
     directory = Path(directory_name)
     config = directory / "child.yml"
     config.write_text("{}", encoding="utf-8")
-    Pipeline("child", config=config).step(RecordingSource(directory / "child.pid", continuous=True)).run()
+    Pipeline("child", config=config).step(
+        RecordingSource(directory / "child.pid", continuous=True)
+    ).run()
 
 
 def _run_print(directory_name: str, message: str, result) -> None:
@@ -194,7 +208,9 @@ def _run_tap_print(directory_name: str, message: str, result) -> None:
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
     with redirect_stdout(output):
-        Pipeline(message, config=config).step(PrintingSource("report output")).step(Tap(PrintingStep(message))).run()
+        Pipeline(message, config=config).step(PrintingSource("report output")).step(
+            Tap(PrintingStep(message))
+        ).run()
     result.put(output.getvalue())
 
 
@@ -203,7 +219,9 @@ def _run_status_report(directory_name: str, healthy: bool, result) -> None:
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
     with redirect_stdout(output):
-        Pipeline(f"status-{healthy}", config=config).step(StatusSource(healthy)).step(StreamReport()).run()
+        Pipeline(f"status-{healthy}", config=config).step(StatusSource(healthy)).step(
+            StreamReport()
+        ).run()
     result.put((healthy, output.getvalue()))
 
 
@@ -214,7 +232,10 @@ class CentralProcessTests(unittest.TestCase):
             config.write_text("{}", encoding="utf-8")
             with patch("pipeworks.main._connect") as connect:
                 for value in (None, 0, 1, "true", "development", [], {}):
-                    with self.subTest(value=value), self.assertRaisesRegex(TypeError, "development"):
+                    with (
+                        self.subTest(value=value),
+                        self.assertRaisesRegex(TypeError, "development"),
+                    ):
                         Pipeline("invalid", config=config, development=value)
                 pipeline = Pipeline("default", config=config)
                 self.assertIs(pipeline.development, False)
@@ -230,7 +251,9 @@ class CentralProcessTests(unittest.TestCase):
                     remote.assert_called_once_with(pipeline)
         self.assertEqual(_server_endpoint(), (_ADDRESS, _LOCK_PATH))
         self.assertEqual(_server_endpoint("production"), (_ADDRESS, _LOCK_PATH))
-        self.assertNotEqual(_server_endpoint("development"), _server_endpoint("Development"))
+        self.assertNotEqual(
+            _server_endpoint("development"), _server_endpoint("Development")
+        )
 
     def test_concurrent_groups_reuse_only_their_own_server(self):
         with TemporaryDirectory() as temporary:
@@ -240,20 +263,35 @@ class CentralProcessTests(unittest.TestCase):
 
             def run(group, index):
                 try:
-                    self._pipeline(directory, f"{group}-{index}",
-                                   RecordingSource(directory / f"{group}-{index}.pid"), development=group).run()
+                    self._pipeline(
+                        directory,
+                        f"{group}-{index}",
+                        RecordingSource(directory / f"{group}-{index}.pid"),
+                        development=group,
+                    ).run()
                 except Exception as error:
                     failures.append(error)
 
-            threads = [Thread(target=run, args=(group, index)) for group in groups for index in range(2)]
+            threads = [
+                Thread(target=run, args=(group, index))
+                for group in groups
+                for index in range(2)
+            ]
             for thread in threads:
                 thread.start()
             for thread in threads:
                 thread.join(timeout=15)
                 self.assertFalse(thread.is_alive())
             self.assertEqual(failures, [])
-            pids = [[int((directory / f"{group}-{index}.pid").read_text(encoding="utf-8"))
-                     for index in range(2)] for group in groups]
+            pids = [
+                [
+                    int(
+                        (directory / f"{group}-{index}.pid").read_text(encoding="utf-8")
+                    )
+                    for index in range(2)
+                ]
+                for group in groups
+            ]
             self.assertEqual(pids[0][0], pids[0][1])
             self.assertEqual(pids[1][0], pids[1][1])
             self.assertNotEqual(pids[0][0], pids[1][0])
@@ -261,7 +299,9 @@ class CentralProcessTests(unittest.TestCase):
 
     def _open_group_stream(self, directory, group):
         path = directory / f"{group}.pid"
-        pipeline = self._pipeline(directory, group, ProgressSource(path, continuous=True))
+        pipeline = self._pipeline(
+            directory, group, ProgressSource(path, continuous=True)
+        )
         cloudpickle.register_pickle_by_value(sys.modules[__name__])
         _start_server(group)
         process = _launched_servers[-1]
@@ -278,7 +318,9 @@ class CentralProcessTests(unittest.TestCase):
 
         Thread(target=heartbeat, daemon=True).start()
         deadline = time.monotonic() + 10
-        while not path.with_suffix(".progress").exists() and time.monotonic() < deadline:
+        while (
+            not path.with_suffix(".progress").exists() and time.monotonic() < deadline
+        ):
             time.sleep(0.02)
         if not path.with_suffix(".progress").exists():
             connection.close()
@@ -307,7 +349,9 @@ class CentralProcessTests(unittest.TestCase):
             prod, path, prod_pid, _ = self._open_group_stream(directory, production)
             dev = None
             try:
-                dev, _, dev_pid, process = self._open_group_stream(directory, development)
+                dev, _, dev_pid, process = self._open_group_stream(
+                    directory, development
+                )
                 # Windows venv launchers can have a different PID from the Python server.
                 os.kill(dev_pid, signal.SIGTERM)
                 process.wait(timeout=5)
@@ -325,7 +369,9 @@ class CentralProcessTests(unittest.TestCase):
             prod, path, prod_pid, _ = self._open_group_stream(directory, production)
             dev = None
             try:
-                dev, _, dev_pid, process = self._open_group_stream(directory, development)
+                dev, _, dev_pid, process = self._open_group_stream(
+                    directory, development
+                )
                 dev.close()
                 dev = None
                 deadline = time.monotonic() + 5
@@ -334,12 +380,25 @@ class CentralProcessTests(unittest.TestCase):
                 self.assertIsNotNone(process.poll())
                 self._assert_group_progress(production, path, prod_pid)
                 replacement_path = directory / "replacement.pid"
-                replacement = self._pipeline(directory, "replacement", RecordingSource(replacement_path), development=True)
+                replacement = self._pipeline(
+                    directory,
+                    "replacement",
+                    RecordingSource(replacement_path),
+                    development=True,
+                )
                 # Use the isolated test server while exercising constructor-based routing.
-                with patch("pipeworks.main._connect", side_effect=lambda group: _connect(development)):
-                    with patch("pipeworks.main._start_server", side_effect=lambda group: _start_server(development)):
+                with patch(
+                    "pipeworks.main._connect",
+                    side_effect=lambda group: _connect(development),
+                ):
+                    with patch(
+                        "pipeworks.main._start_server",
+                        side_effect=lambda group: _start_server(development),
+                    ):
                         replacement.run()
-                self.assertNotEqual(dev_pid, int(replacement_path.read_text(encoding="utf-8")))
+                self.assertNotEqual(
+                    dev_pid, int(replacement_path.read_text(encoding="utf-8"))
+                )
                 self._assert_group_progress(production, path, prod_pid)
             finally:
                 if dev is not None:
@@ -350,8 +409,12 @@ class CentralProcessTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             context = get_context("spawn")
             result = context.Queue()
-            processes = [context.Process(target=_run_status_report, args=(temporary, healthy, result))
-                         for healthy in (True, False)]
+            processes = [
+                context.Process(
+                    target=_run_status_report, args=(temporary, healthy, result)
+                )
+                for healthy in (True, False)
+            ]
             for process in processes:
                 process.start()
             try:
@@ -371,9 +434,11 @@ class CentralProcessTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             config = Path(temporary) / "report.yml"
             config.write_text("{}", encoding="utf-8")
-            pipeline = (Pipeline("terminal-report", config=config)
-                        .step(PrintingSource("source active", delay=1.3))
-                        .step(StreamReport()))
+            pipeline = (
+                Pipeline("terminal-report", config=config)
+                .step(PrintingSource("source active", delay=1.3))
+                .step(StreamReport())
+            )
             output = StringIO()
             with redirect_stdout(output):
                 pipeline.run()
@@ -386,13 +451,17 @@ class CentralProcessTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             config_path = root / "config.yml"
-            config_path.write_text("ConfigurableOffset:\n  offset: 10\n", encoding="utf-8")
+            config_path.write_text(
+                "ConfigurableOffset:\n  offset: 10\n", encoding="utf-8"
+            )
             result_path = root / "result.txt"
             release_path = root / "release"
-            pipeline = (Pipeline("central-config", config=config_path)
-                        .step(PausedSource(release_path))
-                        .step(ConfigurableOffset())
-                        .step(ValueRecorder(result_path)))
+            pipeline = (
+                Pipeline("central-config", config=config_path)
+                .step(PausedSource(release_path))
+                .step(ConfigurableOffset())
+                .step(ValueRecorder(result_path))
+            )
             failures = []
 
             def run():
@@ -405,11 +474,16 @@ class CentralProcessTests(unittest.TestCase):
             runner.start()
             try:
                 deadline = time.monotonic() + 10
-                while (not result_path.exists() or not result_path.read_text(encoding="utf-8")) and time.monotonic() < deadline:
+                while (
+                    not result_path.exists()
+                    or not result_path.read_text(encoding="utf-8")
+                ) and time.monotonic() < deadline:
                     time.sleep(0.01)
                 self.assertTrue(result_path.exists())
                 self.assertEqual(result_path.read_text(encoding="utf-8"), "11\n")
-                config_path.write_text("ConfigurableOffset:\n  offset: 20\n", encoding="utf-8")
+                config_path.write_text(
+                    "ConfigurableOffset:\n  offset: 20\n", encoding="utf-8"
+                )
                 time.sleep(0.6)
                 release_path.touch()
                 runner.join(timeout=10)
@@ -451,16 +525,23 @@ class CentralProcessTests(unittest.TestCase):
             sys.modules[module_name] = module
             sys.path.insert(0, str(root))
             try:
-                exec(compile(step_path.read_text(encoding="utf-8"), str(step_path), "exec"), module.__dict__)
+                exec(
+                    compile(
+                        step_path.read_text(encoding="utf-8"), str(step_path), "exec"
+                    ),
+                    module.__dict__,
+                )
                 user_step = module.UserStep()
             finally:
                 sys.path.remove(str(root))
                 sys.modules.pop(helper_name, None)
 
-            pipeline = (Pipeline("central-hotswap", config=config_path)
-                        .step(PausedSource(release_path))
-                        .step(user_step)
-                        .step(ValueRecorder(result_path)))
+            pipeline = (
+                Pipeline("central-hotswap", config=config_path)
+                .step(PausedSource(release_path))
+                .step(user_step)
+                .step(ValueRecorder(result_path))
+            )
             sys.modules.pop(module_name, None)
             failures = []
 
@@ -474,7 +555,10 @@ class CentralProcessTests(unittest.TestCase):
             runner.start()
             try:
                 deadline = time.monotonic() + 10
-                while (not result_path.exists() or not result_path.read_text(encoding="utf-8")) and time.monotonic() < deadline:
+                while (
+                    not result_path.exists()
+                    or not result_path.read_text(encoding="utf-8")
+                ) and time.monotonic() < deadline:
                     time.sleep(0.01)
                 self.assertTrue(result_path.exists())
                 self.assertEqual(result_path.read_text(encoding="utf-8"), "101\n")
@@ -508,7 +592,11 @@ class CentralProcessTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             config = Path(temporary) / "sink.yml"
             config.write_text("{}", encoding="utf-8")
-            pipeline = Pipeline("sink", config=config).step(PrintingSource("report output")).step(Tap(PrintingStep("post output")))
+            pipeline = (
+                Pipeline("sink", config=config)
+                .step(PrintingSource("report output"))
+                .step(Tap(PrintingStep("post output")))
+            )
             output = StringIO()
             with redirect_stdout(output):
                 pipeline.run()
@@ -519,16 +607,22 @@ class CentralProcessTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             context = get_context("spawn")
             result = context.Queue()
-            processes = [context.Process(target=_run_tap_print, args=(temporary, message, result))
-                         for message in ("first sink", "second sink")]
+            processes = [
+                context.Process(
+                    target=_run_tap_print, args=(temporary, message, result)
+                )
+                for message in ("first sink", "second sink")
+            ]
             for process in processes:
                 process.start()
             try:
                 outputs = [result.get(timeout=15) for _ in processes]
                 self.assertEqual(len(outputs), 2)
                 self.assertTrue(all("report output\n" in output for output in outputs))
-                self.assertEqual({output.replace("report output\n", "") for output in outputs},
-                                 {"first sink\n", "second sink\n"})
+                self.assertEqual(
+                    {output.replace("report output\n", "") for output in outputs},
+                    {"first sink\n", "second sink\n"},
+                )
             finally:
                 for process in processes:
                     process.join(timeout=5)
@@ -539,7 +633,9 @@ class CentralProcessTests(unittest.TestCase):
 
     def test_step_output_reaches_calling_stdout(self):
         with TemporaryDirectory() as temporary:
-            pipeline = self._pipeline(Path(temporary), "print", PrintingSource("step output"))
+            pipeline = self._pipeline(
+                Path(temporary), "print", PrintingSource("step output")
+            )
             output = StringIO()
             with redirect_stdout(output):
                 pipeline.run()
@@ -547,13 +643,18 @@ class CentralProcessTests(unittest.TestCase):
 
     def test_step_output_arrives_before_run_finishes(self):
         with TemporaryDirectory() as temporary:
-            pipeline = self._pipeline(Path(temporary), "live", PrintingSource("live output", delay=1))
+            pipeline = self._pipeline(
+                Path(temporary), "live", PrintingSource("live output", delay=1)
+            )
             output = StringIO()
             with redirect_stdout(output):
                 runner = Thread(target=pipeline.run)
                 runner.start()
                 deadline = time.monotonic() + 5
-                while "live output" not in output.getvalue() and time.monotonic() < deadline:
+                while (
+                    "live output" not in output.getvalue()
+                    and time.monotonic() < deadline
+                ):
                     time.sleep(0.01)
                 self.assertIn("live output", output.getvalue())
                 self.assertTrue(runner.is_alive())
@@ -564,8 +665,10 @@ class CentralProcessTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             context = get_context("spawn")
             result = context.Queue()
-            processes = [context.Process(target=_run_print, args=(temporary, message, result))
-                         for message in ("first", "second")]
+            processes = [
+                context.Process(target=_run_print, args=(temporary, message, result))
+                for message in ("first", "second")
+            ]
             for process in processes:
                 process.start()
             try:
@@ -584,7 +687,9 @@ class CentralProcessTests(unittest.TestCase):
         from pipeworks import main
 
         sid = _user_sid()
-        expected = hashlib.sha256((str(Path(main.__file__).resolve().parent) + sid).encode()).hexdigest()[:20]
+        expected = hashlib.sha256(
+            (str(Path(main.__file__).resolve().parent) + sid).encode()
+        ).hexdigest()[:20]
         self.assertEqual(_KEY, expected)
         self.assertIn(expected, _ADDRESS)
 
@@ -601,7 +706,9 @@ class CentralProcessTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "WinError 5"):
                     _start_server()
 
-    def _pipeline(self, directory: Path, name: str, source: Step, *, development=False) -> Pipeline:
+    def _pipeline(
+        self, directory: Path, name: str, source: Step, *, development=False
+    ) -> Pipeline:
         config = directory / f"{name}.yml"
         config.write_text("{}", encoding="utf-8")
         return Pipeline(name, config=config, development=development).step(source)
@@ -610,9 +717,11 @@ class CentralProcessTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             directory = Path(temporary)
             paths = [directory / "first.pid", directory / "second.pid"]
-            pipelines = [self._pipeline(directory, str(index), RecordingSource(path)) for index, path in enumerate(paths)]
-            threads = [Thread(target=pipelines[0].run),
-                       Thread(target=pipelines[1].run)]
+            pipelines = [
+                self._pipeline(directory, str(index), RecordingSource(path))
+                for index, path in enumerate(paths)
+            ]
+            threads = [Thread(target=pipelines[0].run), Thread(target=pipelines[1].run)]
             for thread in threads:
                 thread.start()
             for thread in threads:
@@ -631,13 +740,20 @@ class CentralProcessTests(unittest.TestCase):
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다")
     def test_gpu_inference_stays_in_central_process(self):
-        model_path = Path(__file__).resolve().parents[1] / "examples" / "model" / "yolo11n.engine"
+        model_path = (
+            Path(__file__).resolve().parents[1]
+            / "examples"
+            / "model"
+            / "yolo11n.engine"
+        )
         if not model_path.is_file():
             self.skipTest("예제 모델이 필요합니다")
         with TemporaryDirectory() as temporary:
             directory = Path(temporary)
             result_path = directory / "result.txt"
-            pipeline = self._pipeline(directory, "gpu", YoloSource(model_path, result_path))
+            pipeline = self._pipeline(
+                directory, "gpu", YoloSource(model_path, result_path)
+            )
             pipeline.run()
             pid, shape = result_path.read_text(encoding="utf-8").split(":", 1)
             self.assertNotEqual(int(pid), os.getpid())
@@ -647,9 +763,13 @@ class CentralProcessTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             directory = Path(temporary)
             path = directory / "continuous.pid"
-            pipeline = self._pipeline(directory, "continuous", RecordingSource(path, continuous=True))
+            pipeline = self._pipeline(
+                directory, "continuous", RecordingSource(path, continuous=True)
+            )
             other_path = directory / "other.pid"
-            other = self._pipeline(directory, "other", RecordingSource(other_path, continuous=True))
+            other = self._pipeline(
+                directory, "other", RecordingSource(other_path, continuous=True)
+            )
             _start_server()
             connection = _connect()
             other_connection = _connect()
@@ -657,17 +777,24 @@ class CentralProcessTests(unittest.TestCase):
             connection.send_bytes(cloudpickle.dumps(pipeline))
             other_connection.send_bytes(cloudpickle.dumps(other))
             deadline = time.monotonic() + 10
-            while (not path.exists() or not other_path.exists()) and time.monotonic() < deadline:
+            while (
+                not path.exists() or not other_path.exists()
+            ) and time.monotonic() < deadline:
                 time.sleep(0.05)
             self.assertTrue(path.exists())
             self.assertTrue(other_path.exists())
             connection.close()
-            while not path.with_suffix(".closed").exists() and time.monotonic() < deadline:
+            while (
+                not path.with_suffix(".closed").exists() and time.monotonic() < deadline
+            ):
                 time.sleep(0.05)
             self.assertTrue(path.with_suffix(".closed").exists())
             self.assertFalse(other_path.with_suffix(".closed").exists())
             other_connection.close()
-            while not other_path.with_suffix(".closed").exists() and time.monotonic() < deadline:
+            while (
+                not other_path.with_suffix(".closed").exists()
+                and time.monotonic() < deadline
+            ):
                 time.sleep(0.05)
             self.assertTrue(other_path.with_suffix(".closed").exists())
 
@@ -681,14 +808,32 @@ class CentralProcessTests(unittest.TestCase):
                 for name in ("first", "second"):
                     connection = _connect()
                     connections.append(connection)
-                    pipeline = self._pipeline(directory, name, RecordingSource(directory / f"{name}.pid", continuous=True))
+                    pipeline = self._pipeline(
+                        directory,
+                        name,
+                        RecordingSource(directory / f"{name}.pid", continuous=True),
+                    )
                     connection.send_bytes(cloudpickle.dumps(pipeline))
                 deadline = time.monotonic() + 10
-                while not all((directory / f"{name}.pid").exists() for name in ("first", "second")) and time.monotonic() < deadline:
+                while (
+                    not all(
+                        (directory / f"{name}.pid").exists()
+                        for name in ("first", "second")
+                    )
+                    and time.monotonic() < deadline
+                ):
                     time.sleep(0.05)
-                self.assertTrue(all((directory / f"{name}.pid").exists() for name in ("first", "second")))
+                self.assertTrue(
+                    all(
+                        (directory / f"{name}.pid").exists()
+                        for name in ("first", "second")
+                    )
+                )
                 server_pid = int((directory / "first.pid").read_text(encoding="utf-8"))
-                self.assertEqual(server_pid, int((directory / "second.pid").read_text(encoding="utf-8")))
+                self.assertEqual(
+                    server_pid,
+                    int((directory / "second.pid").read_text(encoding="utf-8")),
+                )
 
                 connections.pop(0).close()
                 time.sleep(1.5)
@@ -699,12 +844,22 @@ class CentralProcessTests(unittest.TestCase):
                 connections.pop().close()
                 replacement = _connect()
                 connections.append(replacement)
-                replacement_pipeline = self._pipeline(directory, "replacement", RecordingSource(directory / "replacement.pid", continuous=True))
+                replacement_pipeline = self._pipeline(
+                    directory,
+                    "replacement",
+                    RecordingSource(directory / "replacement.pid", continuous=True),
+                )
                 replacement.send_bytes(cloudpickle.dumps(replacement_pipeline))
                 deadline = time.monotonic() + 5
-                while not (directory / "replacement.pid").exists() and time.monotonic() < deadline:
+                while (
+                    not (directory / "replacement.pid").exists()
+                    and time.monotonic() < deadline
+                ):
                     time.sleep(0.05)
-                self.assertEqual(server_pid, int((directory / "replacement.pid").read_text(encoding="utf-8")))
+                self.assertEqual(
+                    server_pid,
+                    int((directory / "replacement.pid").read_text(encoding="utf-8")),
+                )
                 time.sleep(1.5)
                 with _connect() as ping:
                     ping.send_bytes(b"ping")
@@ -721,7 +876,9 @@ class CentralProcessTests(unittest.TestCase):
                         break
                     time.sleep(0.05)
                 else:
-                    self.fail("마지막 파이프라인 연결 후 중앙 프로세스가 종료되지 않았습니다.")
+                    self.fail(
+                        "마지막 파이프라인 연결 후 중앙 프로세스가 종료되지 않았습니다."
+                    )
             finally:
                 for connection in connections:
                     connection.close()
@@ -729,7 +886,9 @@ class CentralProcessTests(unittest.TestCase):
     def test_terminated_caller_stops_stream(self):
         with TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            process = get_context("spawn").Process(target=_run_forever, args=(temporary,))
+            process = get_context("spawn").Process(
+                target=_run_forever, args=(temporary,)
+            )
             process.start()
             try:
                 marker = directory / "child.pid"

@@ -25,10 +25,7 @@ from pathlib import Path
 from pipeworks import Pipeline
 
 # 기본 생성
-pipeline = Pipeline(
-    name="my-pipeline",
-    config=Path("config.yaml")
-)
+pipeline = Pipeline(name="my-pipeline", config=Path("config.yaml"))
 ```
 
 #### 파라미터
@@ -50,7 +47,8 @@ pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/{stream_id}"))
 
 **메서드 체이닝 지원:**
 ```python
-(Pipeline("pipeline", config=Path("config.yaml"))
+(
+    Pipeline("pipeline", config=Path("config.yaml"))
     .step(RTSPSource(url="rtsp://camera"))
     .step(YoloDetect(model_path=Path("models/yolo11n.pt")))
     .step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
@@ -65,14 +63,14 @@ pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/{stream_id}"))
 
 ```python
 # ✅ 올바른 구조
-pipeline.step(RTSPSource(...))        # Source (입력)
-pipeline.step(YoloDetect(...))        # Processing
-pipeline.step(StreamReport(...))      # Processing
-pipeline.step(RTSPPublish(...))       # Sink (출력)
+pipeline.step(RTSPSource(...))  # Source (입력)
+pipeline.step(YoloDetect(...))  # Processing
+pipeline.step(StreamReport(...))  # Processing
+pipeline.step(RTSPPublish(...))  # Sink (출력)
 
 # ❌ 잘못된 구조
-pipeline.step(RTSPPublish(...))       # X: Sink가 먼저 와야 함
-pipeline.step(RTSPSource(...))        # X: Source가 먼저 와야 함
+pipeline.step(RTSPPublish(...))  # X: Sink가 먼저 와야 함
+pipeline.step(RTSPSource(...))  # X: Source가 먼저 와야 함
 ```
 
 ### 실행
@@ -84,7 +82,9 @@ pipeline.step(RTSPSource(...))        # X: Source가 먼저 와야 함
 pipeline.run()
 
 # 개발용 중앙 프로세스에서 실행
-development_pipeline = Pipeline("development", config=Path("config.yaml"), development=True)
+development_pipeline = Pipeline(
+    "development", config=Path("config.yaml"), development=True
+)
 development_pipeline.run()
 ```
 
@@ -115,7 +115,9 @@ except KeyboardInterrupt:
 
 ```python
 inference = TensorRTInference(
-    Path("model.engine"), gpu_id=2, profile_index=1,
+    Path("model.engine"),
+    gpu_id=2,
+    profile_index=1,
     inference_interval_frame=3,
 )
 pipeline.step(inference)
@@ -182,7 +184,7 @@ RTSPPublish:
 class MyCustomStep(Step):
     def configure(self, config: SimpleNamespace) -> None:
         # config는 YAML의 MyCustomStep 섹션
-        self.param1 = getattr(config, 'param1', 'default')
+        self.param1 = getattr(config, "param1", "default")
 ```
 
 ### 실행 중 설정 변경 (Hotswap)
@@ -285,16 +287,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class MyProcessor(Step):
     def __init__(self):
         self.enabled = True
-    
+
     def configure(self, config: SimpleNamespace) -> None:
-        self.enabled = getattr(config, 'enabled', True)
-    
+        self.enabled = getattr(config, "enabled", True)
+
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
-            if self.enabled and hasattr(context, 'detections'):
+            if self.enabled and hasattr(context, "detections"):
                 count = len(context.detections)
                 logger.info(f"감지된 객체: {count}")
                 context.detection_count = count
@@ -343,6 +346,7 @@ from pathlib import Path
 from pipeworks import Pipeline
 from pipeworks.embedded import RTSPSource, YoloDetect, StreamReport, RTSPPublish
 
+
 def create_pipeline(cam_id: str, cam_url: str):
     pipeline = Pipeline(f"pipeline-{cam_id}", config=Path("config.yaml"))
     pipeline.step(RTSPSource(url=cam_url))
@@ -351,24 +355,21 @@ def create_pipeline(cam_id: str, cam_url: str):
     pipeline.step(RTSPPublish(url=f"rtsp://mediamtx:8554/{cam_id}"))
     return pipeline
 
+
 if __name__ == "__main__":
     cameras = [
         ("cam01", "rtsp://camera1/main"),
         ("cam02", "rtsp://camera2/main"),
         ("cam03", "rtsp://camera3/main"),
     ]
-    
+
     threads = []
     for cam_id, cam_url in cameras:
         pipeline = create_pipeline(cam_id, cam_url)
-        thread = threading.Thread(
-            target=pipeline.run,
-            name=cam_id,
-            daemon=True
-        )
+        thread = threading.Thread(target=pipeline.run, name=cam_id, daemon=True)
         thread.start()
         threads.append(thread)
-    
+
     # 메인 스레드 유지
     try:
         for thread in threads:

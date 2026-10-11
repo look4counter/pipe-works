@@ -4,19 +4,19 @@ RTSPSource:
   transport: tcp
   timeout_ms: 10000
 
-NvidiaDecode:
-  gpu_id: 0
-
-NvidiaEncode:
-  gpu_id: 0
-  fps: 30
-
 RTSPPublish:
   reconnect: true
   reconnect_interval_ms: 3000
   transport: tcp
   timeout_ms: 10000
   packet_size: 1452
+
+NvidiaDecode:
+  gpu_id: 0
+
+NvidiaEncode:
+  gpu_id: 0
+  fps: 30
 
 YoloDetect:
   # id: vehicle  # 생략하면 모델 파일명, 여러 실행 단계는 생성자에서 서로 다른 ID 지정

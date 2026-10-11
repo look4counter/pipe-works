@@ -14,6 +14,7 @@
 
 ```python
 from pipeworks.embedded import Async, YoloDetect
+
 pipeline.step(Async(YoloDetect(model_path), timeout_ms=5))
 ```
 

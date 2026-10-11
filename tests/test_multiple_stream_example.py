@@ -25,7 +25,9 @@ class MultipleStreamExampleTests(TestCase):
                     started.append(self.video)
                 barrier.wait()
 
-        with patch.dict(module["run_pipelines"].__globals__, {"build_pipeline": FakePipeline}):
+        with patch.dict(
+            module["run_pipelines"].__globals__, {"build_pipeline": FakePipeline}
+        ):
             module["run_pipelines"](("one", "two", "three"))
 
         self.assertCountEqual(started, ("one", "two", "three"))
@@ -43,6 +45,8 @@ class MultipleStreamExampleTests(TestCase):
                 if self.video == "broken":
                     raise RuntimeError("stream failed")
 
-        with patch.dict(module["run_pipelines"].__globals__, {"build_pipeline": FakePipeline}):
+        with patch.dict(
+            module["run_pipelines"].__globals__, {"build_pipeline": FakePipeline}
+        ):
             with self.assertRaisesRegex(RuntimeError, "stream failed"):
                 module["run_pipelines"](("ok", "broken"))

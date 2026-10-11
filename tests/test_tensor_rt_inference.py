@@ -61,7 +61,9 @@ class FakeContext:
         if self.fail_execute:
             self.fail_execute = False
             return False
-        source = sum(self.api.pointers[self.addresses[name]] for name in self.api.inputs)
+        source = sum(
+            self.api.pointers[self.addresses[name]] for name in self.api.inputs
+        )
         shape = (0, 2) if self.api.empty else tuple(source.shape)
         for index, name in enumerate(self.api.outputs):
             allocator = self.allocators[name]
@@ -70,7 +72,9 @@ class FakeContext:
             if self.api.preallocated:
                 address = self.addresses[name]
             else:
-                address = allocator.reallocate_output_async(name, 0, size, 512, stream_handle)
+                address = allocator.reallocate_output_async(
+                    name, 0, size, 512, stream_handle
+                )
                 self.api.allocations.append((address, 512))
             allocator.notify_shape(name, shape)
             if size:
@@ -121,9 +125,15 @@ class FakeTRT:
             num_io_tensors=3,
             get_tensor_name=lambda index: (self.inputs + self.outputs)[index],
             get_tensor_mode=lambda name: "input" if name in self.inputs else "output",
-            get_tensor_dtype=lambda name: "int32" if name == self.outputs[1] else "float32",
+            get_tensor_dtype=lambda name: (
+                "int32" if name == self.outputs[1] else "float32"
+            ),
             get_tensor_shape=lambda name: (-1, 2),
-            get_tensor_profile_shape=lambda name, profile_index: ((1, 2), (2, 2), (8, 2)),
+            get_tensor_profile_shape=lambda name, profile_index: (
+                (1, 2),
+                (2, 2),
+                (8, 2),
+            ),
             get_tensor_location=lambda name: "host" if self.host else "device",
             get_tensor_format=self.get_tensor_format,
             create_execution_context=self.create_context,
@@ -175,11 +185,31 @@ class SettingsTests(unittest.TestCase):
             for value in (-1, True, 1.5, "1", None):
                 with self.subTest(value=value):
                     with self.assertRaisesRegex(ValueError, "profile_index"):
-                        step.configure(SimpleNamespace(gpu_id=2, inference_interval_frame=3, profile_index=value))
-                    self.assertEqual((step.gpu_id, step.inference_interval_frame, step.profile_index), (0, 1, 1))
-            path.with_suffix(".yml").write_text("plugins: [custom.dll]", encoding="utf-8")
+                        step.configure(
+                            SimpleNamespace(
+                                gpu_id=2,
+                                inference_interval_frame=3,
+                                profile_index=value,
+                            )
+                        )
+                    self.assertEqual(
+                        (
+                            step.gpu_id,
+                            step.inference_interval_frame,
+                            step.profile_index,
+                        ),
+                        (0, 1, 1),
+                    )
+            path.with_suffix(".yml").write_text(
+                "plugins: [custom.dll]", encoding="utf-8"
+            )
             self.assertEqual(step._model_settings(), (path.parent / "custom.dll",))
-            for text in ("profile_index: 1", "timeout: 20", "plugins: [null]", "plugins: ['']"):
+            for text in (
+                "profile_index: 1",
+                "timeout: 20",
+                "plugins: [null]",
+                "plugins: ['']",
+            ):
                 with self.subTest(text=text):
                     path.with_suffix(".yml").write_text(text, encoding="utf-8")
                     with self.assertRaises(ValueError):
@@ -200,14 +230,18 @@ class SettingsTests(unittest.TestCase):
         for value in (0, -1, True, 1.5, "3", None):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(ValueError, "inference_interval_frame"):
-                    step.configure(SimpleNamespace(gpu_id=0, inference_interval_frame=value))
+                    step.configure(
+                        SimpleNamespace(gpu_id=0, inference_interval_frame=value)
+                    )
                 self.assertEqual((step.gpu_id, step.inference_interval_frame), (1, 3))
 
     def test_old_interval_key_is_rejected_without_changing_settings(self):
         step = TensorRTInference(Path("model.engine"))
         step.configure(SimpleNamespace(gpu_id=1, inference_interval_frame=3))
-        for config in ({"inference_interval": 2},
-                       {"inference_interval": 2, "inference_interval_frame": 4}):
+        for config in (
+            {"inference_interval": 2},
+            {"inference_interval": 2, "inference_interval_frame": 4},
+        ):
             with self.subTest(config=config):
                 with self.assertRaisesRegex(ValueError, "inference_interval_frame"):
                     step.configure(SimpleNamespace(gpu_id=0, **config))
@@ -219,14 +253,19 @@ class SettingsTests(unittest.TestCase):
         for value in (0, 1, None, "true"):
             with self.assertRaises(ValueError):
                 TensorRTInference(Path("model.plan"), batch=value)
+
     def test_settings_and_public_export(self):
         from pipeworks.embedded import TensorRTInference as exported
+
         self.assertIs(exported, TensorRTInference)
         with TemporaryDirectory() as directory:
             path = Path(directory) / "model.engine"
             step = TensorRTInference(path)
             self.assertEqual(step._model_settings(), ())
-            path.with_suffix(".yml").write_text("timeout_ms: 25\nplugins: [custom.dll]\nmax_batch_size: 10", encoding="utf-8")
+            path.with_suffix(".yml").write_text(
+                "timeout_ms: 25\nplugins: [custom.dll]\nmax_batch_size: 10",
+                encoding="utf-8",
+            )
             plugins = step._model_settings()
             self.assertEqual(plugins, (Path(directory) / "custom.dll",))
             step.configure(SimpleNamespace(gpu_id=1, inference_interval_frame=3))
@@ -236,34 +275,61 @@ class SettingsTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "model.engine"
             for value in ("true", "-1", ".inf", ".nan", '"5"', "null"):
-                path.with_suffix(".yml").write_text(f"timeout_ms: {value}", encoding="utf-8")
+                path.with_suffix(".yml").write_text(
+                    f"timeout_ms: {value}", encoding="utf-8"
+                )
                 self.assertEqual(TensorRTInference(path)._model_settings(), ())
             for content in ("[]", "timeout_ms: [", "plugins: wrong", "plugins: [3]"):
                 path.with_suffix(".yml").write_text(content, encoding="utf-8")
                 with self.assertRaises(ValueError):
                     TensorRTInference(path)._model_settings()
-        for config in (SimpleNamespace(gpu_id=True), SimpleNamespace(gpu_id=-1),
-                       SimpleNamespace(inference_interval_frame=0), SimpleNamespace(inference_interval_frame=True)):
+        for config in (
+            SimpleNamespace(gpu_id=True),
+            SimpleNamespace(gpu_id=-1),
+            SimpleNamespace(inference_interval_frame=0),
+            SimpleNamespace(inference_interval_frame=True),
+        ):
             with self.assertRaises(ValueError):
                 TensorRTInference(Path("model.engine")).configure(config)
 
 
 class ProfileSelectionTests(unittest.TestCase):
     def test_initialization_reads_dynamic_input_metadata_once_per_session(self):
-        with patch.object(self.api.engine, "get_tensor_shape", wraps=self.api.engine.get_tensor_shape) as shape, \
-             patch.object(self.api.engine, "get_tensor_profile_shape", wraps=self.api.engine.get_tensor_profile_shape) as bounds:
+        with (
+            patch.object(
+                self.api.engine,
+                "get_tensor_shape",
+                wraps=self.api.engine.get_tensor_shape,
+            ) as shape,
+            patch.object(
+                self.api.engine,
+                "get_tensor_profile_shape",
+                wraps=self.api.engine.get_tensor_profile_shape,
+            ) as bounds,
+        ):
             first = _EngineSession(self.path, profile_index=0)
             shape.assert_called_once_with(self.api.inputs[0])
             bounds.assert_called_once_with(self.api.inputs[0], 0)
             second = _EngineSession(self.path, profile_index=1)
             self.assertEqual(shape.call_count, 2)
-            self.assertEqual(bounds.call_args_list, [((self.api.inputs[0], 0),), ((self.api.inputs[0], 1),)])
+            self.assertEqual(
+                bounds.call_args_list,
+                [((self.api.inputs[0], 0),), ((self.api.inputs[0], 1),)],
+            )
             first.close()
             second.close()
 
     def test_fixed_input_does_not_query_profile_bounds(self):
-        with patch.object(self.api.engine, "get_tensor_shape", return_value=(2, 2)) as shape, \
-             patch.object(self.api.engine, "get_tensor_profile_shape", side_effect=AssertionError("fixed input profile query")):
+        with (
+            patch.object(
+                self.api.engine, "get_tensor_shape", return_value=(2, 2)
+            ) as shape,
+            patch.object(
+                self.api.engine,
+                "get_tensor_profile_shape",
+                side_effect=AssertionError("fixed input profile query"),
+            ),
+        ):
             session = _EngineSession(self.path)
             shape.assert_called_once_with(self.api.inputs[0])
             session.close()
@@ -281,8 +347,14 @@ class ProfileSelectionTests(unittest.TestCase):
     def test_selects_profile_once_before_binding_on_execution_stream(self):
         session = _EngineSession(self.path, profile_index=1)
         stream = SimpleNamespace(cuda_stream=123, synchronize=Mock())
-        with patch.object(session, "_bind", side_effect=lambda *args: self.api.calls.append("bind")), \
-                patch.object(session.context, "execute_async_v3", return_value=True):
+        with (
+            patch.object(
+                session,
+                "_bind",
+                side_effect=lambda *args: self.api.calls.append("bind"),
+            ),
+            patch.object(session.context, "execute_async_v3", return_value=True),
+        ):
             session.infer({}, stream, copy_context())
             session.infer({}, stream, copy_context())
         self.assertEqual(self.api.profile_selections, [(1, 123)])
@@ -328,27 +400,59 @@ class InputDependencyTests(unittest.TestCase):
                 item = PipelineContext()
                 item.cuda_stream = producer
                 item.model_input = storage[:, :1].transpose(0, 1)
-                with patch("torch.cuda.Event.synchronize", side_effect=AssertionError("CPU input wait")), \
-                        patch("pipeworks.embedded.tensor_rt_inference._EngineSession", Session), \
-                        patch("torch.cuda.Stream", return_value=consumer), \
-                        _model_stream_scope(consumer if same_stream else None):
-                    result = list(TensorRTInference(Path("model.engine")).process(iter([item])))[0]
-                torch.testing.assert_close(result.model_output["output"], torch.full((1, 2), 14., device="cuda"))
+                with (
+                    patch(
+                        "torch.cuda.Event.synchronize",
+                        side_effect=AssertionError("CPU input wait"),
+                    ),
+                    patch(
+                        "pipeworks.embedded.tensor_rt_inference._EngineSession", Session
+                    ),
+                    patch("torch.cuda.Stream", return_value=consumer),
+                    _model_stream_scope(consumer if same_stream else None),
+                ):
+                    result = list(
+                        TensorRTInference(Path("model.engine")).process(iter([item]))
+                    )[0]
+                torch.testing.assert_close(
+                    result.model_output["output"],
+                    torch.full((1, 2), 14.0, device="cuda"),
+                )
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
 class TensorRTInferenceTests(unittest.TestCase):
-    def test_cached_input_metadata_preserves_dynamic_validation_and_output_queries(self):
+    def test_cached_input_metadata_preserves_dynamic_validation_and_output_queries(
+        self,
+    ):
         minimum, maximum = [1, 2], [8, 2]
-        with patch.object(self.api.engine, "get_tensor_profile_shape", return_value=(minimum, [2, 2], maximum)):
+        with patch.object(
+            self.api.engine,
+            "get_tensor_profile_shape",
+            return_value=(minimum, [2, 2], maximum),
+        ):
             session = _EngineSession(self.path, profile_index=1)
         self.addCleanup(session.close)
         maximum[0] = 1
         context = session.context
-        with patch.object(self.api.engine, "get_tensor_shape", side_effect=AssertionError("engine shape query")), \
-             patch.object(self.api.engine, "get_tensor_profile_shape", side_effect=AssertionError("profile query")), \
-             patch.object(context, "get_tensor_shape", wraps=context.get_tensor_shape) as output_shape, \
-             patch.object(context, "get_tensor_strides", wraps=context.get_tensor_strides) as strides:
+        with (
+            patch.object(
+                self.api.engine,
+                "get_tensor_shape",
+                side_effect=AssertionError("engine shape query"),
+            ),
+            patch.object(
+                self.api.engine,
+                "get_tensor_profile_shape",
+                side_effect=AssertionError("profile query"),
+            ),
+            patch.object(
+                context, "get_tensor_shape", wraps=context.get_tensor_shape
+            ) as output_shape,
+            patch.object(
+                context, "get_tensor_strides", wraps=context.get_tensor_strides
+            ) as strides,
+        ):
             for rows in (1, 4):
                 item = self.item()
                 with torch.cuda.stream(item.cuda_stream):
@@ -360,9 +464,17 @@ class TensorRTInferenceTests(unittest.TestCase):
             item = self.item()
             with torch.cuda.stream(item.cuda_stream):
                 with self.assertRaisesRegex(ValueError, "프로파일 1 범위"):
-                    session.infer(torch.ones((9, 2), device="cuda"), item.cuda_stream, copy_context())
+                    session.infer(
+                        torch.ones((9, 2), device="cuda"),
+                        item.cuda_stream,
+                        copy_context(),
+                    )
                 with self.assertRaisesRegex(ValueError, "입력 형상 불일치"):
-                    session.infer(torch.ones((2, 3), device="cuda"), item.cuda_stream, copy_context())
+                    session.infer(
+                        torch.ones((2, 3), device="cuda"),
+                        item.cuda_stream,
+                        copy_context(),
+                    )
 
     def test_batch_submits_inputs_events_interval_and_statistics(self):
         step = TensorRTInference(self.path, batch=True)
@@ -370,25 +482,36 @@ class TensorRTInferenceTests(unittest.TestCase):
         items = [self.item() for _ in range(7)]
         calls = []
 
-        def infer(path, tensors, gpu_id, *, profile_index, ready_event, on_inference_complete):
+        def infer(
+            path, tensors, gpu_id, *, profile_index, ready_event, on_inference_complete
+        ):
             self.assertEqual(profile_index, step.profile_index)
             ready_event.synchronize()
             calls.append(tensors)
-            on_inference_complete(.01)
+            on_inference_complete(0.01)
             return {"output": tensors + 1}
 
-        with patch("pipeworks.local_tensor_rt.infer", side_effect=infer), report_scope():
+        with (
+            patch("pipeworks.local_tensor_rt.infer", side_effect=infer),
+            report_scope(),
+        ):
             stats = _stats()
             outputs = list(step.process(iter(items)))
         self.assertEqual(outputs, items)
-        self.assertEqual([i.model_output is not None for i in items], [True, False, False, True, False, False, True])
+        self.assertEqual(
+            [i.model_output is not None for i in items],
+            [True, False, False, True, False, False, True],
+        )
         self.assertEqual(stats.completed_inferences, 3)
         self.assertEqual(len(calls), 3)
         for tensor, item in zip(calls, items[::3]):
             self.assertIs(tensor, item.model_input)
-        with patch("pipeworks.local_tensor_rt.infer", side_effect=RuntimeError("batch failed")):
+        with patch(
+            "pipeworks.local_tensor_rt.infer", side_effect=RuntimeError("batch failed")
+        ):
             with self.assertRaisesRegex(RuntimeError, "batch failed"):
                 list(step.process(iter([self.item()])))
+
     def setUp(self):
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -419,7 +542,12 @@ class TensorRTInferenceTests(unittest.TestCase):
         stream = torch.cuda.Stream()
         with torch.cuda.stream(stream):
             tensor = torch.full((2, 2), value, dtype=torch.float32, device="cuda")
-        return PipelineContext(model_input=tensor, model_output=object(), cuda_stream=stream, frame=object())
+        return PipelineContext(
+            model_input=tensor,
+            model_output=object(),
+            cuda_stream=stream,
+            frame=object(),
+        )
 
     def test_repeated_inference_registers_one_allocator_per_binding(self):
         items = [self.item(value) for value in range(1, 6)]
@@ -427,44 +555,64 @@ class TensorRTInferenceTests(unittest.TestCase):
         context = self.api.contexts[0]
         self.assertEqual(len(context.allocator_registrations), len(self.api.outputs))
         for value, item in enumerate(results, 1):
-            self.assertTrue(torch.equal(item.model_output["raw_scores"],
-                                        torch.full((2, 2), value + 1, device="cuda")))
+            self.assertTrue(
+                torch.equal(
+                    item.model_output["raw_scores"],
+                    torch.full((2, 2), value + 1, device="cuda"),
+                )
+            )
 
     def test_single_input_names_gpu_values_and_no_pre_or_post_processing(self):
         item = self.item(3)
         source, frame = item.model_input, item.frame
-        with patch.object(torch.Tensor, "cpu", side_effect=AssertionError("CPU 복사 금지")), patch.object(
-            torch.Tensor, "numpy", side_effect=AssertionError("NumPy 변환 금지")
+        with (
+            patch.object(
+                torch.Tensor, "cpu", side_effect=AssertionError("CPU 복사 금지")
+            ),
+            patch.object(
+                torch.Tensor, "numpy", side_effect=AssertionError("NumPy 변환 금지")
+            ),
         ):
             self.assertEqual(list(self.step.process(iter((item,)))), [item])
         self.assertIs(item.model_input, source)
         self.assertIs(item.frame, frame)
         self.assertEqual(set(item.model_output), set(self.api.outputs))
         torch.testing.assert_close(item.model_output["raw_scores"], source + 1)
-        torch.testing.assert_close(item.model_output["raw_indices"], (source + 2).to(torch.int32))
+        torch.testing.assert_close(
+            item.model_output["raw_indices"], (source + 2).to(torch.int32)
+        )
         self.assertTrue(all(tensor.is_cuda for tensor in item.model_output.values()))
         self.assertTrue(self.api.plugins_initialized)
         self.assertTrue(self.api.engine_host_code_allowed)
-        self.assertTrue(all(pointer % alignment == 0 for pointer, alignment in self.api.allocations))
+        self.assertTrue(
+            all(pointer % alignment == 0 for pointer, alignment in self.api.allocations)
+        )
 
     def test_fixed_output_uses_preallocated_buffer_without_callback(self):
         self.api.preallocated = True
         item = self.item(5)
         list(self.step.process(iter((item,))))
-        torch.testing.assert_close(item.model_output["raw_scores"], item.model_input + 1)
+        torch.testing.assert_close(
+            item.model_output["raw_scores"], item.model_input + 1
+        )
         self.assertEqual(self.api.allocations, [])
 
     def test_noncontiguous_input_is_copied_without_changing_values(self):
         item = self.item()
-        item.model_input = torch.arange(4, dtype=torch.float32, device="cuda").reshape(2, 2).t()
+        item.model_input = (
+            torch.arange(4, dtype=torch.float32, device="cuda").reshape(2, 2).t()
+        )
         item.cuda_stream = torch.cuda.current_stream()
         self.assertFalse(item.model_input.is_contiguous())
         list(self.step.process(iter((item,))))
-        torch.testing.assert_close(item.model_output["raw_scores"], item.model_input + 1)
+        torch.testing.assert_close(
+            item.model_output["raw_scores"], item.model_input + 1
+        )
         self.assertFalse(item.model_input.is_contiguous())
 
     def test_async_owns_timeout_during_engine_initialization(self):
         from pipeworks.embedded import CudaAsync
+
         entered, release = Event(), Event()
         self.addCleanup(release.set)
 
@@ -474,7 +622,9 @@ class TensorRTInferenceTests(unittest.TestCase):
             return _EngineSession(*arguments)
 
         wrapper = CudaAsync(self.step, timeout_ms=20)
-        with patch("pipeworks.embedded.tensor_rt_inference._EngineSession", side_effect=load):
+        with patch(
+            "pipeworks.embedded.tensor_rt_inference._EngineSession", side_effect=load
+        ):
             items = [self.item(), self.item()]
             outputs = wrapper.process(iter(items))
             try:
@@ -495,7 +645,10 @@ class TensorRTInferenceTests(unittest.TestCase):
         item = self.item(2)
         item.model_input = {name: item.model_input for name in self.api.inputs}
         self.assertEqual(list(self.step.process(iter((item,)))), [item])
-        torch.testing.assert_close(item.model_output["raw_scores"], item.model_input[self.api.inputs[0]] * 2 + 1)
+        torch.testing.assert_close(
+            item.model_output["raw_scores"],
+            item.model_input[self.api.inputs[0]] * 2 + 1,
+        )
         self.api.empty = True
         second = self.item()
         second.model_input = {name: second.model_input for name in self.api.inputs}
@@ -506,7 +659,9 @@ class TensorRTInferenceTests(unittest.TestCase):
         plugin = Path(self.directory.name) / "custom.dll"
         plugin.write_bytes(b"plugin")
         metadata = b'{"description": "metadata"}'
-        self.path.write_bytes(len(metadata).to_bytes(4, "little") + metadata + b"raw-engine")
+        self.path.write_bytes(
+            len(metadata).to_bytes(4, "little") + metadata + b"raw-engine"
+        )
         session = _EngineSession(self.path, (plugin,))
         self.assertEqual(self.api.payload, b"raw-engine")
         self.assertEqual(self.api.loaded_plugins, [str(plugin)])
@@ -520,7 +675,9 @@ class TensorRTInferenceTests(unittest.TestCase):
     def test_model_yaml_passes_profile_and_plugins_to_session(self):
         plugin = Path(self.directory.name) / "custom.dll"
         plugin.write_bytes(b"plugin")
-        self.path.with_suffix(".yml").write_text("plugins: [custom.dll]", encoding="utf-8")
+        self.path.with_suffix(".yml").write_text(
+            "plugins: [custom.dll]", encoding="utf-8"
+        )
         self.step.configure(SimpleNamespace(profile_index=1))
         list(self.step.process(iter([self.item()])))
         self.assertEqual(self.api.loaded_plugins, [str(plugin)])
@@ -529,16 +686,26 @@ class TensorRTInferenceTests(unittest.TestCase):
 
     def test_profile_change_recreates_session_for_next_input(self):
         first, second = self.item(), self.item()
+
         def inputs():
             yield first
             self.step.configure(SimpleNamespace(profile_index=1))
             yield second
+
         self.assertEqual(list(self.step.process(inputs())), [first, second])
         self.assertEqual([index for index, _ in self.api.profile_selections], [0, 1])
         self.assertEqual(len(self.api.contexts), 2)
 
     def test_invalid_inputs_formats_and_execution_failures_recover(self):
-        for invalid in ("cpu", "dtype", "names", "shape", "host", "format", "execution"):
+        for invalid in (
+            "cpu",
+            "dtype",
+            "names",
+            "shape",
+            "host",
+            "format",
+            "execution",
+        ):
             with self.subTest(invalid=invalid):
                 self.stop_worker()
                 self.api.contexts.clear()
@@ -575,6 +742,7 @@ class TensorRTInferenceTests(unittest.TestCase):
 
     def test_contiguous_input_is_not_cloned_and_runs_on_caller_thread(self):
         from threading import get_ident
+
         caller = get_ident()
         original = _EngineSession.infer
         observed = []
@@ -584,7 +752,12 @@ class TensorRTInferenceTests(unittest.TestCase):
             observed.append((get_ident(), tensors.data_ptr()))
             return original(session, tensors, stream, context)
 
-        with patch.object(_EngineSession, "infer", infer), patch.object(torch.Tensor, "clone", side_effect=AssertionError("unexpected clone")):
+        with (
+            patch.object(_EngineSession, "infer", infer),
+            patch.object(
+                torch.Tensor, "clone", side_effect=AssertionError("unexpected clone")
+            ),
+        ):
             list(self.step.process(iter((item,))))
         self.assertEqual(observed, [(caller, item.model_input.data_ptr())])
 
@@ -596,19 +769,28 @@ class TensorRTInferenceTests(unittest.TestCase):
             outputs = list(self.step.process(iter(items)))
         self.assertEqual(outputs, items)
         self.assertEqual(stats.completed_inferences, 3)
-        self.assertEqual([item.model_output is not None for item in items], [True, False, False, True, False, False, True])
+        self.assertEqual(
+            [item.model_output is not None for item in items],
+            [True, False, False, True, False, False, True],
+        )
 
 
-@unittest.skipUnless(importlib.util.find_spec("tensorrt") and torch.cuda.is_available(), "TensorRT와 CUDA가 필요합니다.")
+@unittest.skipUnless(
+    importlib.util.find_spec("tensorrt") and torch.cuda.is_available(),
+    "TensorRT와 CUDA가 필요합니다.",
+)
 class RealTensorRTTests(unittest.TestCase):
     def test_model_yaml_selects_second_profile_in_both_modes(self):
         import tensorrt as trt
+
         with TemporaryDirectory() as directory:
             logger = trt.Logger(trt.Logger.WARNING)
             builder = trt.Builder(logger)
             network = builder.create_network(0)
             value = network.add_input("features", trt.float32, (-1, -1))
-            output = network.add_elementwise(value, value, trt.ElementWiseOperation.SUM).get_output(0)
+            output = network.add_elementwise(
+                value, value, trt.ElementWiseOperation.SUM
+            ).get_output(0)
             output.name = "result"
             network.mark_output(output)
             config = builder.create_builder_config()
@@ -635,6 +817,7 @@ class RealTensorRTTests(unittest.TestCase):
 
     def test_real_engine_raw_gpu_output(self):
         import tensorrt as trt
+
         with TemporaryDirectory() as directory:
             logger = trt.Logger(trt.Logger.WARNING)
             builder = trt.Builder(logger)
@@ -643,7 +826,9 @@ class RealTensorRTTests(unittest.TestCase):
             layer = network.add_elementwise(value, value, trt.ElementWiseOperation.SUM)
             layer.get_output(0).name = "unfixed_output_name"
             network.mark_output(layer.get_output(0))
-            serialized = builder.build_serialized_network(network, builder.create_builder_config())
+            serialized = builder.build_serialized_network(
+                network, builder.create_builder_config()
+            )
             self.assertIsNotNone(serialized)
             path = Path(directory) / "model.engine"
             path.write_bytes(bytes(serialized))
@@ -652,8 +837,9 @@ class RealTensorRTTests(unittest.TestCase):
             item = PipelineContext(model_input=torch.ones((2, 2), device="cuda"))
             list(step.process(iter((item,))))
             self.assertIsNotNone(item.model_output)
-            torch.testing.assert_close(item.model_output["unfixed_output_name"], item.model_input * 2)
-
+            torch.testing.assert_close(
+                item.model_output["unfixed_output_name"], item.model_input * 2
+            )
 
 
 if __name__ == "__main__":

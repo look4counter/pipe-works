@@ -41,7 +41,9 @@ class ConfiguredValue(Step):
     def process(self, inputs):
         for item in inputs:
             self.generation += 1
-            yield PipelineContext(value=item.value + self.offset, generation=self.generation)
+            yield PipelineContext(
+                value=item.value + self.offset, generation=self.generation
+            )
 
 
 class CollectValues(Step):
@@ -78,7 +80,9 @@ class ChangeAfterFirst(Step):
         for item in inputs:
             self.seen.append(item.value)
             if len(self.seen) == 1:
-                self.path.write_text("ConfiguredSource:\n  value: 20\n", encoding="utf-8")
+                self.path.write_text(
+                    "ConfiguredSource:\n  value: 20\n", encoding="utf-8"
+                )
                 time.sleep(0.6)
             yield item
 
@@ -151,10 +155,12 @@ class PipelineConfigTests(unittest.TestCase):
             configures = []
             seen = []
             step = IdentityStep(starts, configures)
-            pipeline = (Pipeline("in-place-config", config=path)
-                        .step(EditingSource(path, ["IdentityStep:\n  offset: 20\n"]))
-                        .step(step)
-                        .step(IdentityCollector(seen)))
+            pipeline = (
+                Pipeline("in-place-config", config=path)
+                .step(EditingSource(path, ["IdentityStep:\n  offset: 20\n"]))
+                .step(step)
+                .step(IdentityCollector(seen))
+            )
             pipeline._run_local()
             self.assertIs(pipeline.steps[1].wrapped_step, step)
             self.assertEqual(starts, [id(step)])
@@ -166,9 +172,11 @@ class PipelineConfigTests(unittest.TestCase):
             path = Path(directory) / "config.yaml"
             path.write_text("ConfiguredSource:\n  value: 10\n", encoding="utf-8")
             seen = []
-            pipeline = (Pipeline("source-config", config=path)
-                        .step(ConfiguredSource())
-                        .step(ChangeAfterFirst(path, seen)))
+            pipeline = (
+                Pipeline("source-config", config=path)
+                .step(ConfiguredSource())
+                .step(ChangeAfterFirst(path, seen))
+            )
             pipeline._run_local()
             self.assertEqual(seen, [10, 20])
 
@@ -177,9 +185,11 @@ class PipelineConfigTests(unittest.TestCase):
             path = Path(directory) / "config.yaml"
             path.write_text("Tap:\n  offset: 10\n", encoding="utf-8")
             seen = []
-            pipeline = (Pipeline("sink-config", config=path)
-                        .step(TapEditingSource(path, seen))
-                        .step(Tap(RecordingTap(seen))))
+            pipeline = (
+                Pipeline("sink-config", config=path)
+                .step(TapEditingSource(path, seen))
+                .step(Tap(RecordingTap(seen)))
+            )
             pipeline._run_local()
             self.assertEqual(seen, [11, 22])
 
@@ -188,13 +198,20 @@ class PipelineConfigTests(unittest.TestCase):
             path = Path(directory) / "config.yaml"
             path.write_text("ConfiguredValue:\n  offset: 10\n", encoding="utf-8")
             seen = []
-            changes = ["Other:\n  value: 1\nConfiguredValue:\n  offset: 10\n",
-                       "ConfiguredValue:\n  offset: 20\n"]
-            with patch("pipeworks.pipeline.is_embedded_step", side_effect=lambda step: isinstance(step, ConfiguredValue)):
-                pipeline = (Pipeline("embedded-config", config=path)
-                            .step(EditingSource(path, changes))
-                            .step(ConfiguredValue())
-                            .step(CollectValues(seen)))
+            changes = [
+                "Other:\n  value: 1\nConfiguredValue:\n  offset: 10\n",
+                "ConfiguredValue:\n  offset: 20\n",
+            ]
+            with patch(
+                "pipeworks.pipeline.is_embedded_step",
+                side_effect=lambda step: isinstance(step, ConfiguredValue),
+            ):
+                pipeline = (
+                    Pipeline("embedded-config", config=path)
+                    .step(EditingSource(path, changes))
+                    .step(ConfiguredValue())
+                    .step(CollectValues(seen))
+                )
                 self.assertIsInstance(pipeline.steps[1], ConfiguredValue)
                 pipeline._run_local()
             self.assertEqual(seen, [(11, 1), (12, 2), (23, 3)])
@@ -212,12 +229,16 @@ class PipelineConfigTests(unittest.TestCase):
                 "ConfiguredValue:\n  offset: 30\n",
             ]
             seen = []
-            pipeline = (Pipeline("config-reload", config=path)
-                        .step(EditingSource(path, changes))
-                        .step(ConfiguredValue())
-                        .step(CollectValues(seen)))
+            pipeline = (
+                Pipeline("config-reload", config=path)
+                .step(EditingSource(path, changes))
+                .step(ConfiguredValue())
+                .step(CollectValues(seen))
+            )
             pipeline._run_local()
-            self.assertEqual(seen, [(11, 1), (12, 2), (23, 3), (24, 4), (25, 5), (36, 6)])
+            self.assertEqual(
+                seen, [(11, 1), (12, 2), (23, 3), (24, 4), (25, 5), (36, 6)]
+            )
 
     def test_invalid_unregistered_section_fails_at_creation(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -231,7 +252,10 @@ class PipelineConfigTests(unittest.TestCase):
     def test_registered_steps_apply_configuration_to_explicit_attributes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.yaml"
-            path.write_text("RTSPSource:\n  reconnect_interval_ms: 7000\nNvidiaDecode:\n  mode: fast\n", encoding="utf-8")
+            path.write_text(
+                "RTSPSource:\n  reconnect_interval_ms: 7000\nNvidiaDecode:\n  mode: fast\n",
+                encoding="utf-8",
+            )
             source = RTSPSource("rtsp://example")
             decode = NvidiaDecode()
             Pipeline("test", config=path).step(source).step(decode)

@@ -9,12 +9,14 @@ pipeline.step(CudaAsync(YoloDetect(model_path), timeout_ms=20))
 pipeline.step(YoloDetectReport())
 
 # TensorRT 전처리·추론·후처리를 쓰는 파이프라인
-pipeline.step(CudaAsync(
-    TensorRTPreProcess(),
-    TensorRTInference(engine_path, batch=True),
-    TensorRTPostProcess(),
-    timeout_ms=20,
-))
+pipeline.step(
+    CudaAsync(
+        TensorRTPreProcess(),
+        TensorRTInference(engine_path, batch=True),
+        TensorRTPostProcess(),
+        timeout_ms=20,
+    )
+)
 pipeline.step(TensorRTReport())
 ```
 

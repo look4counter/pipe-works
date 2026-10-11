@@ -50,7 +50,11 @@ class _InputSlot(Iterator[PipelineContext]):
 
 class Tap(Step):
     def __init__(self, step: Step) -> None:
-        self.step = step if isinstance(step, Hotswap) or is_embedded_step(step) else Hotswap(step)
+        self.step = (
+            step
+            if isinstance(step, Hotswap) or is_embedded_step(step)
+            else Hotswap(step)
+        )
 
     def configure(self, config: SimpleNamespace) -> None:
         self.step.configure(config)
@@ -78,7 +82,9 @@ class Tap(Step):
                 finally:
                     slot.close()
 
-        worker = Thread(target=context.run, args=(consume,), name="pipeworks-tap", daemon=True)
+        worker = Thread(
+            target=context.run, args=(consume,), name="pipeworks-tap", daemon=True
+        )
         worker.start()
         exhausted = False
         try:

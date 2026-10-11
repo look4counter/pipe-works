@@ -17,7 +17,9 @@
 
 ```python
 production_pipeline = Pipeline("production", config=Path("stream.yml"))
-development_pipeline = Pipeline("development", config=Path("stream.yml"), development=True)
+development_pipeline = Pipeline(
+    "development", config=Path("stream.yml"), development=True
+)
 production_pipeline.run()
 development_pipeline.run()
 ```

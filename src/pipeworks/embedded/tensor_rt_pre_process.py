@@ -209,15 +209,18 @@ class TensorRTPreProcess(Step):
             )
             if self.resize_mode == "letterbox" and not self.scaleup:
                 ratio = min(ratio, 1)
-            resized_h, resized_w = max(1, round(height * ratio)), max(
-                1, round(width * ratio)
+            resized_h, resized_w = (
+                max(1, round(height * ratio)),
+                max(1, round(width * ratio)),
             )
             ratio_xy = (ratio, ratio)
         output = pixels.unsqueeze(0)
         if (resized_h, resized_w) != (height, width):
             output = F.interpolate(
-                output, size=(resized_h, resized_w),
-                mode="bilinear", align_corners=False,
+                output,
+                size=(resized_h, resized_w),
+                mode="bilinear",
+                align_corners=False,
             )
         if self.resize_mode == "letterbox":
             pad_h, pad_w = target_h - resized_h, target_w - resized_w

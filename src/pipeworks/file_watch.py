@@ -61,8 +61,11 @@ class _WatchService:
         self.targets = frozenset()
 
     def _healthy(self):
-        return (self.observer is not None and self.observer.is_alive()
-                and all(emitter.is_alive() for emitter in self.observer.emitters))
+        return (
+            self.observer is not None
+            and self.observer.is_alive()
+            and all(emitter.is_alive() for emitter in self.observer.emitters)
+        )
 
     def _ensure_observer(self, now):
         parents = {path.parent for path in self.entries}
@@ -86,14 +89,17 @@ class _WatchService:
             observer = self.observer_factory()
             for directory in parents:
                 self.directories[directory] = observer.schedule(
-                    self.handler, str(directory), recursive=False)
+                    self.handler, str(directory), recursive=False
+                )
             observer.start()
         except Exception:
             if observer is not None:
                 observer.stop()
                 self.retired.append(observer)
             self.directories.clear()
-            logger.warning("OS 파일 감시를 시작하지 못해 재검사로 전환합니다.", exc_info=True)
+            logger.warning(
+                "OS 파일 감시를 시작하지 못해 재검사로 전환합니다.", exc_info=True
+            )
             return False
         self.observer = observer
         return True
@@ -107,16 +113,22 @@ class _WatchService:
             if self._healthy() and path.parent not in self.directories:
                 try:
                     self.directories[path.parent] = self.observer.schedule(
-                        self.handler, str(path.parent), recursive=False)
+                        self.handler, str(path.parent), recursive=False
+                    )
                 except Exception:
-                    logger.warning("디렉터리 감시 등록 실패: %s", path.parent, exc_info=True)
+                    logger.warning(
+                        "디렉터리 감시 등록 실패: %s", path.parent, exc_info=True
+                    )
             self._ensure_observer(monotonic())
 
     def mark_changed(self, path, *, directory=False):
         path = Path(os.path.abspath(path))
         targets = self.targets
-        affected = ({watched for watched in targets if watched.is_relative_to(path)}
-                    if directory else ({path} if path in targets else set()))
+        affected = (
+            {watched for watched in targets if watched.is_relative_to(path)}
+            if directory
+            else ({path} if path in targets else set())
+        )
         # Watchdog dispatch holds its own observer lock. Never acquire our
         # service lock here: stop/unschedule acquire the locks in reverse order.
         with self.notification_lock:

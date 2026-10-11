@@ -12,7 +12,13 @@ from pipeworks.embedded.stream_report import record_inference, record_stage
 from pipeworks.execution import release_frame, current_model_stream
 from pipeworks.models import PipelineContext, Step
 from pipeworks.detection_profile import begin, span, status, use
-from pipeworks.local_yolo import _GpuDetectionPredictor, _INPUT_SIZE, _nv12_to_rgb, _prepare_image, infer
+from pipeworks.local_yolo import (
+    _GpuDetectionPredictor,
+    _INPUT_SIZE,
+    _nv12_to_rgb,
+    _prepare_image,
+    infer,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -29,10 +35,17 @@ def _predict(model, image, classes, confidence, gpu_id, stream):
     started_at = time.perf_counter()
     try:
         results = model.predict(
-            prepared, predictor=_GpuDetectionPredictor.type(),
-            classes=classes, conf=confidence, device=gpu_id,
-            verbose=False, imgsz=_INPUT_SIZE,
-            save=False, show=False, save_txt=False, save_crop=False,
+            prepared,
+            predictor=_GpuDetectionPredictor.type(),
+            classes=classes,
+            conf=confidence,
+            device=gpu_id,
+            verbose=False,
+            imgsz=_INPUT_SIZE,
+            save=False,
+            show=False,
+            save_txt=False,
+            save_crop=False,
         )
     finally:
         prediction_event = torch.cuda.Event()
@@ -48,7 +61,9 @@ def _predict(model, image, classes, confidence, gpu_id, stream):
         raise ValueError("YOLO 감지 결과는 입력과 같은 GPU에 있어야 합니다.")
     with span("postprocess", stream):
         boxes = result.boxes.data.clone()
-        boxes[:, :4] = ops.scale_boxes((_INPUT_SIZE, _INPUT_SIZE), boxes[:, :4], (height, width))
+        boxes[:, :4] = ops.scale_boxes(
+            (_INPUT_SIZE, _INPUT_SIZE), boxes[:, :4], (height, width)
+        )
         result.orig_img = rgb.permute(1, 2, 0)
         result.orig_shape = (height, width)
         result.boxes.data = boxes
@@ -61,21 +76,35 @@ def _predict(model, image, classes, confidence, gpu_id, stream):
 
 
 class YoloDetect(Step):
-    def __init__(self, model_path: Path, *, batch: bool = False,
-                 classes: list[int] | None = None, confidence: float = 0.25,
-                 gpu_id: int = 0, inference_interval_frame: int = 1,
-                 id: str | None = None) -> None:
+    def __init__(
+        self,
+        model_path: Path,
+        *,
+        batch: bool = False,
+        classes: list[int] | None = None,
+        confidence: float = 0.25,
+        gpu_id: int = 0,
+        inference_interval_frame: int = 1,
+        id: str | None = None,
+    ) -> None:
         if not isinstance(batch, bool):
             raise ValueError("batch는 불리언이어야 합니다.")
         self.model_path = Path(model_path)
         self.batch = batch
-        self._set_config_defaults(classes=classes, confidence=confidence, gpu_id=gpu_id,
-                                  inference_interval_frame=inference_interval_frame, id=id)
+        self._set_config_defaults(
+            classes=classes,
+            confidence=confidence,
+            gpu_id=gpu_id,
+            inference_interval_frame=inference_interval_frame,
+            id=id,
+        )
 
     def configure(self, config: SimpleNamespace) -> None:
         config = self._resolve_config(config)
         if hasattr(config, "inference_interval"):
-            raise ValueError("inference_interval 대신 프레임 단위의 inference_interval_frame을 사용하세요.")
+            raise ValueError(
+                "inference_interval 대신 프레임 단위의 inference_interval_frame을 사용하세요."
+            )
         classes = getattr(config, "classes", None)
         confidence = getattr(config, "confidence", 0.25)
         gpu_id = getattr(config, "gpu_id", 0)
@@ -85,14 +114,25 @@ class YoloDetect(Step):
             raise ValueError("id는 비어 있지 않은 문자열 또는 null이어야 합니다.")
         if classes is not None and (
             not isinstance(classes, list)
-            or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in classes)
+            or any(
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+                for value in classes
+            )
         ):
             raise ValueError("classes는 음수가 아닌 정수 목록이어야 합니다.")
-        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 < confidence <= 1:
+        if (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, (int, float))
+            or not 0 < confidence <= 1
+        ):
             raise ValueError("confidence는 0보다 크고 1 이하여야 합니다.")
         if isinstance(gpu_id, bool) or not isinstance(gpu_id, int) or gpu_id < 0:
             raise ValueError("gpu_id는 음수가 아닌 정수여야 합니다.")
-        if isinstance(inference_interval_frame, bool) or not isinstance(inference_interval_frame, int) or inference_interval_frame < 1:
+        if (
+            isinstance(inference_interval_frame, bool)
+            or not isinstance(inference_interval_frame, int)
+            or inference_interval_frame < 1
+        ):
             raise ValueError("inference_interval_frame은 1 이상의 정수여야 합니다.")
         self.classes = classes
         self.confidence = confidence
@@ -121,11 +161,20 @@ class YoloDetect(Step):
         frame = torch.from_dlpack(item.frame)
         if not frame.is_cuda or frame.dtype != torch.uint8:
             raise ValueError("YOLO 입력은 GPU의 uint8 NV12 텐서여야 합니다.")
-        if frame.device.index != self.gpu_id or item.cuda_stream.device.index != self.gpu_id:
-            raise ValueError("YOLO 입력 및 CUDA 스트림의 GPU는 gpu_id와 일치해야 합니다.")
+        if (
+            frame.device.index != self.gpu_id
+            or item.cuda_stream.device.index != self.gpu_id
+        ):
+            raise ValueError(
+                "YOLO 입력 및 CUDA 스트림의 GPU는 gpu_id와 일치해야 합니다."
+            )
         if frame.ndim == 1 and frame.numel() == height * width * 3 // 2:
             frame = frame.reshape(height * 3 // 2, width)
-        if frame.ndim != 2 or frame.shape[0] < height * 3 // 2 or frame.shape[1] < width:
+        if (
+            frame.ndim != 2
+            or frame.shape[0] < height * 3 // 2
+            or frame.shape[1] < width
+        ):
             raise ValueError(f"NV12 프레임 크기가 잘못되었습니다: {tuple(frame.shape)}")
         return frame[: height * 3 // 2, :width]
 
@@ -140,7 +189,9 @@ class YoloDetect(Step):
             ready_event.record(stream)
         return image, ready_event
 
-    def _process_batch(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
+    def _process_batch(
+        self, inputs: Iterator[PipelineContext]
+    ) -> Iterator[PipelineContext]:
         for frame_index, item in enumerate(inputs):
             dequeued_at = time.perf_counter()
             processing_started_at = getattr(item, "processing_started_at", dequeued_at)
@@ -149,20 +200,34 @@ class YoloDetect(Step):
                 try:
                     profile = begin("YOLO")
                     with use(profile):
-                        with span("preprocess", current_model_stream() or item.cuda_stream):
+                        with span(
+                            "preprocess", current_model_stream() or item.cuda_stream
+                        ):
                             image, ready_event = self._prepare_rgb(item)
                             release_frame(ready_event=ready_event)
-                        options = {"on_profile_complete": profile.merge} if profile is not None else {}
+                        options = (
+                            {"on_profile_complete": profile.merge}
+                            if profile is not None
+                            else {}
+                        )
                         item.detections[model_id] = infer(
-                            self.model_path, image, self.classes, self.confidence, self.gpu_id,
-                            ready_event=ready_event, on_inference_complete=record_inference, **options,
+                            self.model_path,
+                            image,
+                            self.classes,
+                            self.confidence,
+                            self.gpu_id,
+                            ready_event=ready_event,
+                            on_inference_complete=record_inference,
+                            **options,
                         )
                     if profile is not None:
                         profile.finish()
                 except Exception:
                     if profile is not None:
                         profile.finish("error")
-                    logger.exception("YOLO 배치 감지에 실패하여 원본 프레임을 전달합니다.")
+                    logger.exception(
+                        "YOLO 배치 감지에 실패하여 원본 프레임을 전달합니다."
+                    )
             emitted_at = time.perf_counter()
             record_stage("batch_queue", dequeued_at - processing_started_at)
             record_stage("batch_wait", emitted_at - dequeued_at)
@@ -190,7 +255,9 @@ class YoloDetect(Step):
                     managed = current_model_stream()
                     if managed is not None:
                         if managed.device.index != self.gpu_id:
-                            raise ValueError("CudaAsync 모델 스트림의 GPU가 gpu_id와 다릅니다.")
+                            raise ValueError(
+                                "CudaAsync 모델 스트림의 GPU가 gpu_id와 다릅니다."
+                            )
                         stream = managed
                     elif stream is None or stream.device.index != self.gpu_id:
                         stream = torch.cuda.Stream(device=self.gpu_id)
@@ -205,7 +272,12 @@ class YoloDetect(Step):
                                 model_gpu = self.gpu_id
                         with use(profile):
                             item.detections[model_id] = _predict(
-                                model, image, self.classes, self.confidence, self.gpu_id, stream,
+                                model,
+                                image,
+                                self.classes,
+                                self.confidence,
+                                self.gpu_id,
+                                stream,
                             )
                 except Exception:
                     # Finish submitted CUDA work before releasing the original frame.

@@ -31,23 +31,37 @@ class Packet:
 
 
 def context(value=1, codec="h264", pts=None):
-    return PipelineContext(packet=Packet(value, pts), video_stream=SimpleNamespace(codec=SimpleNamespace(name=codec)))
+    return PipelineContext(
+        packet=Packet(value, pts),
+        video_stream=SimpleNamespace(codec=SimpleNamespace(name=codec)),
+    )
 
 
 class DecodeTests(unittest.TestCase):
     def setup_decoder(self, decode, flush=lambda: []):
-        decoder = SimpleNamespace(GetPixelFormat=lambda: "NV12", Decode=decode, Flush=flush)
-        api = SimpleNamespace(cudaVideoCodec=SimpleNamespace(H264=1, HEVC=2),
-                              OutputColorType=SimpleNamespace(NATIVE=1),
-                              DisplayDecodeLatencyType=SimpleNamespace(NATIVE=1),
-                              PacketData=lambda: SimpleNamespace(), CreateDecoder=lambda **kwargs: decoder)
+        decoder = SimpleNamespace(
+            GetPixelFormat=lambda: "NV12", Decode=decode, Flush=flush
+        )
+        api = SimpleNamespace(
+            cudaVideoCodec=SimpleNamespace(H264=1, HEVC=2),
+            OutputColorType=SimpleNamespace(NATIVE=1),
+            DisplayDecodeLatencyType=SimpleNamespace(NATIVE=1),
+            PacketData=lambda: SimpleNamespace(),
+            CreateDecoder=lambda **kwargs: decoder,
+        )
         module_patch = patch.dict(sys.modules, {"PyNvVideoCodec": api})
         module_patch.start()
         self.addCleanup(module_patch.stop)
-        stream_patch = patch("pipeworks.embedded.nvidia_decode.torch.cuda.Stream", side_effect=lambda **kwargs: SimpleNamespace(cuda_stream=0))
+        stream_patch = patch(
+            "pipeworks.embedded.nvidia_decode.torch.cuda.Stream",
+            side_effect=lambda **kwargs: SimpleNamespace(cuda_stream=0),
+        )
         stream_patch.start()
         self.addCleanup(stream_patch.stop)
-        scope_patch = patch("pipeworks.embedded.nvidia_decode.torch.cuda.stream", return_value=nullcontext())
+        scope_patch = patch(
+            "pipeworks.embedded.nvidia_decode.torch.cuda.stream",
+            return_value=nullcontext(),
+        )
         scope_patch.start()
         self.addCleanup(scope_patch.stop)
         step = NvidiaDecode()
@@ -58,16 +72,20 @@ class DecodeTests(unittest.TestCase):
         continue_input, produced = Event(), Event()
         first_thread = get_ident()
         threads = []
+
         def decode(packet):
             threads.append(get_ident())
             return [packet.pts]
+
         step, _ = self.setup_decoder(decode)
+
         def inputs():
             yield context(1, pts=1)
             continue_input.wait(2)
             yield context(2, pts=2)
             yield context(3, pts=3)
             produced.set()
+
         output = step.process(inputs())
         self.addCleanup(output.close)
         self.assertEqual(next(output).frame, 1)
@@ -82,15 +100,25 @@ class DecodeTests(unittest.TestCase):
 
     def test_packet_codec_and_flush_contract(self):
         seen, create = [], []
+
         def decode(packet):
             self.assertEqual(packet.bsl_data, item.packet.buffer_ptr)
             self.assertEqual(packet.bsl, item.packet.size)
-            seen.append((ctypes.string_at(packet.bsl_data, packet.bsl), getattr(packet, "pts", None)))
+            seen.append(
+                (
+                    ctypes.string_at(packet.bsl_data, packet.bsl),
+                    getattr(packet, "pts", None),
+                )
+            )
             return []
+
         delayed = object()
         step, api = self.setup_decoder(decode, lambda: [delayed])
         original = api.CreateDecoder
-        api.CreateDecoder = lambda **kwargs: (create.append(kwargs), original(**kwargs))[1]
+        api.CreateDecoder = lambda **kwargs: (
+            create.append(kwargs),
+            original(**kwargs),
+        )[1]
         item = context(7, codec="hevc", pts=123)
         results = list(step.process(iter([item])))
         self.assertEqual(seen, [(b"\x07", 123)])
@@ -105,20 +133,28 @@ class DecodeTests(unittest.TestCase):
         step, _ = self.setup_decoder(lambda packet: [1, 2, 3], lambda: [4, 5])
         produced = Event()
         from pipeworks.embedded.nvidia_decode import _FrameQueue
+
         original_take, original_finish = _FrameQueue.take, _FrameQueue.finish
+
         def take(slot, stop=None):
             self.assertTrue(produced.wait(2))
             return original_take(slot, stop)
+
         def finish(slot, error=None):
             original_finish(slot, error)
             produced.set()
-        with patch.object(_FrameQueue, "take", take), patch.object(_FrameQueue, "finish", finish):
+
+        with (
+            patch.object(_FrameQueue, "take", take),
+            patch.object(_FrameQueue, "finish", finish),
+        ):
             results = list(step.process(iter([context()])))
         self.assertEqual([item.frame for item in results], [1, 2, 3, 4, 5])
         self.assertEqual(results[0].decode_dropped_frames, 0)
 
     def test_slot_is_bounded_and_errors_take_priority(self):
         from pipeworks.embedded.nvidia_decode import _FrameQueue
+
         slot = _FrameQueue()
         for value in range(100):
             slot.publish(PipelineContext(frame=value))
@@ -135,6 +171,7 @@ class DecodeTests(unittest.TestCase):
 
     def test_queue_cancel_releases_all_pending_frames(self):
         from pipeworks.embedded.nvidia_decode import _FrameQueue
+
         slot = _FrameQueue()
         refs = []
         for value in range(30):
@@ -151,29 +188,36 @@ class DecodeTests(unittest.TestCase):
     def test_empty_input_and_producer_error(self):
         step, _ = self.setup_decoder(lambda packet: [])
         self.assertEqual(list(step.process(iter(()))), [])
+
         def failed():
             raise ValueError("source failed")
             yield
+
         with self.assertRaisesRegex(ValueError, "source failed"):
             list(step.process(failed()))
 
     def test_decode_error_wakes_consumer(self):
         def failed(packet):
             raise RuntimeError("decode failed")
+
         step, _ = self.setup_decoder(failed)
         with self.assertRaisesRegex(RuntimeError, "decode failed"):
             list(step.process(iter([context()])))
 
     def test_decode_error_closes_upstream_in_producer(self):
         owner_thread, closed = get_ident(), []
+
         def failed(packet):
             raise RuntimeError("decode failed")
+
         step, _ = self.setup_decoder(failed)
+
         def inputs():
             try:
                 yield context()
             finally:
                 closed.append(get_ident())
+
         with self.assertRaisesRegex(RuntimeError, "decode failed"):
             list(step.process(inputs()))
         self.assertEqual(len(closed), 1)
@@ -181,9 +225,13 @@ class DecodeTests(unittest.TestCase):
 
     def test_worker_inherits_context_and_closes_input_on_cancel(self):
         from pipeworks.execution import current_source_cancel
+
         marker = ContextVar("decode_test_marker", default=None)
         observed, closed, reading = [], Event(), Event()
-        step, _ = self.setup_decoder(lambda packet: (observed.append(marker.get()), [1])[1])
+        step, _ = self.setup_decoder(
+            lambda packet: (observed.append(marker.get()), [1])[1]
+        )
+
         def inputs():
             try:
                 yield context()
@@ -191,6 +239,7 @@ class DecodeTests(unittest.TestCase):
                 self.assertTrue(current_source_cancel().wait(2))
             finally:
                 closed.set()
+
         token = marker.set("pipeline")
         try:
             output = step.process(inputs())
@@ -204,18 +253,23 @@ class DecodeTests(unittest.TestCase):
 
     def test_nonrecovering_hotswap_does_not_accumulate_inputs(self):
         from pipeworks.hotswap import Hotswap, _Cursor, _InputEpoch
+
         owner = Hotswap(NvidiaDecode(), recover_errors=False, watch_code=False)
-        segment = _InputEpoch(_Cursor(iter(context(i % 255) for i in range(1000))), owner, ())
+        segment = _InputEpoch(
+            _Cursor(iter(context(i % 255) for i in range(1000))), owner, ()
+        )
         list(segment)
         self.assertEqual(segment.unacknowledged, [])
 
     def test_hotswap_close_cancels_decoder_and_upstream(self):
         from pipeworks.execution import current_source_cancel
         from pipeworks.hotswap import Hotswap
+
         reading, closed = Event(), Event()
         step, _ = self.setup_decoder(lambda packet: [1])
         wrapped = Hotswap(step, recover_errors=False, watch_code=False)
         wrapped.configure(SimpleNamespace())
+
         def inputs():
             try:
                 yield context()
@@ -223,6 +277,7 @@ class DecodeTests(unittest.TestCase):
                 current_source_cancel().wait(2)
             finally:
                 closed.set()
+
         output = wrapped.process(inputs())
         try:
             self.assertEqual(next(output).frame, 1)
@@ -233,9 +288,11 @@ class DecodeTests(unittest.TestCase):
 
     def test_pipeline_stop_wakes_idle_consumer_and_cancels_upstream(self):
         from pipeworks.execution import current_source_cancel
+
         reading, closed, stop = Event(), Event(), Event()
         step, _ = self.setup_decoder(lambda packet: [])
         step._pipeworks_stop_event = stop
+
         def inputs():
             try:
                 reading.set()
@@ -244,6 +301,7 @@ class DecodeTests(unittest.TestCase):
                     yield context()
             finally:
                 closed.set()
+
         results = []
         runner = Thread(target=lambda: results.extend(step.process(inputs())))
         runner.start()
@@ -262,13 +320,21 @@ class DecodeTests(unittest.TestCase):
         import av
         from pipeworks.execution import _source_cancel_scope
         from pipeworks.embedded import RTSPSource
+
         cancel = Event()
         source = RTSPSource("rtsp://test")
         source.configure(SimpleNamespace(reconnect_interval_ms=60000))
+
         def failed(*args, **kwargs):
             cancel.set()
             raise av.error.FFmpegError(1, "failed")
-        with _source_cancel_scope(cancel), patch("pipeworks.embedded.rtsp_source.av.open", side_effect=failed) as open_source:
+
+        with (
+            _source_cancel_scope(cancel),
+            patch(
+                "pipeworks.embedded.rtsp_source.av.open", side_effect=failed
+            ) as open_source,
+        ):
             self.assertEqual(list(source.process(iter(()))), [])
         self.assertEqual(open_source.call_count, 1)
 
@@ -277,9 +343,12 @@ class DecodeTests(unittest.TestCase):
 class DecodeCudaTests(unittest.TestCase):
     def test_reused_decoder_buffer_cannot_change_consumed_frame(self):
         first_consumed, updated = Event(), Event()
-        backings = [torch.zeros((6, 8), dtype=torch.uint8, device="cuda") for _ in range(4)]
+        backings = [
+            torch.zeros((6, 8), dtype=torch.uint8, device="cuda") for _ in range(4)
+        ]
         torch.cuda.synchronize()
         locked, pending = set(), []
+
         def decode(packet):
             if not getattr(packet, "bsl", 0):
                 return 0
@@ -287,22 +356,35 @@ class DecodeCudaTests(unittest.TestCase):
             backing.fill_(packet.pts)
             pending.append(backing.data_ptr())
             return 1
+
         def acquire():
             pointer = pending.pop(0)
             locked.add(pointer)
             return pointer
-        decoder = SimpleNamespace(GetPixelFormat=lambda: "NV12", GetNumDecodedFrame=decode,
-                                  GetLockedFrame=acquire, UnlockFrame=locked.remove,
-                                  GetWidth=lambda: 8, GetHeight=lambda: 4, GetFrameSize=lambda: 48)
-        api = SimpleNamespace(cudaVideoCodec=SimpleNamespace(H264=1, HEVC=2),
-                              OutputColorType=SimpleNamespace(NATIVE=1),
-                              DisplayDecodeLatencyType=SimpleNamespace(NATIVE=1),
-                              PacketData=lambda: SimpleNamespace(bsl=0), CreateDecoder=lambda **kwargs: decoder)
+
+        decoder = SimpleNamespace(
+            GetPixelFormat=lambda: "NV12",
+            GetNumDecodedFrame=decode,
+            GetLockedFrame=acquire,
+            UnlockFrame=locked.remove,
+            GetWidth=lambda: 8,
+            GetHeight=lambda: 4,
+            GetFrameSize=lambda: 48,
+        )
+        api = SimpleNamespace(
+            cudaVideoCodec=SimpleNamespace(H264=1, HEVC=2),
+            OutputColorType=SimpleNamespace(NATIVE=1),
+            DisplayDecodeLatencyType=SimpleNamespace(NATIVE=1),
+            PacketData=lambda: SimpleNamespace(bsl=0),
+            CreateDecoder=lambda **kwargs: decoder,
+        )
+
         def inputs():
             yield context(1, pts=1)
             first_consumed.wait(2)
             yield context(2, pts=2)
             updated.set()
+
         step = NvidiaDecode()
         step.configure(SimpleNamespace())
         with patch.dict(sys.modules, {"PyNvVideoCodec": api}):
@@ -328,11 +410,17 @@ class DecodeCudaTests(unittest.TestCase):
 
     def test_shared_tensor_and_dlpack_alias_keep_buffer_owner(self):
         from pipeworks.embedded.nvidia_decode import _DecoderBuffers
+
         backing = torch.ones((6, 8), device="cuda", dtype=torch.uint8)
         stream = torch.cuda.Stream()
         unlocked = []
-        decoder = SimpleNamespace(GetWidth=lambda: 8, GetHeight=lambda: 4, GetFrameSize=lambda: 48,
-                                  GetLockedFrame=backing.data_ptr, UnlockFrame=unlocked.append)
+        decoder = SimpleNamespace(
+            GetWidth=lambda: 8,
+            GetHeight=lambda: 4,
+            GetFrameSize=lambda: 48,
+            GetLockedFrame=backing.data_ptr,
+            UnlockFrame=unlocked.append,
+        )
         pool = _DecoderBuffers(decoder, stream, "NV12")
         frame, owner = pool.acquire()
         reference = weakref.ref(owner)
@@ -353,9 +441,14 @@ class DecodeCudaTests(unittest.TestCase):
 class BufferLifetimeTests(unittest.TestCase):
     def pool(self):
         from pipeworks.embedded.nvidia_decode import _DecoderBuffers
+
         unlocked = []
-        decoder = SimpleNamespace(GetWidth=lambda: 8, GetHeight=lambda: 4, GetFrameSize=lambda: 48,
-                                  UnlockFrame=unlocked.append)
+        decoder = SimpleNamespace(
+            GetWidth=lambda: 8,
+            GetHeight=lambda: 4,
+            GetFrameSize=lambda: 48,
+            UnlockFrame=unlocked.append,
+        )
         return _DecoderBuffers(decoder, SimpleNamespace(), "NV12"), unlocked
 
     def test_incomplete_event_prevents_unlock_until_completed(self):
@@ -377,10 +470,14 @@ class BufferLifetimeTests(unittest.TestCase):
         pool.locked.update(range(pool.limit))
         stop, entered, done = Event(), Event(), Event()
         result = []
+
         def stopped():
             entered.set()
             return stop.is_set()
-        runner = Thread(target=lambda: (result.append(pool.available(stopped)), done.set()))
+
+        runner = Thread(
+            target=lambda: (result.append(pool.available(stopped)), done.set())
+        )
         runner.start()
         try:
             self.assertTrue(entered.wait(2))
@@ -396,7 +493,9 @@ class BufferLifetimeTests(unittest.TestCase):
     def test_close_drains_gpu_event_before_unlock(self):
         pool, _ = self.pool()
         calls = []
-        event = SimpleNamespace(query=lambda: False, synchronize=lambda: calls.append("wait"))
+        event = SimpleNamespace(
+            query=lambda: False, synchronize=lambda: calls.append("wait")
+        )
         pool.decoder.UnlockFrame = lambda pointer: calls.append("unlock")
         pool.locked.add(123)
         pool.retire(123, event)
@@ -426,6 +525,7 @@ class NativeDecodeTests(unittest.TestCase):
 
     def packets(self, count=24):
         import av
+
         codec = av.CodecContext.create("libx264", "w")
         codec.width = codec.height = 256
         codec.pix_fmt = "yuv420p"
@@ -436,7 +536,9 @@ class NativeDecodeTests(unittest.TestCase):
             frame = av.VideoFrame(256, 256, "yuv420p")
             frame.pts = index
             for plane_index, plane in enumerate(frame.planes):
-                plane.update(bytes([20 + index if plane_index == 0 else 128]) * plane.buffer_size)
+                plane.update(
+                    bytes([20 + index if plane_index == 0 else 128]) * plane.buffer_size
+                )
             packets.extend(codec.encode(frame))
         packets.extend(codec.encode(None))
         return packets
@@ -446,8 +548,10 @@ class NativeDecodeTests(unittest.TestCase):
         video_stream = SimpleNamespace(codec=SimpleNamespace(name="h264"))
         first_taken, progressed = Event(), Event()
         from pipeworks.embedded.nvidia_decode import _FrameQueue
+
         original_publish = _FrameQueue.publish
         published = []
+
         def publish(slot, item):
             original_publish(slot, item)
             self.assertLessEqual(len(slot.pending), 30)
@@ -457,12 +561,24 @@ class NativeDecodeTests(unittest.TestCase):
             if len(published) >= 70:
                 self.assertGreater(slot.dropped, 0)
                 progressed.set()
+
         step = NvidiaDecode()
         step.configure(SimpleNamespace())
-        inputs = (PipelineContext(packet=packet, video_stream=video_stream) for packet in packets)
-        with patch.object(_FrameQueue, "publish", publish), \
-             patch.object(torch.Tensor, "clone", side_effect=AssertionError("영상 복사 금지")), \
-             patch.object(torch.cuda.Stream, "synchronize", side_effect=AssertionError("프레임별 CPU 스트림 동기화 금지")):
+        inputs = (
+            PipelineContext(packet=packet, video_stream=video_stream)
+            for packet in packets
+        )
+        with (
+            patch.object(_FrameQueue, "publish", publish),
+            patch.object(
+                torch.Tensor, "clone", side_effect=AssertionError("영상 복사 금지")
+            ),
+            patch.object(
+                torch.cuda.Stream,
+                "synchronize",
+                side_effect=AssertionError("프레임별 CPU 스트림 동기화 금지"),
+            ),
+        ):
             output = step.process(inputs)
             try:
                 first = next(output)
@@ -474,9 +590,17 @@ class NativeDecodeTests(unittest.TestCase):
                 self.assertTrue(progressed.wait(5))
                 self.assertTrue(torch.equal(first.frame.cpu(), baseline))
                 self.assertLessEqual(len(pool.locked), pool.limit)
-                encoder = self.nvc.CreateEncoder(256, 256, "NV12", False, gpu_id=0,
-                                                 codec="h264", bf=0, fps=30,
-                                                 cudastream=first.cuda_stream.cuda_stream)
+                encoder = self.nvc.CreateEncoder(
+                    256,
+                    256,
+                    "NV12",
+                    False,
+                    gpu_id=0,
+                    codec="h264",
+                    bf=0,
+                    fps=30,
+                    cudastream=first.cuda_stream.cuda_stream,
+                )
                 with torch.cuda.stream(first.cuda_stream):
                     encoder.Encode(first.frame)
                 del first
@@ -501,7 +625,9 @@ class NativeDecodeTests(unittest.TestCase):
         stream = SimpleNamespace(codec=SimpleNamespace(name="h264"))
         step = NvidiaDecode()
         step.configure(SimpleNamespace())
-        output = step.process(PipelineContext(packet=p, video_stream=stream) for p in packets)
+        output = step.process(
+            PipelineContext(packet=p, video_stream=stream) for p in packets
+        )
         try:
             first = next(output)
             pool = first._decode_buffer.pool
@@ -527,6 +653,7 @@ class NativeDecodeTests(unittest.TestCase):
 
             def __init__(self, delay):
                 self.delay = delay
+
             def process(self, inputs):
                 for item in inputs:
                     time.sleep(self.delay)
@@ -538,29 +665,39 @@ class NativeDecodeTests(unittest.TestCase):
         step = NvidiaDecode()
         step.configure(SimpleNamespace())
         step._pipeworks_stop_event = stop
-        wrapper = CudaAsync(*(Hotswap(Stage(delay), recover_errors=False, watch_code=False)
-                              for delay in (.0002, .0005, .0002)), timeout_ms=1)
-        tap = Tap(Hotswap(Stage(.025), recover_errors=False, watch_code=False))
+        wrapper = CudaAsync(
+            *(
+                Hotswap(Stage(delay), recover_errors=False, watch_code=False)
+                for delay in (0.0002, 0.0005, 0.0002)
+            ),
+            timeout_ms=1,
+        )
+        tap = Tap(Hotswap(Stage(0.025), recover_errors=False, watch_code=False))
         state = {"inputs": 0, "outputs": 0, "error": None}
+
         def inputs():
             for packet in packets:
-                time.sleep(.002)
+                time.sleep(0.002)
                 state["inputs"] += 1
                 yield PipelineContext(packet=packet, video_stream=stream)
+
         def consume():
             try:
                 for item in tap.process(wrapper.process(step.process(inputs()))):
                     state["outputs"] += 1
                     state["pool"] = item._decode_buffer.pool
-                    time.sleep(.001)
+                    time.sleep(0.001)
             except BaseException as error:
                 state["error"] = error
+
         runner = Thread(target=consume)
         runner.start()
         try:
             runner.join(5)
-            self.assertFalse(runner.is_alive(),
-                             f"디코더 정체: 입력 {state['inputs']}, 출력 {state['outputs']}")
+            self.assertFalse(
+                runner.is_alive(),
+                f"디코더 정체: 입력 {state['inputs']}, 출력 {state['outputs']}",
+            )
             self.assertIsNone(state["error"])
             self.assertEqual(state["inputs"], len(packets))
             self.assertGreater(state["outputs"], 4)
@@ -585,36 +722,57 @@ class NativeDecodeTests(unittest.TestCase):
 
             def __init__(self, delay=0):
                 self.delay = delay
+
             def process(self, inputs):
                 first = True
                 for item in inputs:
                     time.sleep(self.delay)
                     if not self.delay:
-                        item.detections = (SimpleNamespace(boxes=SimpleNamespace(
-                            xyxy=torch.tensor([[10., 10., 40., 40.]], device=item.cuda_stream.device))) if first else None)
+                        item.detections = (
+                            SimpleNamespace(
+                                boxes=SimpleNamespace(
+                                    xyxy=torch.tensor(
+                                        [[10.0, 10.0, 40.0, 40.0]],
+                                        device=item.cuda_stream.device,
+                                    )
+                                )
+                            )
+                            if first
+                            else None
+                        )
                         first = False
                     yield item
 
         packets = self.packets(200)
-        video = SimpleNamespace(codec=SimpleNamespace(name="h264"),
-                                codec_context=SimpleNamespace(name="h264", width=256, height=256))
+        video = SimpleNamespace(
+            codec=SimpleNamespace(name="h264"),
+            codec_context=SimpleNamespace(name="h264", width=256, height=256),
+        )
         stop = Event()
         decode = NvidiaDecode()
         decode.configure(SimpleNamespace())
         decode._pipeworks_stop_event = stop
+
         def wrapped(step):
             step.configure(SimpleNamespace(keep_previous=False))
             return Hotswap(step, recover_errors=False, watch_code=False)
+
         state = {"inputs": 0, "outputs": 0, "error": None}
+
         def inputs():
             for packet in packets:
-                time.sleep(.01)
+                time.sleep(0.01)
                 state["inputs"] += 1
                 yield PipelineContext(packet=packet, video_stream=video)
+
         def consume():
             output = decode.process(inputs())
-            for step in [wrapped(Stage()), wrapped(module.BoxOverlay()),
-                         Tap(wrapped(Stage(.1))), wrapped(NvidiaEncode())]:
+            for step in [
+                wrapped(Stage()),
+                wrapped(module.BoxOverlay()),
+                Tap(wrapped(Stage(0.1))),
+                wrapped(NvidiaEncode()),
+            ]:
                 output = step.process(output)
             try:
                 for item in output:
@@ -623,6 +781,7 @@ class NativeDecodeTests(unittest.TestCase):
                 state["error"] = error
             finally:
                 output.close()
+
         runner = Thread(target=consume)
         runner.start()
         try:

@@ -128,7 +128,9 @@ class Hotswap(Step):
         self._config_provider: Callable[[], SimpleNamespace] | None = None
         self._failed_config: dict | None = None
         self._class_name = type(step).__name__
-        self._package = getattr(sys.modules.get(type(step).__module__), "__package__", "") or ""
+        self._package = (
+            getattr(sys.modules.get(type(step).__module__), "__package__", "") or ""
+        )
         try:
             filename = inspect.getsourcefile(type(step)) or inspect.getfile(type(step))
         except (OSError, TypeError):
@@ -159,7 +161,9 @@ class Hotswap(Step):
         step = self.wrapped_step
         if not hasattr(step, "__dict__"):
             self._failed_config = vars(config).copy()
-            logger.error("Step 설정 변경을 위해 속성 사전이 필요합니다: %s", self._class_name)
+            logger.error(
+                "Step 설정 변경을 위해 속성 사전이 필요합니다: %s", self._class_name
+            )
             return
         previous_fields = vars(step).copy()
         try:
@@ -168,7 +172,10 @@ class Hotswap(Step):
             vars(step).clear()
             vars(step).update(previous_fields)
             self._failed_config = vars(config).copy()
-            logger.exception("변경된 Step 설정을 적용하지 못해 이전 설정을 유지합니다: %s", self._class_name)
+            logger.exception(
+                "변경된 Step 설정을 적용하지 못해 이전 설정을 유지합니다: %s",
+                self._class_name,
+            )
             return
         self._config = config
         self._failed_config = None
@@ -187,7 +194,9 @@ class Hotswap(Step):
                 elif fields != self._failed_config:
                     self._apply_config(updated_config)
             except Exception:
-                logger.exception("Step 설정 변경을 확인하지 못했습니다: %s", self._class_name)
+                logger.exception(
+                    "Step 설정 변경을 확인하지 못했습니다: %s", self._class_name
+                )
         if self._path is None:
             return False
         try:
@@ -232,7 +241,9 @@ class Hotswap(Step):
         except Exception:
             sys.modules.pop(module_name, None)
             self._failed_digest = digest
-            logger.exception("변경된 Step을 준비하지 못해 이전 구현을 유지합니다: %s", self._path)
+            logger.exception(
+                "변경된 Step을 준비하지 못해 이전 구현을 유지합니다: %s", self._path
+            )
             return self._candidate is not None
         if self._candidate is not None:
             sys.modules.pop(self._candidate[1], None)
@@ -240,7 +251,9 @@ class Hotswap(Step):
         self._failed_digest = None
         return True
 
-    def _new_step(self, step_type: type[Step], *, preserve_state: bool, config=None) -> Step:
+    def _new_step(
+        self, step_type: type[Step], *, preserve_state: bool, config=None
+    ) -> Step:
         previous = self.wrapped_step
         if preserve_state:
             fresh = step_type.__new__(step_type)
@@ -254,7 +267,10 @@ class Hotswap(Step):
                     name: getattr(previous, name)
                     for name, parameter in signature.parameters.items()
                     if parameter.kind
-                    in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+                    in (
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        inspect.Parameter.KEYWORD_ONLY,
+                    )
                     and hasattr(previous, name)
                 }
                 signature.bind(**arguments)
@@ -282,7 +298,9 @@ class Hotswap(Step):
             sys.modules.pop(module_name, None)
             self._candidate = None
             self._failed_digest = digest
-            logger.exception("변경된 Step을 생성하지 못해 이전 구현을 유지합니다: %s", self._path)
+            logger.exception(
+                "변경된 Step을 생성하지 못해 이전 구현을 유지합니다: %s", self._path
+            )
             return False
         previous_module = self._owned_module
         self.wrapped_step = fresh
@@ -296,7 +314,9 @@ class Hotswap(Step):
         return True
 
     def _restart_step(self) -> None:
-        self.wrapped_step = self._new_step(type(self.wrapped_step), preserve_state=False)
+        self.wrapped_step = self._new_step(
+            type(self.wrapped_step), preserve_state=False
+        )
 
     def _output_epoch(self, upstream_epoch: tuple) -> tuple:
         if not self._revision:
@@ -323,7 +343,9 @@ class Hotswap(Step):
                     outputs = iter(self.wrapped_step.process(segment))
                     for item in outputs:
                         segment.acknowledge()
-                        setattr(item, _EPOCH_ATTRIBUTE, self._output_epoch(upstream_epoch))
+                        setattr(
+                            item, _EPOCH_ATTRIBUTE, self._output_epoch(upstream_epoch)
+                        )
                         yield item
                         del item
                 except Exception:
@@ -332,7 +354,10 @@ class Hotswap(Step):
                     if not self.recover_errors:
                         raise
                     failed = True
-                    logger.exception("사용자 Step 실행 오류로 원본 입력을 전달합니다: %s", self._class_name)
+                    logger.exception(
+                        "사용자 Step 실행 오류로 원본 입력을 전달합니다: %s",
+                        self._class_name,
+                    )
                 finally:
                     if outputs is not None:
                         close = getattr(outputs, "close", None)
@@ -343,10 +368,16 @@ class Hotswap(Step):
                                 if not self.recover_errors:
                                     raise
                                 if segment.upstream_error is not None:
-                                    logger.exception("상류 오류 이후 사용자 Step 반복자 정리에 실패했습니다: %s", self._class_name)
+                                    logger.exception(
+                                        "상류 오류 이후 사용자 Step 반복자 정리에 실패했습니다: %s",
+                                        self._class_name,
+                                    )
                                 else:
                                     failed = True
-                                    logger.exception("사용자 Step 반복자 정리에 실패해 원본 입력을 전달합니다: %s", self._class_name)
+                                    logger.exception(
+                                        "사용자 Step 반복자 정리에 실패해 원본 입력을 전달합니다: %s",
+                                        self._class_name,
+                                    )
 
                 if failed:
                     if not segment.unacknowledged and segment.reason is None:
@@ -358,14 +389,19 @@ class Hotswap(Step):
                         fields = vars(item)
                         fields.clear()
                         fields.update(original_fields)
-                        setattr(item, _EPOCH_ATTRIBUTE, self._output_epoch(upstream_epoch))
+                        setattr(
+                            item, _EPOCH_ATTRIBUTE, self._output_epoch(upstream_epoch)
+                        )
                         yield item
                     segment.acknowledge()
                     if segment.reason is None:
                         try:
                             self._restart_step()
                         except Exception:
-                            logger.exception("사용자 Step을 다시 만들지 못해 기존 인스턴스로 재시도합니다: %s", self._class_name)
+                            logger.exception(
+                                "사용자 Step을 다시 만들지 못해 기존 인스턴스로 재시도합니다: %s",
+                                self._class_name,
+                            )
                         continue
 
                 if segment.reason == "code":
@@ -399,7 +435,9 @@ class Hotswap(Step):
                 if not self.recover_errors:
                     raise
                 failed = True
-                logger.exception("사용자 소스 Step 실행 오류로 재시도합니다: %s", self._class_name)
+                logger.exception(
+                    "사용자 소스 Step 실행 오류로 재시도합니다: %s", self._class_name
+                )
             finally:
                 if outputs is not None:
                     close = getattr(outputs, "close", None)
@@ -410,12 +448,18 @@ class Hotswap(Step):
                             if not self.recover_errors:
                                 raise
                             failed = True
-                            logger.exception("사용자 소스 Step 반복자 정리에 실패해 재시도합니다: %s", self._class_name)
+                            logger.exception(
+                                "사용자 소스 Step 반복자 정리에 실패해 재시도합니다: %s",
+                                self._class_name,
+                            )
             if failed:
                 try:
                     self._restart_step()
                 except Exception:
-                    logger.exception("사용자 소스 Step을 다시 만들지 못해 기존 인스턴스로 재시도합니다: %s", self._class_name)
+                    logger.exception(
+                        "사용자 소스 Step을 다시 만들지 못해 기존 인스턴스로 재시도합니다: %s",
+                        self._class_name,
+                    )
                 sleep(0.1)
                 continue
             self._commit_update()

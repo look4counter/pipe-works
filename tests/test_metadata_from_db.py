@@ -66,7 +66,7 @@ class MetadataFromDBTests(unittest.TestCase):
         class FastEvent(Event):
             def wait(self, timeout=None):
                 self.assert_interval = timeout
-                return super().wait(.01)
+                return super().wait(0.01)
 
         stop = FastEvent()
         with patch.object(self.module, "Event", return_value=stop):
@@ -75,7 +75,7 @@ class MetadataFromDBTests(unittest.TestCase):
             try:
                 deadline = time.monotonic() + 1
                 while self.step.metadata.count == 0 and time.monotonic() < deadline:
-                    Event().wait(.001)
+                    Event().wait(0.001)
                 self.assertGreater(self.step.metadata.count, 0)
                 self.assertEqual(stop.assert_interval, 3)
             finally:

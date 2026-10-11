@@ -25,8 +25,9 @@ class ModelWorkerTests(unittest.TestCase):
             worker = self.get(path)
             self.create.assert_called_once_with(path.resolve())
             path.unlink()
-            with patch.object(Path, "resolve", side_effect=AssertionError("resolve")), patch.object(
-                Path, "is_file", side_effect=AssertionError("is_file")
+            with (
+                patch.object(Path, "resolve", side_effect=AssertionError("resolve")),
+                patch.object(Path, "is_file", side_effect=AssertionError("is_file")),
             ):
                 self.assertIs(self.get(path), worker)
             self.create.assert_called_once()
@@ -54,8 +55,9 @@ class ModelWorkerTests(unittest.TestCase):
             with patch.object(Path, "cwd", return_value=roots[1]):
                 second = self.get(Path("model.plan"))
             self.assertIsNot(first, second)
-            with patch.object(Path, "cwd", return_value=roots[0]), patch.object(
-                Path, "resolve", side_effect=AssertionError("resolve")
+            with (
+                patch.object(Path, "cwd", return_value=roots[0]),
+                patch.object(Path, "resolve", side_effect=AssertionError("resolve")),
             ):
                 self.assertIs(self.get(Path("model.plan")), first)
 
@@ -87,9 +89,11 @@ class ModelWorkerTests(unittest.TestCase):
             path = Path(directory) / "model.plan"
             path.write_bytes(b"engine")
             worker = object()
+
             def create(path):
-                time.sleep(.02)
+                time.sleep(0.02)
                 return worker
+
             self.create.side_effect = create
             with ThreadPoolExecutor(8) as executor:
                 results = list(executor.map(self.get, [path] * 8))
