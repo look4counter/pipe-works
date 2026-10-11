@@ -20,7 +20,13 @@
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
+from pipeworks.embedded import (
+    RTSPSource,
+    YoloDetect,
+    RTSPPublish,
+    NvidiaDecode,
+    NvidiaEncode,
+)
 
 pipeline = Pipeline("rtsp-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
@@ -54,9 +60,9 @@ RTSPPublish:
 | timeout_ms | 제한 시간(밀리초, 기본값 5000) | 250, 5000, 10000 |
 | packet_size | 패킷 크기 | 1452 |
 
-기존 `reconnect_interval: 3`은 `reconnect_interval_ms: 3000`으로 변경해야 합니다. 0 이상의 유한한 숫자를 허용하며 불리언·문자열·음수·비유한 값과 이전 키는 오류로 처리합니다.
+기존 `reconnect_interval: 3`은 `reconnect_interval_ms: 3000`으로 변경해야 합니다. 0 이상의 유한한 숫자를 허용하며 불리언·문자열·음수·비유한 값은 오류로 처리합니다. 이전 키는 사용하지 않으며 무시합니다.
 
-기존 `timeout: 5`는 `timeout_ms: 5000`으로 변경해야 합니다. 0 이상의 유한한 숫자를 허용하며 이전 키는 오류로 처리합니다. 내부 FFmpeg 옵션에는 마이크로초로 변환하여 전달합니다.
+기존 `timeout: 5`는 `timeout_ms: 5000`으로 변경해야 합니다. 0 이상의 유한한 숫자를 허용하며 이전 키는 사용하지 않고 무시합니다. 내부 FFmpeg 옵션에는 마이크로초로 변환하여 전달합니다.
 
 ---
 
@@ -79,7 +85,13 @@ url = f"rtsp://mediamtx:8554/output/{cam_id}/high"
 from pathlib import Path
 import threading
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
+from pipeworks.embedded import (
+    RTSPSource,
+    YoloDetect,
+    RTSPPublish,
+    NvidiaDecode,
+    NvidiaEncode,
+)
 
 cameras = [
     ("cam01", "rtsp://192.168.1.10/main"),
@@ -94,7 +106,7 @@ for cam_id, cam_url in cameras:
     # 각 카메라별 경로로 발행
     pipeline.step(NvidiaEncode())
     pipeline.step(RTSPPublish(url=f"rtsp://mediamtx:8554/{cam_id}"))
-    
+
     thread = threading.Thread(target=pipeline.run, daemon=True)
     thread.start()
 ```

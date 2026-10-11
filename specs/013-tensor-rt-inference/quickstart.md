@@ -54,3 +54,7 @@ test_tensor_rt_processing 6개, test_box_overlay 5개, test_async 37개, test_fr
 검증 결과 (2026-10-10): TensorRT 추론 18개, 예제 처리 6개, YOLO·배치 38개, 설정 7개를 실행하여 총 69개 중 68개 통과·1개 조건부 건너뛰기였다. TensorRT의 실제 엔진과 CUDA 개별·배치 간격 검증도 통과했다. 이름 변경 전 테스트 실패를 확인한 후 구현했으며 기본값·전체 경계값·이전 키와 두 키 동시 지정 시 상태 보존을 확인했다.
 
 프로젝트 의존성이 설치된 가상환경에서 `.venv/Scripts/python.exe -m unittest discover -s tests -p test_tensor_rt_inference.py`를 실행한다. 설정 기본값·갱신·경계값·이전 키 거부 및 두 실행 모드의 1·4·7번째 입력 선택이 통과해야 한다. CUDA 검증은 사용 가능한 GPU가 필요하며 실행할 수 없는 항목은 건너뛴 수를 기록한다. 예제 YAML의 TensorRTInference 섹션은 `inference_interval_frame: 1`을 사용한다. 기존 설정 이름은 새 이름으로 이전한다.
+
+## 현재 간격 설정 계약
+
+2026-10-11 요청으로 inference_interval 전용 검사·오류는 제거했다. 현재 inference_interval_frame의 기본값·검증·개별 및 배치 실행은 유지한다. 이전 키는 사용하지 않으며 혼합 설정에서는 현재 키만 적용한다. 이 결정은 위의 간격 이전 키 거부 설명을 대체하며 모델 YAML 검증은 변경하지 않는다.

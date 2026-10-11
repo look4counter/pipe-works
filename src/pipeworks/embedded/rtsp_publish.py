@@ -32,10 +32,6 @@ class RTSPPublish(Step):
 
     def configure(self, config: SimpleNamespace) -> None:
         config = self._resolve_config(config)
-        if hasattr(config, "reconnect_interval"):
-            raise ValueError(
-                "reconnect_interval 대신 밀리초 단위의 reconnect_interval_ms를 사용하세요."
-            )
         reconnect_interval_ms = getattr(config, "reconnect_interval_ms", 3000)
         if (
             isinstance(reconnect_interval_ms, bool)
@@ -44,8 +40,6 @@ class RTSPPublish(Step):
             or reconnect_interval_ms < 0
         ):
             raise ValueError("reconnect_interval_ms는 0 이상의 유한한 숫자여야 합니다.")
-        if hasattr(config, "timeout"):
-            raise ValueError("timeout 대신 밀리초 단위의 timeout_ms를 사용하세요.")
         timeout_ms = getattr(config, "timeout_ms", 5000)
         if (
             isinstance(timeout_ms, bool)

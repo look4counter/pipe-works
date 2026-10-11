@@ -51,3 +51,7 @@ TensorRTInference는 기존 _AsyncWorker를 상속하므로 필요한 슬롯 초
 ## 추론 프레임 간격 이름 변경 계획
 
 YoloDetect의 생성 초기값·configure 검증과 속성·개별 및 배치 간격 선택은 inference_interval_frame으로 변경한다. 이전 설정 키는 속성 갱신 전에 오류로 거부한다. tests/test_yolo_detect.py와 test_yolo_batch.py의 기존 간격·설정 갱신 검증을 새 이름으로 옮기고 이전 키 거부를 확인한다. README의 YOLO 항목, 예제 YAML, YOLO·Async·pipeline·hotswap 문서의 YOLO 설정을 변경한다. TensorRTInference 코드는 유지한다. YOLO·배치·Async 관련 테스트 후 수렴 점검한다.
+
+## 현재 간격 설정 계약
+
+2026-10-11 요청으로 inference_interval 전용 검사·오류는 제거했다. 현재 inference_interval_frame의 기본값·검증·개별 및 배치 실행은 유지한다. 이전 키는 사용하지 않으며 혼합 설정에서는 현재 키만 적용한다. 이 결정은 위의 간격 이전 키 거부 설명을 대체하며 모델 YAML 검증은 변경하지 않는다.

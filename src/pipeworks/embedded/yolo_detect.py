@@ -101,10 +101,6 @@ class YoloDetect(Step):
 
     def configure(self, config: SimpleNamespace) -> None:
         config = self._resolve_config(config)
-        if hasattr(config, "inference_interval"):
-            raise ValueError(
-                "inference_interval 대신 프레임 단위의 inference_interval_frame을 사용하세요."
-            )
         classes = getattr(config, "classes", None)
         confidence = getattr(config, "confidence", 0.25)
         gpu_id = getattr(config, "gpu_id", 0)

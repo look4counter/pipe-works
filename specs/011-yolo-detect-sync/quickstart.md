@@ -61,3 +61,7 @@ FR-017·SC-009와 T042~T045의 일관성 분석에서 차단 충돌이 없었으
 `.venv/Scripts/python.exe -m unittest discover -s tests -p test_local_yolo.py`로 동시 최초 접근·재사용 시 무잠금 반환·생성 실패 재시도를 검증한다. 동일 명령의 패턴을 `test_yolo_detect.py`, `test_yolo_batch.py`로 바꿔 개별 및 배치 회귀를 확인한다.
 
 결과: 총 47개 중 45개 통과, 2개 건너뜀. `git diff --check` 통과. FR-018, SC-010과 기존 GPU 처리 계약을 현재 구현과 대조한 수렴 점검에서 남은 작업은 없다.
+
+## 현재 간격 설정 계약
+
+2026-10-11 요청으로 inference_interval 전용 검사·오류는 제거했다. 현재 inference_interval_frame의 기본값·검증·개별 및 배치 실행은 유지한다. 이전 키는 사용하지 않으며 혼합 설정에서는 현재 키만 적용한다. 이 결정은 위의 간격 이전 키 거부 설명을 대체하며 모델 YAML 검증은 변경하지 않는다.

@@ -82,7 +82,7 @@ TensorRTInference:
   profile_index: 0
 ```
 
-`inference_interval_frame`은 1 이상의 정수이며 기본값은 1입니다. 개별·배치 모드 모두 첫 입력부터 지정 간격으로 추론합니다. 값이 3이면 1·4·7번째 입력을 추론하고 나머지는 `model_output=None`으로 원래 컨텍스트를 전달합니다. 기존 `inference_interval` 설정은 새 이름으로 변경해야 하며, 이전 키는 변경 안내 오류로 거부합니다.
+`inference_interval_frame`은 1 이상의 정수이며 기본값은 1입니다. 개별·배치 모드 모두 첫 입력부터 지정 간격으로 추론합니다. 값이 3이면 1·4·7번째 입력을 추론하고 나머지는 `model_output=None`으로 원래 컨텍스트를 전달합니다. 기존 `inference_interval` 설정은 새 이름으로 변경해야 하며, 이전 inference_interval 키는 사용하지 않고 무시합니다.
 
 `profile_index`는 영상별 `TensorRTInference` 설정입니다. 같은 모델을 사용해도 각 인스턴스가 서로 다른 프로파일을 선택할 수 있으며, 실행 중 설정 변경은 다음 입력부터 적용합니다. 개별 모드는 GPU·프로파일 변경 시 세션을 재생성하고 공유 배치는 프로파일이 같은 요청만 수집하며 GPU·프로파일별 세션을 사용합니다.
 

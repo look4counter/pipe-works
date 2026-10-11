@@ -12,3 +12,7 @@
 ## 송출 상태
 
 한 번의 `process()` 실행 동안 현재 출력 연결, 출력 스트림, 입력 설정 식별자, 마지막 DTS와 시간 기준, 재시도 가능 시점을 보관한다.
+
+## 현재 이전 키 계약
+
+2026-10-11 요청으로 RTSPPublish의 reconnect_interval·timeout 전용 검사·오류는 제거했다. 현재 reconnect_interval_ms·timeout_ms를 사용하며 이전 키는 무시한다.

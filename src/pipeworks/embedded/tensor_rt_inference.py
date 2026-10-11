@@ -361,10 +361,6 @@ class TensorRTInference(Step):
 
     def configure(self, config: SimpleNamespace):
         config = self._resolve_config(config)
-        if hasattr(config, "inference_interval"):
-            raise ValueError(
-                "inference_interval 대신 프레임 단위의 inference_interval_frame을 사용하세요."
-            )
         gpu_id = getattr(config, "gpu_id", 0)
         interval = getattr(config, "inference_interval_frame", 1)
         profile_index = getattr(config, "profile_index", 0)

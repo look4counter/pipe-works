@@ -42,7 +42,7 @@ YoloDetect:
 - `gpu_id`: 음수가 아닌 GPU 번호. 기본값은 0이다.
 - `inference_interval_frame`: 1 이상의 정수. 기본값은 1이며 첫 입력부터 지정 간격으로 선택한다. 간격 3은 1·4·7번째 입력을 추론한다.
 
-기존 `inference_interval` 설정은 `inference_interval_frame`으로 변경해야 한다. 값과 프레임 단위 동작은 동일하며 이전 키는 변경 안내 오류로 처리한다.
+기존 `inference_interval` 설정은 `inference_interval_frame`으로 변경해야 한다. 값과 프레임 단위 동작은 동일하며 이전 inference_interval 키는 사용하지 않고 무시한다.
 
 간격으로 건너뛴 입력은 현재 ID의 `detections[id]=None`으로 전달하고 다른 ID의 결과는 유지한다. `batch`는 생성자의 불리언 인자이며 기본값은 `False`이다. YAML에서 실행 모드를 바꾸지는 않는다.
 

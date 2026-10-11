@@ -57,3 +57,21 @@ tests/test_rtsp_source.py는 기본값·0·소수 대기와 중단 이벤트, te
 기존 abc 추상 메서드 계약으로 src/pipeworks/models.py의 configure에 abstractmethod를 적용한다. 새 의존성은 추가하지 않는다. 설정 없는 DetectionReport와 TensorRTPreProcess, tests/의 직접 Step 하위 클래스 및 동적 코드 문자열에 빈 구현을 추가한다. README.md와 docs/pipeworks/의 Step 안내 및 예제를 갱신한다.
 
 tests/test_step_config_defaults.py에 계약 검증을 먼저 작성해 구현 전 실패를 확인하고 전체 unittest를 실행한다. 외부 환경이 필요한 테스트의 건너뛰기를 기록한다. 헌장은 미작성 템플릿이므로 검사를 생략하고 문서는 한글로 작성한다. 데이터 구조와 설정 우선순위는 기존 계약을 따른다.
+
+## 현재 후속 설계: RTSPSource 이전 옵션 검사 제거
+
+이 절은 앞선 이전 키 거부 설계를 RTSPSource에 한해 대체한다. Python 3.11.9와 기존 unittest를 사용하며 의존성을 추가하지 않는다. 헌장은 미작성 템플릿이므로 검사하지 않는다.
+
+1. tests/test_rtsp_source.py의 이전 이름 오류 기대만 제거하고, 이전 키 단독·혼합에서 기본값 및 밀리초 키만 적용되는 검증을 추가한다.
+2. src/pipeworks/embedded/rtsp_source.py에서 두 hasattr 검사 블록만 제거한다. av.open의 라이브러리 인자 timeout과 현재 timeout_ms/reconnect_interval_ms 검증은 유지한다.
+3. docs/pipeworks/embedded/rtsp_source.md, docs/reference/RTSPSource.html 및 specs/002-rtsp-packet-source/data-model.md와 현재 기능 데이터 계약·사용 안내를 갱신한다.
+4. 수신·송출·설정 기본값 테스트를 실행하고 수렴 검사를 수행한다. RTSPPublish 소스와 문서는 변경하지 않는다.
+
+## 현재 후속 설계: 나머지 Step 이전 옵션 검사 제거
+
+Python 3.11.9·기존 unittest를 사용한다. 헌장은 미작성 템플릿이며 의존성과 외부 API 변경은 없다. 이 절은 위 세 Step의 이전 키 거부 설계를 대체한다.
+
+1. tests/test_rtsp_publish.py, test_yolo_detect.py, test_tensor_rt_inference.py의 이전 키 오류 기대를 현재 옵션 적용 검증으로 바꾸고 구현 전 실패를 확인한다.
+2. src/pipeworks/embedded/rtsp_publish.py의 두 hasattr 블록과 yolo_detect.py·tensor_rt_inference.py의 inference_interval 블록만 삭제한다.
+3. 관련 docs/pipeworks/embedded/ 안내와 003·004·011·013의 현재 계약을 갱신한다. 모델 YAML 이전 이름 검증은 보존한다.
+4. 위 테스트와 test_rtsp_source.py·test_step_config_defaults.py를 실행하고 quickstart에 결과를 기록한 뒤 수렴을 점검한다.

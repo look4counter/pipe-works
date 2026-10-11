@@ -213,7 +213,13 @@ RTSPSource:
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
+from pipeworks.embedded import (
+    RTSPSource,
+    YoloDetect,
+    RTSPPublish,
+    NvidiaDecode,
+    NvidiaEncode,
+)
 
 pipeline = Pipeline("rtsp-yolo", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera/main"))
@@ -297,4 +303,4 @@ RTSPSource:
 3. **안정성 우선**: `reconnect: true` + 긴 `reconnect_interval_ms`
 4. **다중 카메라**: 각 카메라마다 별도의 `RTSPSource` Step 사용
 
-제한 시간은 `timeout_ms`로 지정하며 기본값은 5000밀리초입니다. 기존 `timeout: 5`는 `timeout_ms: 5000`으로 변경해야 합니다. 재연결 간격은 `reconnect_interval_ms`로 지정하며 기본값은 3000밀리초입니다. 기존 `reconnect_interval: 3`은 `reconnect_interval_ms: 3000`으로 변경해야 합니다. 두 옵션 모두 0 이상의 유한한 숫자를 허용하며 이전 키는 오류로 처리합니다.
+제한 시간은 `timeout_ms`로 지정하며 기본값은 5000밀리초입니다. 기존 `timeout: 5`는 `timeout_ms: 5000`으로 변경해야 합니다. 재연결 간격은 `reconnect_interval_ms`로 지정하며 기본값은 3000밀리초입니다. 기존 `reconnect_interval: 3`은 `reconnect_interval_ms: 3000`으로 변경해야 합니다. 두 옵션 모두 0 이상의 유한한 숫자를 허용합니다. 이전 reconnect_interval과 timeout 키는 사용하지 않으며 무시합니다.

@@ -533,13 +533,15 @@ class YoloDetectTests(unittest.TestCase):
 
 
 class YoloIntervalConfigurationTests(unittest.TestCase):
-    def test_legacy_interval_is_rejected_in_both_modes(self):
+    def test_legacy_interval_is_ignored_in_both_modes(self):
         for batch in (False, True):
-            for config in (
-                {"inference_interval": 3},
-                {"inference_interval": 3, "inference_interval_frame": 3},
-            ):
+            for config, interval in [
+                ({"inference_interval": 99}, 1),
+                ({"inference_interval": 99, "inference_interval_frame": 4}, 4),
+            ]:
                 with self.subTest(batch=batch, config=config):
                     step = YoloDetect(Path("model.pt"), batch=batch)
-                    with self.assertRaisesRegex(ValueError, "inference_interval_frame"):
-                        step.configure(SimpleNamespace(**config))
+                    step.configure(SimpleNamespace(**config))
+                    self.assertEqual(step.inference_interval_frame, interval)
+                    self.assertFalse(hasattr(step, "inference_interval"))
+

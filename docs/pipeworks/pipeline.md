@@ -252,7 +252,13 @@ Source 끝
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
+from pipeworks.embedded import (
+    RTSPSource,
+    YoloDetect,
+    RTSPPublish,
+    NvidiaDecode,
+    NvidiaEncode,
+)
 
 pipeline = Pipeline("basic-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera/main"))
@@ -345,7 +351,13 @@ RTSPPublish:
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
+from pipeworks.embedded import (
+    RTSPSource,
+    YoloDetect,
+    RTSPPublish,
+    NvidiaDecode,
+    NvidiaEncode,
+)
 from my_processor import MyProcessor
 
 pipeline = Pipeline("custom-pipeline", config=Path("config.yaml"))
@@ -366,7 +378,14 @@ if __name__ == "__main__":
 import threading
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, StreamReport, RTSPPublish, NvidiaDecode, NvidiaEncode
+from pipeworks.embedded import (
+    RTSPSource,
+    YoloDetect,
+    StreamReport,
+    RTSPPublish,
+    NvidiaDecode,
+    NvidiaEncode,
+)
 
 
 def create_pipeline(cam_id: str, cam_url: str):

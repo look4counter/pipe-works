@@ -77,16 +77,32 @@ class RTSPSourceTests(unittest.TestCase):
             {"reconnect_interval_ms": value}
             for value in [-1, True, "3000", None, float("nan"), float("inf")]
         ]
-        configs += [
-            {"reconnect_interval": 3},
-            {"reconnect_interval": 3, "reconnect_interval_ms": 3000},
-        ]
         for config in configs:
             with (
                 self.subTest(config=config),
                 self.assertRaisesRegex(ValueError, "reconnect_interval_ms"),
             ):
                 RTSPSource("rtsp://input").configure(SimpleNamespace(**config))
+
+    def test_current_options_ignore_unused_legacy_keys(self):
+        for config, interval_ms, timeout_ms in [
+            ({"reconnect_interval": 99, "timeout": 99}, 3000, 5000),
+            (
+                {
+                    "reconnect_interval": 99,
+                    "timeout": 99,
+                    "reconnect_interval_ms": 250,
+                    "timeout_ms": 1250.5,
+                },
+                250,
+                1250.5,
+            ),
+        ]:
+            with self.subTest(config=config):
+                source = RTSPSource("rtsp://input")
+                source.configure(SimpleNamespace(**config))
+                self.assertEqual(source.reconnect_interval_ms, interval_ms)
+                self.assertEqual(source.timeout_ms, timeout_ms)
 
     def test_timeout_ms_conversion(self):
         for config, seconds in [
@@ -113,7 +129,6 @@ class RTSPSourceTests(unittest.TestCase):
             {"timeout_ms": value}
             for value in [-1, True, "5000", None, float("nan"), float("inf")]
         ]
-        configs += [{"timeout": 5}, {"timeout": 5, "timeout_ms": 5000}]
         for config in configs:
             with (
                 self.subTest(config=config),

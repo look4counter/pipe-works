@@ -235,17 +235,18 @@ class SettingsTests(unittest.TestCase):
                     )
                 self.assertEqual((step.gpu_id, step.inference_interval_frame), (1, 3))
 
-    def test_old_interval_key_is_rejected_without_changing_settings(self):
-        step = TensorRTInference(Path("model.engine"))
-        step.configure(SimpleNamespace(gpu_id=1, inference_interval_frame=3))
-        for config in (
-            {"inference_interval": 2},
-            {"inference_interval": 2, "inference_interval_frame": 4},
-        ):
-            with self.subTest(config=config):
-                with self.assertRaisesRegex(ValueError, "inference_interval_frame"):
-                    step.configure(SimpleNamespace(gpu_id=0, **config))
-                self.assertEqual((step.gpu_id, step.inference_interval_frame), (1, 3))
+    def test_legacy_interval_is_ignored_in_both_modes(self):
+        for batch in (False, True):
+            for config, interval in [
+                ({"inference_interval": 99}, 1),
+                ({"inference_interval": 99, "inference_interval_frame": 4}, 4),
+            ]:
+                with self.subTest(batch=batch, config=config):
+                    step = TensorRTInference(Path("model.engine"), batch=batch)
+                    step.configure(SimpleNamespace(**config))
+                    self.assertEqual(step.inference_interval_frame, interval)
+                    self.assertFalse(hasattr(step, "inference_interval"))
+
 
     def test_batch_flag_validation(self):
         self.assertFalse(TensorRTInference(Path("model.plan")).batch)
