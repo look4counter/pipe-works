@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RTSPSource — PipeWorks Step</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <nav aria-label="문서 탐색">
+        <a class="back-link" href="index.html">← Step 목록</a>
+      </nav>
+      <article class="step" aria-labelledby="RTSPSource">
+        <span class="badge">내장 Step</span>
+        <h2 id="RTSPSource">RTSPSource</h2>
+        <p>RTSP 영상 스트림에서 압축 패킷을 수신합니다.</p>
+        <section class="parameters" aria-labelledby="RTSPSource-parameters">
+          <h3 id="RTSPSource-parameters">설정 파라미터</h3>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">파라미터</th>
+                  <th scope="col">기본값</th>
+                  <th scope="col">설정 위치</th>
+                  <th scope="col">설명</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row"><code>url</code></th>
+                  <td><code>필수</code></td>
+                  <td>생성자 전용</td>
+                  <td>수신할 RTSP 주소입니다.</td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>reconnect</code></th>
+                  <td><code>True</code></td>
+                  <td>생성자 / YAML</td>
+                  <td>
+                    연결 실패·스트림 종료 시 재연결 여부입니다.
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>reconnect_interval_ms</code></th>
+                  <td><code>3000</code></td>
+                  <td>생성자 / YAML</td>
+                  <td>
+                    재연결 대기 시간입니다.
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>transport</code></th>
+                  <td><code>&quot;tcp&quot;</code></td>
+                  <td>생성자 / YAML</td>
+                  <td>
+                    RTSP 전송 방식입니다. &quot;tcp&quot; 또는 &quot;udp&quot;를
+                    사용합니다.
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>timeout_ms</code></th>
+                  <td><code>5000</code></td>
+                  <td>생성자 / YAML</td>
+                  <td>
+                    연결·읽기 또는 송출 작업의 제한 시간입니다.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">
+            reconnect_interval과 timeout은 지원하지 않습니다. 밀리초 단위의
+            reconnect_interval_ms와 timeout_ms를 사용합니다.
+          </p>
+        </section>
+        <h3>요구하는 Input 변수</h3>
+        <p>추가로 요구하는 입력 변수는 없습니다.</p>
+        <h3>제공하는 Output 변수</h3>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">변수</th>
+              <th scope="col">설명</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row"><code>packet</code></th>
+              <td>수신한 비디오 압축 패킷(av.Packet)입니다.</td>
+            </tr>
+            <tr>
+              <th scope="row"><code>video_stream</code></th>
+              <td>패킷의 코덱·해상도·시간 기준을 가진 비디오 스트림입니다.</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="note">소스 Step으로 이전 단계의 입력을 사용하지 않습니다.</p>
+      </article>
+    </main>
+  </body>
+</html>

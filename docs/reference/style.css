@@ -1,0 +1,164 @@
+:root {
+  color-scheme: light;
+  --ink: #172b3a;
+  --muted: #526777;
+  --border: #dce5eb;
+  --accent: #175c87;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: #f4f7fa;
+  color: var(--ink);
+  font-family:
+    system-ui,
+    -apple-system,
+    "Malgun Gothic",
+    sans-serif;
+  line-height: 1.7;
+}
+main {
+  max-width: 1260px;
+  margin: auto;
+  padding: 48px 24px;
+}
+h1 {
+  font-size: 2.2rem;
+  margin: 0 0 12px;
+}
+header {
+  margin-bottom: 32px;
+}
+header p {
+  color: var(--muted);
+  margin: 8px 0;
+}
+.step {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px;
+  margin-bottom: 20px;
+  break-inside: avoid;
+}
+h2 {
+  font-size: 1.45rem;
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+.badge {
+  display: inline-block;
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: #eaf3f9;
+  border-radius: 5px;
+  padding: 2px 9px;
+  margin-bottom: 10px;
+}
+h3 {
+  font-size: 1rem;
+  margin: 24px 0 10px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+th,
+td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+thead {
+  background: #f1f5f8;
+}
+tbody th {
+  width: 32%;
+  font-weight: 500;
+}
+code {
+  font-family: Consolas, monospace;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+.note {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 18px 0 0;
+}
+@media (max-width: 600px) {
+  main {
+    padding: 24px 12px;
+  }
+  .step {
+    padding: 18px;
+  }
+  th,
+  td {
+    padding: 8px;
+  }
+  h1 {
+    font-size: 1.7rem;
+  }
+}
+@media print {
+  body {
+    background: white;
+  }
+  main {
+    max-width: none;
+    padding: 0;
+  }
+  .step {
+    border-radius: 0;
+  }
+  header p,
+  .note {
+    color: #333;
+  }
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+a:hover {
+  color: var(--ink);
+}
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.back-link {
+  display: inline-block;
+  margin-bottom: 20px;
+}
+.step-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.step-list li {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 22px;
+  margin: 12px 0;
+  break-inside: avoid;
+}
+.step-list a {
+  font-size: 1.1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.step-list p {
+  margin: 6px 0 0;
+}
+.step-list .badge {
+  margin: 0 0 0 10px;
+}
+
+.table-scroll{overflow-x:auto}.parameters table{min-width:680px}.parameters tbody th{width:17%}.parameters td:nth-child(2){width:15%}.parameters td:nth-child(3){width:18%}
