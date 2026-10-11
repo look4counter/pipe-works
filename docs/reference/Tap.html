@@ -5,60 +5,37 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tap — PipeWorks Step</title>
     <link rel="stylesheet" href="style.css" />
+    <script src="reference.js" defer></script>
   </head>
   <body>
-    <main>
-      <nav aria-label="문서 탐색">
-        <a class="back-link" href="index.html">← Step 목록</a>
-      </nav>
-      <header>
-        <h1>Tap</h1>
-        <p>
-          입력과 출력은 PipelineContext의 변수 기준입니다. 선택 항목은 생략할 수
-          있으며, 별도 안내가 없으면 출력에 명시하지 않은 기존 변수도
-          유지합니다. 생성자·YAML 설정과 내부 관리 변수는 목록에서 제외했습니다.
-        </p>
-      </header>
-      <article class="step" aria-labelledby="Tap">
-        <span class="badge">내장 Step</span>
-        <h2 id="Tap">Tap</h2>
-        <p>별도 스레드에 입력을 전달하면서 주 파이프라인을 계속 진행합니다.</p>
-        <section class="parameters" aria-labelledby="Tap-parameters"><h3 id="Tap-parameters">설정 파라미터</h3><div class="table-scroll"><table><thead><tr><th scope="col">파라미터</th><th scope="col">기본값</th><th scope="col">설정 위치</th><th scope="col">설명</th></tr></thead><tbody><tr><th scope="row"><code>step</code></th><td><code>필수</code></td><td>생성자 전용</td><td>백그라운드에서 실행할 Step입니다. Tap 자체의 설정 옵션은 없으며 전달된 설정은 감싼 Step으로 위임합니다.</td></tr></tbody></table></div></section><h3>요구하는 Input 변수</h3>
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">변수</th>
-              <th scope="col">설명</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th scope="row"><code>감싼 Step의 입력 변수</code></th>
-              <td>백그라운드 Step이 요구하는 컨텍스트 변수입니다.</td>
-            </tr>
-          </tbody>
-        </table>
-        <h3>제공하는 Output 변수</h3>
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">변수</th>
-              <th scope="col">설명</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th scope="row"><code>기존 컨텍스트 변수</code></th>
-              <td>주 파이프라인에는 입력 컨텍스트를 그대로 전달합니다.</td>
-            </tr>
-          </tbody>
-        </table>
-        <p class="note">
-          백그라운드 결과를 병합하지 않습니다. 동일한 객체를 공유하므로 내부
-          Step이 객체를 수정하면 주 파이프라인에도 영향을 줄 수 있습니다. 작업
-          중에는 새 백그라운드 입력을 건너뜁니다.
-        </p>
-      </article>
+    <main data-step="Tap">
+      <section class="parameters" aria-labelledby="Tap-parameters">
+        <h3 id="Tap-parameters">설정 파라미터</h3>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">파라미터</th>
+                <th scope="col">기본값</th>
+                <th scope="col">설정 위치</th>
+                <th scope="col">설명</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><code>step</code></th>
+                <td><code>필수</code></td>
+                <td>생성자 전용</td>
+                <td>
+                  백그라운드에서 실행할 Step입니다. Tap 자체의 설정 옵션은
+                  없으며 전달된 설정은 감싼 Step으로 위임합니다.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </main>
+    <noscript>Step 문서를 보려면 JavaScript를 활성화하세요.</noscript>
   </body>
 </html>

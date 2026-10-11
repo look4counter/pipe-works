@@ -5,79 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>NvidiaEncode — PipeWorks Step</title>
     <link rel="stylesheet" href="style.css" />
+    <script src="reference.js" defer></script>
   </head>
   <body>
-    <main>
-      <nav aria-label="문서 탐색">
-        <a class="back-link" href="index.html">← Step 목록</a>
-      </nav>
-      <header>
-        <h1>NvidiaEncode</h1>
-        <p>
-          입력과 출력은 PipelineContext의 변수 기준입니다. 선택 항목은 생략할 수
-          있으며, 별도 안내가 없으면 출력에 명시하지 않은 기존 변수도
-          유지합니다. 생성자·YAML 설정과 내부 관리 변수는 목록에서 제외했습니다.
-        </p>
-      </header>
-      <article class="step" aria-labelledby="NvidiaEncode">
-        <span class="badge">내장 Step</span>
-        <h2 id="NvidiaEncode">NvidiaEncode</h2>
-        <p>GPU 프레임을 압축 비디오 패킷으로 인코딩합니다.</p>
-        <section class="parameters" aria-labelledby="NvidiaEncode-parameters"><h3 id="NvidiaEncode-parameters">설정 파라미터</h3><div class="table-scroll"><table><thead><tr><th scope="col">파라미터</th><th scope="col">기본값</th><th scope="col">설정 위치</th><th scope="col">설명</th></tr></thead><tbody><tr><th scope="row"><code>gpu_id</code></th><td><code>0</code></td><td>생성자 / YAML</td><td>인코딩에 사용할 GPU 장치 번호입니다.</td></tr><tr><th scope="row"><code>fps</code></th><td><code>30</code></td><td>생성자 / YAML</td><td>출력 프레임률입니다. 양수여야 하며 GOP·IDR 주기와 패킷 시간 기준에도 사용합니다. 현재 패킷 시간 기준 계산은 정수 fps를 전제로 합니다.</td></tr></tbody></table></div><p class="note">기본값은 인자를 생략한 생성자 기준입니다. 생성자에서 지정한 값이 기본 설정이 되며, YAML 설정이 있으면 해당 항목을 덮어씁니다.</p></section><h3>요구하는 Input 변수</h3>
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">변수</th>
-              <th scope="col">설명</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th scope="row"><code>frame</code></th>
-              <td>인코더에 전달할 GPU 프레임입니다.</td>
-            </tr>
-            <tr>
-              <th scope="row"><code>pixel_format</code></th>
-              <td>프레임의 픽셀 형식입니다.</td>
-            </tr>
-            <tr>
-              <th scope="row"><code>video_stream</code></th>
-              <td>코덱과 영상 너비·높이 정보입니다.</td>
-            </tr>
-            <tr>
-              <th scope="row"><code>cuda_stream</code></th>
-              <td>인코딩 작업에 사용할 CUDA 스트림입니다.</td>
-            </tr>
-            <tr>
-              <th scope="row"><code>processing_started_at</code></th>
-              <td>선택 항목입니다. 프레임 처리 시간 집계에 사용합니다.</td>
-            </tr>
-          </tbody>
-        </table>
-        <h3>제공하는 Output 변수</h3>
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">변수</th>
-              <th scope="col">설명</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th scope="row"><code>packet</code></th>
-              <td>PTS·DTS·time_base·duration이 설정된 인코딩 패킷입니다.</td>
-            </tr>
-            <tr>
-              <th scope="row"><code>video_stream</code></th>
-              <td>입력 비디오 스트림 정보입니다.</td>
-            </tr>
-          </tbody>
-        </table>
-        <p class="note">
-          새 컨텍스트를 생성하므로 다른 입력 변수는 전달하지 않습니다. 프레임과
-          패킷의 개수는 일대일이 아닐 수 있습니다.
-        </p>
-      </article>
+    <main data-step="NvidiaEncode">
+      <section class="parameters" aria-labelledby="NvidiaEncode-parameters">
+        <h3 id="NvidiaEncode-parameters">설정 파라미터</h3>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">파라미터</th>
+                <th scope="col">기본값</th>
+                <th scope="col">설정 위치</th>
+                <th scope="col">설명</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><code>gpu_id</code></th>
+                <td><code>0</code></td>
+                <td>생성자 / YAML</td>
+                <td>인코딩에 사용할 GPU 장치 번호입니다.</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>fps</code></th>
+                <td><code>30</code></td>
+                <td>생성자 / YAML</td>
+                <td>
+                  출력 프레임률입니다. 양수여야 하며 GOP·IDR 주기와 패킷 시간
+                  기준에도 사용합니다. 현재 패킷 시간 기준 계산은 정수 fps를
+                  전제로 합니다.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </main>
+    <noscript>Step 문서를 보려면 JavaScript를 활성화하세요.</noscript>
   </body>
 </html>
