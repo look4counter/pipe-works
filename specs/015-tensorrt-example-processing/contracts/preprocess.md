@@ -1,6 +1,6 @@
 # TensorRTPreProcess 공개 계약
 
-src/pipeworks/embedded/tensor_rt_pre_process.py 및 pipeworks.embedded에서 같은 Step 클래스를 제공한다. 기존 예제 모듈도 같은 클래스를 재수출한다.
+examples/step/tensor_rt_pre_process.py에서 Step 구현을 제공한다. examples를 모듈 탐색 경로에 두면 step.tensor_rt_pre_process에서 가져올 수 있다. 내장 모듈과 pipeworks.embedded 내보내기는 제공하지 않는다. 제공 stream.yml에는 전처리 섹션이 없으며 기본 예제는 생성자 기본값을 사용한다. 구성 기능 자체는 유지한다.
 
 | 옵션 | 기본값 | 조건 |
 | --- | --- | --- |

@@ -8,7 +8,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from pipeworks.embedded import TensorRTPreProcess
+from step.tensor_rt_pre_process import TensorRTPreProcess
 from step.tensor_rt_post_process import TensorRTPostProcess
 from pipeworks.models import PipelineContext
 
@@ -109,7 +109,6 @@ class ProcessingTests(unittest.TestCase):
             prediction[0, 4, 2] = 0.95
         item.model_output = {"output0": prediction}
         step = TensorRTPostProcess()
-        step.configure(SimpleNamespace(classes=[2]))
         with (
             patch.object(torch.Tensor, "cpu", side_effect=AssertionError("CPU copy")),
             patch.object(
@@ -232,6 +231,30 @@ class ProcessingTests(unittest.TestCase):
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_internal_defaults_restore_and_classes_are_not_shared(self):
+        import yaml
+        from pipeworks import Pipeline
+
+        config = Path(__file__).resolve().parents[1] / "examples/config/stream.yml"
+        settings = yaml.safe_load(config.read_text(encoding="utf-8"))
+        self.assertNotIn("BoxOverlay", settings)
+        self.assertNotIn("TensorRTPostProcess", settings)
+        step = TensorRTPostProcess()
+        other = TensorRTPostProcess()
+        self.assertEqual(
+            (step.classes, step.confidence, step.iou, step.max_det, step.output_name),
+            ([2], 0.25, 0.7, 300, "output0"),
+        )
+        step.classes.append(5)
+        self.assertEqual(other.classes, [2])
+        step.configure(SimpleNamespace(classes=None, confidence=0.5))
+        self.assertIsNone(step.classes)
+        Pipeline("postprocess", config=config).step(step)
+        self.assertEqual(
+            (step.classes, step.confidence, step.iou, step.max_det, step.output_name),
+            ([2], 0.25, 0.7, 300, "output0"),
+        )
+
     def test_invalid_postprocess_configuration(self):
         for config in (
             SimpleNamespace(confidence=True),

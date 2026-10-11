@@ -69,3 +69,36 @@ git diff --check는 공백 오류 없이 통과했다. 구성 검증 실패 시 
 ## 전체 YAML 옵션 노출 검증
 
 examples/config/stream.yml의 TensorRTPreProcess 섹션에 지원하는 15개 옵션을 모두 기본값으로 명시했다. 생성자 시그니처에서 읽은 옵션 이름 집합과 YAML 섹션의 키가 정확히 일치하고, configure에 섹션을 전달한 뒤 모든 구성 값이 기본 생성자와 같음을 확인했다. 한글 안내 주석을 추가했으며 git diff --check가 통과했다. 소스 변경과 GPU 추론은 필요하지 않았다.
+
+## 예제 분리 검증 절차 (2026-10-11)
+
+examples를 모듈 탐색 경로에 두고 step.tensor_rt_pre_process에서 가져온다. 제공 stream.yml에는 전처리 설정 없이 예제 생성자 기본값을 적용한다. 전처리·좌표 복원·후처리·모델 ID·보고·프레임 해제·CudaAsync 테스트와 참조·공개 위치·YAML·벤치마크 경로·공백 검증을 수행한다. 위 과거 내장 경로와 전체 YAML 노출 검증 기록은 이전 상태의 이력이다.
+
+### 예제 분리 검증 결과
+
+- 구현 전 공개 위치·제공 YAML 계약 테스트 2개가 예제 모듈 누락과 전처리 설정 잔존으로 실패하는 것을 확인했다.
+- 이동한 examples/step/tensor_rt_pre_process.py는 이동 전 구현과 바이트 단위로 동일하다. 내장 모듈·내보내기는 제거했고 현재 코드의 내장 가져오기 참조는 없다. 제거 확인 테스트와 벤치마크의 과거 리비전 경로 문자열만 유지한다.
+- 전처리·최적화·좌표 복원·후처리·모델 ID 테스트 39개가 통과했다. 실제 CUDA와 예제 TensorRT 엔진을 포함하며 건너뜀은 없다.
+- 보고·프레임 해제·CudaAsync·Overlay·설정 기본값 회귀 74개 중 72개가 통과했다. 실패한 test_async의 원격 등록·모듈 없는 직렬화 테스트 2개는 모의 파이프라인에 development 속성이 없어 실패한다. HEAD의 main.py를 직접 로드한 재검증에서도 동일 오류가 재현되므로 이번 변경의 회귀가 아니다.
+- Hotswap 회귀 30개가 통과했다. 별도로 실제 예제 파이프라인을 구성하고 _hot_steps의 예제 전처리 래핑과 모의 연결을 통한 중앙 프로세스 직렬화·모듈 없는 복원을 확인했다. 실제 RTSP 수신이나 중앙 서버 실행은 하지 않았다.
+- 합계 143개 테스트 중 141개 통과, 기존 오류 2개다.
+- 제공 YAML의 전처리 섹션만 제거했고 다른 섹션은 작업 시작 시 설정과 동일함을 확인했다. 예제 파이프라인은 전처리 생성자 기본값으로 구성된다.
+- benchmark_preprocess.py --iterations 5로 RGB/NV12 각각 기본·평균/표준편차·FP16/NHWC의 6가지 HEAD 비교가 모두 수치 일치했다. 짧은 실행이므로 성능 개선 수치를 주장하지 않는다.
+- 전처리 문서의 탐지·분류 생성자 예제를 실행했고 git diff --check를 통과했다.
+
+재현 명령은 .venv/Scripts/python.exe -m unittest discover -s tests -p test_tensor_rt_preprocess.py와 해당 회귀 파일 패턴을 사용한다. 여러 모듈을 한 번에 실행할 때는 tests·src·examples를 모듈 탐색 경로에 추가하여 unittest 기본 로더로 불러온다.
+
+## 표시·후처리 내부 설정 검증 절차
+
+BoxOverlay와 TensorRTPostProcess를 직접 생성한 뒤 제공 YAML의 두 섹션 부재와 기본값·빈 구성 복원·클래스 목록 격리를 확인한다. 기존 GPU 혼합 클래스 입력에서 기본 [2] 필터를 검증하고 표시·좌표 복원·ID·보고 회귀와 예제 구성을 실행한다.
+
+### 표시·후처리 내부 설정 검증 결과
+
+- 두 계약 테스트가 구현 전에 직접 생성한 BoxOverlay의 옵션 누락과 YAML 섹션 잔존으로 실패하는 것을 확인했다.
+- BoxOverlay 생성자 내부에 전체 ID·초록색·두께 2·이전 결과 유지 기본값을 모았다. TensorRTPostProcess 생성자 내부에 classes=[2]·confidence=0.25·iou=0.7·max_det=300·output_name=output0을 모았다. 빈 구성은 내부 기본값으로 복원하고 목록은 인스턴스 간 공유하지 않는다. 기존 configure 검증·명시적 설정과 GPU 실행 알고리즘은 유지한다.
+- 후처리·Overlay·최적화·모델 ID·전처리·YOLO ID 회귀 54개와 별도 프로세스의 보고 회귀 14개가 모두 통과했다. 합계 68개이며 CUDA·실제 예제 TensorRT 엔진을 포함하고 건너뜀은 없다. 기본 혼합 클래스 입력에서 클래스 [2]만 남는 것을 검증했다.
+- 같은 프로세스에서 모델 ID 검증 뒤 보고 검증을 실행하면 공유 배치 상태의 영향으로 실제 배치 출력 형식 검증 1개가 실패한다. HEAD의 두 예제 클래스 코드를 로드한 기존 구현에서도 같은 순서로 오류가 재현되며, 보고 테스트를 독립 실행하면 14개 모두 통과한다. 이번 변경으로 발생한 회귀로 판단하지 않는다.
+- 단일 스트림 예제 생성과 두 단계의 기본값을 검증했다. 제공 YAML에서 두 섹션만 제거했고 다른 섹션의 값은 작업 시작 시 내용과 동일하다. 파일 끝의 빈 줄을 정리하고 git diff --check가 통과했다.
+- 다중 스트림 예제 실행 검증은 기존 step.post_process 모듈 누락으로 제한된다. 해당 예제 및 누락 모듈은 이번 범위에서 수정하지 않았다.
+
+재현: tests·src·examples를 탐색 경로에 두고 unittest 기본 로더로 test_box_overlay, test_tensor_rt_processing, test_tensor_rt_postprocess_optimized, test_tensor_rt_model_ids, test_tensor_rt_preprocess, test_yolo_model_ids를 함께 실행한다. 보고 테스트는 .venv/Scripts/python.exe -m unittest discover -s tests -p test_detection_report.py로 별도 실행한다.

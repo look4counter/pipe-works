@@ -45,11 +45,26 @@ class BoxOverlayTests(unittest.TestCase):
             steps.index(overlay),
             steps.index(next(step for step in steps if isinstance(step, NvidiaEncode))),
         )
-        config = pipeline.config.BoxOverlay
+        self.assertFalse(hasattr(pipeline.config, "BoxOverlay"))
         self.assertEqual(
             (overlay.line_width, overlay.line_color, overlay.keep_previous),
-            (config["line_width"], config["line_color"], config["keep_previous"]),
+            (2, "#00ff00", True),
         )
+
+    def test_constructor_and_empty_configuration_use_internal_defaults(self):
+        overlay = self.example["BoxOverlay"]()
+        self.assertEqual(
+            (overlay.line_width, overlay.line_color, overlay.keep_previous, overlay.id),
+            (2, "#00ff00", True, None),
+        )
+        self.assertEqual(overlay.yuv_color, (145, 54, 34))
+        overlay.configure(SimpleNamespace(line_width=1, line_color="#ff0000", id="car"))
+        overlay.configure(SimpleNamespace())
+        self.assertEqual(
+            (overlay.line_width, overlay.line_color, overlay.keep_previous, overlay.id),
+            (2, "#00ff00", True, None),
+        )
+        self.assertEqual(overlay.yuv_color, (145, 54, 34))
 
     def test_rejects_invalid_overlay_options(self):
         for settings in (

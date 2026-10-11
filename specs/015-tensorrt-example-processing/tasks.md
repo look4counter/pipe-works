@@ -100,3 +100,40 @@ T016 → T017 → T018 순서로 수행하고 완료 후 수렴 점검한다. �
 - [x] T023 docs/pipeworks/embedded/tensor_rt_preprocess.md의 복원 계약을 갱신하고 specs/015-tensorrt-example-processing/quickstart.md에 검증 결과를 기록한다. (FR-015, SC-008)
 
 의존성: T019 → T020 → T021 → T022 → T023. 최소 구현은 US3 전체이며 문서까지 완료한다. T021 이후 문서 초안과 변환 수치 검증은 독립 실행할 수 있다. 별도 작업자는 사용하지 않는다.
+
+## 단계 18: 예제 분리 준비
+
+- [x] T038 명세·명확화·계획·계약과 현재 작업의 대응을 분석한다. (FR-025~027, SC-012)
+
+## 단계 19: 사용자 시나리오 7 — 예제 전처리
+
+독립 검증: 예제 전처리가 제공 YAML 없이 기본 설정을 구성하고 기존 입력·좌표 변환 결과를 유지한다.
+
+- [x] T039 [US7] tests/test_tensor_rt_preprocess.py의 재수출 검증을 예제 구현·내장 비공개·제공 YAML 기본 구성 검증으로 변경하고 구현 전 실패를 확인한다. (FR-025, FR-027)
+- [x] T040 [US7] src/pipeworks/embedded/tensor_rt_pre_process.py를 examples/step/tensor_rt_pre_process.py로 이동하고 src/pipeworks/embedded/__init__.py와 examples/01_single_stream_rtsp_style.py의 공개 경로를 갱신한다. (FR-025, FR-026)
+- [x] T041 [US7] tests/test_tensor_rt_preprocess.py·test_tensor_rt_processing.py·test_tensor_rt_preprocess_optimized.py·test_image_transform.py·test_tensor_rt_model_ids.py·test_detection_report.py 및 tools/benchmark_preprocess.py의 가져오기·패치·HEAD 경로 탐색을 갱신한다. (FR-026)
+- [x] T042 [US7] examples/config/stream.yml의 전처리 섹션만 제거하고 README.md·docs/pipeworks/embedded/tensor_rt_preprocess.md·tensor_rt_inference.md를 예제 경로와 생성자 기반 설정 안내로 갱신한다. (FR-027, FR-026)
+
+## 단계 20: 검증과 수렴
+
+- [x] T043 전처리·좌표 복원·후처리·ID·보고·프레임 해제·CudaAsync 회귀와 예제 구성·참조·벤치마크·git diff --check를 확인하고 specs/015-tensorrt-example-processing/quickstart.md에 결과와 환경 한계를 기록한다. (SC-012)
+
+의존성: T038 → T039 → T040 → T041 → T042 → T043. US7 전체가 최소 전달 범위다. T040 이후 YAML·문서 갱신은 테스트 참조 갱신과 별개로 가능하나 한 작업자가 순차 수행한다. 기존 완료 작업은 과거 이력을 유지하고 새 계획이 내장 공개·제공 YAML 노출 부분을 대체한다.
+
+## 단계 21: 내부 설정 준비
+
+- [x] T044 명세·명확화·계획·계약과 내부 설정 요구의 일관성을 분석한다. (FR-028~030, SC-013)
+
+## 단계 22: 사용자 시나리오 8 — 표시·후처리 내부 설정
+
+독립 검증: 제공 YAML 없이 같은 표시 옵션과 클래스 [2] 후처리를 사용한다.
+
+- [x] T045 [US8] tests/test_box_overlay.py·test_tensor_rt_processing.py에서 YAML 없는 기본값·빈 구성 복원·목록 격리·기본 클래스 필터 계약을 검증하고 구현 전 실패를 확인한다. (FR-028~030)
+- [x] T046 [US8] examples/step/box_overlay.py·tensor_rt_post_process.py의 생성자 내부 기본값과 configure 적용을 구현하고 examples/config/stream.yml에서 두 섹션을 제거한다. (FR-028, FR-029)
+- [x] T047 [US8] docs/pipeworks/embedded/tensor_rt_inference.md·yolo_detect.md의 YAML 선택 안내를 내부 설정으로 갱신하고 전체 클래스가 필요한 tests/test_tensor_rt_postprocess_optimized.py의 명시적 classes=None 설정이 유지되는지 확인한다. (FR-030)
+
+## 단계 23: 검증과 수렴
+
+- [x] T048 후처리·Overlay·모델 ID·보고·전처리 회귀, 예제 구성·다른 YAML 보존·공백 검사를 실행하고 specs/015-tensorrt-example-processing/quickstart.md에 결과를 기록한다. (SC-013)
+
+의존성: T044 → T045 → T046 → T047 → T048. US8 전체가 최소 전달 범위다. T046 뒤 문서와 회귀는 별개로 가능하나 한 작업자가 순차 수행한다.

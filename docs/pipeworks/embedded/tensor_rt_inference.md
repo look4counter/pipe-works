@@ -6,7 +6,7 @@
 
 `TensorRTInference`는 전처리 단계가 만든 `context.model_input`의 GPU 텐서를 TensorRT 엔진으로 추론하고 원시 출력을 `context.model_output`에 넣습니다. 리사이즈·색 변환·정규화·자료형 변환·NMS·좌표 복원은 수행하지 않습니다.
 
-이미지 입력은 내장 [TensorRTPreProcess](tensor_rt_preprocess.md)로 준비할 수 있습니다. 모델별 크기·정규화·색상 순서·자료형·배치를 지정하며 추론 단계는 해당 입력을 그대로 실행합니다.
+이미지 입력은 예제 [TensorRTPreProcess](tensor_rt_preprocess.md)로 준비할 수 있습니다. 모델별 크기·정규화·색상 순서·자료형·배치를 지정하며 추론 단계는 해당 입력을 그대로 실행합니다.
 
 ## 파이프라인 연결
 
@@ -51,8 +51,11 @@ if vehicle is not None:
 
 모델별 전처리·추론·후처리를 이어 붙인 뒤 마지막에 `BoxOverlay`를 둡니다. Overlay가 수정한 프레임을 다음 모델에 넣으면 박스 픽셀도 입력에 포함됩니다. 비동기 실행에서는 각 모델 묶음을 별도 `CudaAsync`로 감싸 원본 읽기 수명 계약을 유지합니다. 첫 전처리가 `release_frame()`을 호출한 같은 묶음 안에 원본을 다시 읽는 다음 전처리를 넣지 않습니다.
 
+다음 예제는 `examples`가 모듈 탐색 경로에 있을 때 사용할 수 있습니다.
+
 ```python
-from pipeworks.embedded import CudaAsync, TensorRTPreProcess
+from pipeworks.embedded import CudaAsync
+from step.tensor_rt_pre_process import TensorRTPreProcess
 from step.tensor_rt_post_process import TensorRTPostProcess
 from step.box_overlay import BoxOverlay
 
@@ -68,7 +71,7 @@ for model_id in ("vehicle", "person"):
 pipeline.step(BoxOverlay())
 ```
 
-`BoxOverlay`의 YAML `id: null`(기본값)은 모든 모델을 표시하고 `id: vehicle`은 해당 ID만 표시합니다. `keep_previous`는 ID별로 적용하므로 한 모델이 건너뛰어도 다른 모델의 갱신이 이전 박스를 지우지 않습니다. 빈 탐지 결과는 해당 모델의 이전 박스를 지웁니다. 기존 YOLO 단일 결과 객체도 ID 선택 없이 표시할 수 있습니다. 성능 보고는 결과 사전과 독립적이며 결과를 읽는 사용자 단계는 ID로 값을 선택해야 합니다.
+`BoxOverlay`는 클래스 내부의 `id=None` 기본값으로 모든 모델을 표시합니다. 선택하려면 예제 클래스의 내부 기본값을 변경하거나 `configure(SimpleNamespace(id="vehicle"))`로 명시적으로 구성합니다. 제공 YAML에는 `BoxOverlay`와 `TensorRTPostProcess` 섹션이 없습니다. 후처리는 클래스 내부의 `classes=[2]`, `confidence=0.25`, `iou=0.7`, `max_det=300`, `output_name="output0"`을 기본값으로 사용합니다. `keep_previous`는 ID별로 적용하므로 한 모델이 건너뛰어도 다른 모델의 갱신이 이전 박스를 지우지 않습니다. 빈 탐지 결과는 해당 모델의 이전 박스를 지웁니다. 기존 YOLO 단일 결과 객체도 ID 선택 없이 표시할 수 있습니다. 성능 보고는 결과 사전과 독립적이며 결과를 읽는 사용자 단계는 ID로 값을 선택해야 합니다.
 
 파이프라인 YAML의 클래스명 섹션에 GPU 번호와 추론 대상 선택 간격을 설정합니다.
 

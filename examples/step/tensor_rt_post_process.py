@@ -18,14 +18,21 @@ from pipeworks.detection_profile import span, use
 class TensorRTPostProcess(Step):
     def __init__(self):
         self.names = YAML.load(ROOT / "cfg/datasets/coco.yaml")["names"]
-        self.configure(SimpleNamespace())
+        self._set_config_defaults(
+            confidence=0.25,
+            iou=0.7,
+            classes=[2],
+            max_det=300,
+            output_name="output0",
+        )
 
     def configure(self, config):
-        confidence = getattr(config, "confidence", 0.25)
-        iou = getattr(config, "iou", 0.7)
-        classes = getattr(config, "classes", None)
-        max_det = getattr(config, "max_det", 300)
-        output_name = getattr(config, "output_name", "output0")
+        config = self._resolve_config(config)
+        confidence = config.confidence
+        iou = config.iou
+        classes = config.classes
+        max_det = config.max_det
+        output_name = config.output_name
         for name, value in (("confidence", confidence), ("iou", iou)):
             if (
                 isinstance(value, bool)

@@ -10,7 +10,8 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 from pipeworks import Pipeline
-from pipeworks.embedded import CudaAsync, TensorRTInference, TensorRTPreProcess
+from pipeworks.embedded import CudaAsync, TensorRTInference
+from step.tensor_rt_pre_process import TensorRTPreProcess
 from pipeworks.models import PipelineContext, Step
 from step.box_overlay import BoxOverlay
 from step.tensor_rt_post_process import TensorRTPostProcess

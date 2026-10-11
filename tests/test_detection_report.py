@@ -197,7 +197,7 @@ class DetectionCudaTests(unittest.TestCase):
         from pipeworks.detection_profile import store, _current
 
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
-        from pipeworks.embedded import TensorRTPreProcess
+        from step.tensor_rt_pre_process import TensorRTPreProcess
         from step.tensor_rt_post_process import TensorRTPostProcess
 
         path = Path(__file__).resolve().parents[1] / "examples/model/yolo11n.plan"
@@ -275,7 +275,7 @@ class DetectionCudaTests(unittest.TestCase):
         from pipeworks.execution import current_model_stream
 
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
-        from pipeworks.embedded import TensorRTPreProcess
+        from step.tensor_rt_pre_process import TensorRTPreProcess
         from step.tensor_rt_post_process import TensorRTPostProcess
 
         entered, unblock = Event(), Event()

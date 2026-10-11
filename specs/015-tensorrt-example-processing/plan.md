@@ -1,5 +1,35 @@
 # 구현 계획
 
+## 표시·후처리 클래스 내부 설정 계획
+
+Python 3.11·기존 PyTorch·Ultralytics·unittest를 유지한다. 헌법은 미작성 템플릿이므로 검사 규칙은 없으며 한글 문서·speckit 절차를 준수한다. 기존 _set_config_defaults와 _resolve_config를 재사용해 생성자 내부에 기본값을 모으고 configure는 이 값을 검증·적용한다. 새 생성자 옵션은 추가하지 않는다.
+
+examples/step/box_overlay.py의 생성자에 line_width=2, line_color="#00ff00", keep_previous=True, id=None을 둔다. examples/step/tensor_rt_post_process.py는 클래스 이름 로드 후 confidence=0.25, iou=0.7, classes=[2], max_det=300, output_name="output0"을 내부 기본값으로 둔다. 깊은 복사로 클래스 목록을 분리한다. 기존 GPU 실행 알고리즘은 변경하지 않는다.
+
+examples/config/stream.yml의 두 섹션만 제거하고 다른 설정은 바이트 단위로 보존한다. tests/test_box_overlay.py는 YAML 섹션 대신 기본 표시 설정을 검증한다. tests/test_tensor_rt_processing.py는 CPU 구성 검증과 기존 GPU 혼합 클래스 입력에서 기본 [2] 필터를 확인한다. 전체 클래스 처리를 명시적으로 검증하는 기존 최적화 테스트는 classes=None을 직접 구성한다. docs/pipeworks/embedded/tensor_rt_inference.md·yolo_detect.md와 모델 ID 계약을 내부 기본값 안내로 갱신한다.
+
+기본값·빈 구성 복원·인스턴스 목록 격리·제공 YAML·예제 구성과 후처리·Overlay·모델 ID·보고·전처리 회귀를 실행하고 git diff --check와 수렴 점검을 수행한다. 설계 전후 원칙 위반은 없다. 과거 계획의 두 예제 YAML 노출 부분은 이 계획으로 대체한다.
+
+## 전처리 예제 분리 구현 계획 (2026-10-11)
+
+이번 계획은 아래 과거 계획의 내장 전처리 공개·예제 재수출·전체 옵션 YAML 노출 부분을 대체한다.
+
+### 기술 맥락과 원칙 검토
+
+Python 3.11.9·PyTorch 2.2.1·기존 unittest와 CUDA 환경을 유지하며 의존성을 추가하지 않는다. 헌법은 미작성 템플릿이므로 원칙 검사는 생략한다. 한글 문서와 지정된 speckit 순서를 준수하며 설계 전후 위반은 없다. 실행 성능과 수치·원본 수명은 그대로 보존한다.
+
+### 구현 구조
+
+src/pipeworks/embedded/tensor_rt_pre_process.py의 구현을 examples/step/tensor_rt_pre_process.py로 이동한다. embedded/__init__.py의 import와 __all__ 항목을 제거한다. 예제는 step.tensor_rt_pre_process에서 가져온다. configure와 생성자 옵션은 유지한다. 공통 image·ImageTransform·계측·실행 유틸리티는 기존 라이브러리에서 사용한다. CudaAsync의 클래스명 기반 계측은 이동의 영향을 받지 않아 변경하지 않는다.
+
+테스트와 benchmark_preprocess.py에 examples 경로를 추가하고 예제 클래스에서 가져온다. 최적화 테스트의 patch 경로도 변경한다. 이전 재수출 동일성 테스트는 예제 구현의 위치·내장 비공개·제공 YAML 없이 기본 구성 가능한 계약 검증으로 바꾼다. 벤치마크의 HEAD 비교 대상은 예제 경로를 먼저 찾고 과거 두 내장 파일명으로 순차 대체한다.
+
+examples/config/stream.yml에서 TensorRTPreProcess 섹션만 삭제한다. 다른 섹션의 사용자 편집은 보존한다. README·전처리·추론 안내는 예제 가져오기와 생성자 기반 설정으로 갱신한다. 기존 문서 파일 위치는 링크 보존을 위해 유지한다.
+
+### 검증과 단계
+
+구현 이동 전에 새 공개 위치 계약 테스트를 갱신하고 실패를 확인한다. 이동 뒤 전처리·좌표 복원·후처리·모델 ID·보고·프레임 해제·CudaAsync 회귀를 실행한다. 예제 YAML과 생성자 기본값, 내장 모듈 제거·import 누락, 벤치마크 과거 경로 탐색과 git diff --check를 확인한다. CUDA 또는 엔진이 없는 환경의 건너뜀은 명시하고 기존 실패와 구분한다. 명세·계획·작업을 분석한 뒤 구현하고 수렴 점검으로 남은 요구를 확인한다.
+
 ## YOLO 공통 ID 후속 구현 계획
 
 기존 Python·PyTorch·Ultralytics를 사용하고 의존성을 추가하지 않는다. src/pipeworks/embedded/yolo_detect.py에 id 구성·검증을 추가한다. 입력마다 기존 사전을 얕게 복사하고 현재 ID에 None을 넣는 공통 메서드가 ID를 반환한다. 두 실행 경로는 해당 ID에 결과를 저장하여 설정 변경 중에도 시작한 입력의 ID를 유지한다. local_yolo와 엔진 공유 키는 바꾸지 않는다. 원본과 GPU 결과 텐서를 복제하지 않는다.

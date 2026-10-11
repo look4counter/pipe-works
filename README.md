@@ -68,10 +68,10 @@ RTSPPublish:
 
 ## 📚 핵심 개념
 
-내장 `TensorRTPreProcess`는 GPU NV12·RGB·BGR 이미지를 모델별 입력으로 변환합니다. 크기 변경 방식, 채널 순서, 정규화, FP16/FP32와 NCHW/NHWC를 생성자 또는 YAML에서 지정할 수 있습니다. 전체 옵션과 탐지·분류 설정은 [GPU 이미지 전처리 안내](docs/pipeworks/embedded/tensor_rt_preprocess.md)를 참고하세요.
+예제 `examples/step/tensor_rt_pre_process.py`의 `TensorRTPreProcess`는 GPU NV12·RGB·BGR 이미지를 모델별 입력으로 변환합니다. 모델의 전처리 규칙에 맞춰 예제 코드와 생성자에서 크기 변경 방식, 채널 순서, 정규화, FP16/FP32와 NCHW/NHWC를 지정합니다. 제공 YAML에는 전처리 설정이 없으며 기본 예제는 생성자 기본값을 사용합니다. 아래 가져오기는 `examples`가 모듈 탐색 경로에 있을 때 사용할 수 있습니다. 전체 옵션과 탐지·분류 설정은 [GPU 이미지 전처리 안내](docs/pipeworks/embedded/tensor_rt_preprocess.md)를 참고하세요.
 
 ```python
-from pipeworks.embedded import TensorRTPreProcess
+from step.tensor_rt_pre_process import TensorRTPreProcess
 
 preprocess = TensorRTPreProcess(size=(640, 640), dtype="float16")
 ```

@@ -6,4 +6,4 @@ TensorRTInference(model_path, id=None)는 기본 모델 파일명 또는 지정�
 
 TensorRT 입력은 model_id를 전달받는다. 후처리는 detections[model_id]에 boxes·names·orig_shape 결과를 넣고 다른 키는 유지한다. 같은 키는 교체한다. 누락 또는 오류는 현재 키에 None을 넣는다. model_id가 없고 출력도 없으면 빈 사전 또는 기존 사전을 유지하며 출력이 있으면 오류다. 후처리에서 사전을 복사하여 원본 컨텍스트의 공유 사전은 수정하지 않는다. 임시 model_id는 GPU 완료 확인 뒤 정리한다. YOLO는 내부 후처리까지 완료하므로 임시 model_id 없이 결과를 저장한다.
 
-BoxOverlay의 YAML id는 하나의 ID를 선택한다. null이면 전체다. keep_previous는 ID별 적용하고 빈 탐지 결과는 해당 캐시를 지운다. 기존 단일 YOLO 결과 객체는 id 선택 없이 표시한다. 모든 모델 추론 후 Overlay를 실행한다. 성능 보고는 탐지 사전과 독립이고 실제 DB 저장 기능은 이번 범위가 아니다.
+BoxOverlay의 내부 기본 id=None은 전체 ID를 표시한다. 제공 YAML에는 BoxOverlay 섹션이 없으며 별도 configure의 id로 하나의 ID를 선택할 수 있다. keep_previous는 ID별 적용하고 빈 탐지 결과는 해당 캐시를 지운다. 기존 단일 YOLO 결과 객체는 id 선택 없이 표시한다. 모든 모델 추론 후 Overlay를 실행한다. 성능 보고는 탐지 사전과 독립이고 실제 DB 저장 기능은 이번 범위가 아니다.

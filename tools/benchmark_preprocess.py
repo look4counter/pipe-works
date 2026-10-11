@@ -10,7 +10,8 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from pipeworks.embedded.tensor_rt_pre_process import TensorRTPreProcess
+sys.path.insert(0, str(ROOT / "examples"))
+from step.tensor_rt_pre_process import TensorRTPreProcess
 
 
 def measure(step, frame, iterations, pixel_format):
@@ -48,14 +49,20 @@ def main():
     if not torch.cuda.is_available():
         parser.error("CUDA is required")
     # Preserve the exact pre-change implementation as the independent baseline.
-    baseline_path = "src/pipeworks/embedded/tensor_rt_pre_process.py"
-    exists = subprocess.run(
-        ["git", "cat-file", "-e", f"HEAD:{baseline_path}"],
-        cwd=ROOT,
-        capture_output=True,
-    )
-    if exists.returncode:
-        baseline_path = "src/pipeworks/embedded/tensor_rt_preprocess.py"
+    for baseline_path in (
+        "examples/step/tensor_rt_pre_process.py",
+        "src/pipeworks/embedded/tensor_rt_pre_process.py",
+        "src/pipeworks/embedded/tensor_rt_preprocess.py",
+    ):
+        exists = subprocess.run(
+            ["git", "cat-file", "-e", f"HEAD:{baseline_path}"],
+            cwd=ROOT,
+            capture_output=True,
+        )
+        if exists.returncode == 0:
+            break
+    else:
+        parser.error("No preprocessing baseline found in HEAD")
     source = subprocess.check_output(
         ["git", "show", f"HEAD:{baseline_path}"], cwd=ROOT
     ).decode("utf-8")

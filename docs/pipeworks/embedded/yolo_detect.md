@@ -91,7 +91,7 @@ YoloDetect:
 
 ## 결과와 통계
 
-두 모델의 추론을 모두 마친 뒤 `BoxOverlay`를 실행해야 다음 모델 입력에 박스 픽셀이 섞이지 않는다. 비동기 직렬 모델은 각 모델을 별도 `CudaAsync`로 감싼다. `BoxOverlay`의 YAML `id: null`은 전체 결과, `id: vehicle`은 해당 모델만 표시한다. 이전 박스 유지도 ID별로 적용한다.
+두 모델의 추론을 모두 마친 뒤 `BoxOverlay`를 실행해야 다음 모델 입력에 박스 픽셀이 섞이지 않는다. 비동기 직렬 모델은 각 모델을 별도 `CudaAsync`로 감싼다. 예제 `BoxOverlay`의 내부 기본값 `id=None`은 전체 결과를 표시한다. 특정 모델을 선택하려면 예제 클래스의 기본값을 변경하거나 `configure(SimpleNamespace(id="vehicle"))`로 구성한다. 제공 YAML에는 `BoxOverlay` 섹션이 없다. 이전 박스 유지도 ID별로 적용한다.
 
 ```python
 results = getattr(context, "detections", None) or {}

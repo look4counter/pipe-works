@@ -6,11 +6,20 @@ import torch
 
 
 class BoxOverlay(Step):
+    def __init__(self):
+        self._set_config_defaults(
+            line_width=2,
+            line_color="#00ff00",
+            keep_previous=True,
+            id=None,
+        )
+
     def configure(self, config: SimpleNamespace) -> None:
-        self.line_width = getattr(config, "line_width", 2)
-        self.line_color = getattr(config, "line_color", "#00ff00")
-        self.keep_previous = getattr(config, "keep_previous", True)
-        self.id = getattr(config, "id", None)
+        config = self._resolve_config(config)
+        self.line_width = config.line_width
+        self.line_color = config.line_color
+        self.keep_previous = config.keep_previous
+        self.id = config.id
         if (
             isinstance(self.line_width, bool)
             or not isinstance(self.line_width, int)

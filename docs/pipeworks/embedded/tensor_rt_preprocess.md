@@ -1,9 +1,11 @@
-# TensorRTPreProcess: 범용 GPU 이미지 전처리
+# TensorRTPreProcess: GPU 이미지 전처리 예제
 
-`TensorRTPreProcess`는 이미지 모델이 요구하는 크기·색상·정규화·자료형·텐서 배치를 구성합니다. Ultralytics를 호출하지 않고 PyTorch CUDA 연산으로 수행하며 TensorRT 엔진을 읽거나 전처리 규칙을 추측하지 않습니다.
+`TensorRTPreProcess`는 `examples/step/tensor_rt_pre_process.py`에서 제공하는 사용자 단계 예제입니다. `examples`를 모듈 탐색 경로에 두고 가져옵니다. 모델의 검증·추론용 전처리 규칙에 맞춰 예제 코드와 생성자 설정을 조정해야 하며, 모든 모델과의 호환성을 보장하지 않습니다.
+
+이 예제는 이미지 모델이 요구하는 크기·색상·정규화·자료형·텐서 배치를 구성합니다. Ultralytics를 호출하지 않고 PyTorch CUDA 연산으로 수행하며 TensorRT 엔진을 읽거나 전처리 규칙을 추측하지 않습니다.
 
 ```python
-from pipeworks.embedded import TensorRTPreProcess
+from step.tensor_rt_pre_process import TensorRTPreProcess
 
 preprocess = TensorRTPreProcess(
     size=(640, 640),
@@ -28,7 +30,7 @@ pipeline.step(preprocess)
 
 ## 옵션
 
-모든 옵션은 선택적 생성자 인자와 YAML의 `TensorRTPreProcess` 섹션에서 지정할 수 있습니다. 같은 옵션이 있으면 YAML이 우선합니다. YAML에서 제거한 옵션은 최초 생성자 값으로 돌아갑니다. 잘못된 옵션 이름·값은 구성 오류로 거부하며 검증 실패 시 부분적으로 적용하지 않습니다.
+제공 `examples/config/stream.yml`에는 전처리 섹션이 없습니다. 아래 옵션은 예제 생성자에서 지정하며 생략하면 기본값을 사용합니다. 기존 `configure()` 기능은 유지하므로 사용자 YAML을 추가하면 같은 옵션을 덮어쓰고, 제거된 옵션은 최초 생성자 값으로 돌아갑니다. 잘못된 옵션 이름·값은 구성 오류로 거부하며 검증 실패 시 부분적으로 적용하지 않습니다.
 
 | 옵션 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -58,43 +60,45 @@ pipeline.step(preprocess)
 
 `resize_center_crop`은 size의 높이·너비를 모두 채우도록 비율을 유지해 리사이즈한 뒤 crop_size를 중앙에서 자릅니다. crop_size는 size보다 클 수 없습니다. 예를 들어 size=[256,256], crop_size=[224,224]는 짧은 변을 256으로 리사이즈한 뒤 224×224를 자릅니다.
 
-`auto`, `stride`, `scaleup`, `center`, `padding_value`는 LetterBox에서만 결과에 영향을 줍니다. 다른 모드의 `auto=true` 및 중앙 자르기 밖의 `crop_size` 지정은 거부합니다. 다른 모드에서 중앙 자르기로 바꿀 때 크기 설정도 함께 지정하고, 자르기 모드에서 다른 모드로 바꿀 때는 `crop_size: null`로 해제합니다.
+`auto`, `stride`, `scaleup`, `center`, `padding_value`는 LetterBox에서만 결과에 영향을 줍니다. 다른 모드의 `auto=true` 및 중앙 자르기 밖의 `crop_size` 지정은 거부합니다. 다른 모드에서 중앙 자르기로 바꿀 때 크기 설정도 함께 지정하고, 자르기 모드에서 다른 모드로 바꿀 때는 `crop_size=None`으로 해제합니다.
 
 ## 탐지용 설정 예제
 
-```yaml
-TensorRTPreProcess:
-  size: [640, 640]
-  resize_mode: letterbox
-  auto: false
-  stride: 32
-  scaleup: true
-  center: true
-  padding_value: 114
-  color_order: rgb
-  scale: 0.00392156862745098
-  mean: [0, 0, 0]
-  std: [1, 1, 1]
-  dtype: float32
-  layout: nchw
+```python
+TensorRTPreProcess(
+    size=[640, 640],
+    resize_mode="letterbox",
+    auto=False,
+    stride=32,
+    scaleup=True,
+    center=True,
+    padding_value=114,
+    color_order="rgb",
+    scale=0.00392156862745098,
+    mean=[0, 0, 0],
+    std=[1, 1, 1],
+    dtype="float32",
+    layout="nchw",
+)
 ```
 
 ## 분류용 설정 예제
 
 다음은 해당 입력 규칙을 요구하는 모델에 적용할 수 있는 예시이며 실제 모델의 학습·내보내기 계약을 확인해야 합니다.
 
-```yaml
-TensorRTPreProcess:
-  size: [256, 256]
-  resize_mode: resize_center_crop
-  crop_size: [224, 224]
-  color_order: rgb
-  scale: 0.00392156862745098
-  mean: [0.485, 0.456, 0.406]
-  std: [0.229, 0.224, 0.225]
-  dtype: float32
-  layout: nchw
-  input_name: pixels
+```python
+TensorRTPreProcess(
+    size=[256, 256],
+    resize_mode="resize_center_crop",
+    crop_size=[224, 224],
+    color_order="rgb",
+    scale=0.00392156862745098,
+    mean=[0.485, 0.456, 0.406],
+    std=[0.229, 0.224, 0.225],
+    dtype="float32",
+    layout="nchw",
+    input_name="pixels",
+)
 ```
 
 ## 좌표와 수치 계약

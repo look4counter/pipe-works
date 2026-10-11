@@ -8,9 +8,10 @@ from unittest.mock import patch
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
 
 from pipeworks import Pipeline
-from pipeworks.embedded import TensorRTPreProcess
+from step.tensor_rt_pre_process import TensorRTPreProcess
 from pipeworks.execution import _frame_scope, _model_stream_scope
 from pipeworks.models import PipelineContext
 
@@ -84,11 +85,34 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "GPU"):
             next(TensorRTPreProcess().process(iter([item])))
 
-    def test_old_example_reexports_embedded_class(self):
+    def test_example_owns_implementation_without_embedded_export(self):
+        import importlib.util
+        import pipeworks.embedded as embedded
+
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
         from step.tensor_rt_pre_process import TensorRTPreProcess as ExamplePreProcess
 
+        self.assertEqual(ExamplePreProcess.__module__, "step.tensor_rt_pre_process")
         self.assertIs(ExamplePreProcess, TensorRTPreProcess)
+        self.assertFalse(hasattr(embedded, "TensorRTPreProcess"))
+        self.assertNotIn("TensorRTPreProcess", embedded.__all__)
+        self.assertIsNone(
+            importlib.util.find_spec("pipeworks.embedded.tensor_rt_pre_process")
+        )
+
+    def test_example_yaml_uses_constructor_defaults_without_preprocess_section(self):
+        import yaml
+
+        config = Path(__file__).resolve().parents[1] / "examples/config/stream.yml"
+        settings = yaml.safe_load(config.read_text(encoding="utf-8"))
+        self.assertNotIn("TensorRTPreProcess", settings)
+        step = TensorRTPreProcess()
+        Pipeline("preprocess", config=config).step(step)
+        self.assertEqual(step.size, (640, 640))
+        self.assertEqual(step.resize_mode, "letterbox")
+        self.assertEqual(step.scale, 1 / 255)
+        self.assertEqual(step.dtype, "float32")
+        self.assertEqual(step.layout, "nchw")
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
