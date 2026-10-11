@@ -59,13 +59,6 @@ class TensorRTPostProcess(Step):
         selected = torchvision.ops.nms(offset_boxes, boxes[:, 4], self.iou)[:self.max_det]
         return boxes[selected]
 
-    @staticmethod
-    def _restore(boxes, transform):
-        height, width = transform.shape
-        # Basic strided views avoid advanced-index gathers and scatters.
-        boxes[:, 0:4:2].sub_(transform.left).div_(transform.ratio).clamp_(0, width)
-        boxes[:, 1:4:2].sub_(transform.top).div_(transform.ratio).clamp_(0, height)
-
     def process(self, inputs):
         for item in inputs:
             profile = vars(item).pop("_tensor_rt_profile", None)
@@ -85,7 +78,7 @@ class TensorRTPostProcess(Step):
                     with use(profile), span("postprocess", stream), torch.cuda.stream(stream), torch.no_grad():
                         # Consume the raw output in-place; only detections survive.
                         boxes = self._nms(prediction)
-                        self._restore(boxes, transform)
+                        transform.restore_boxes_(boxes)
                         item.detections = SimpleNamespace(boxes=Boxes(boxes, transform.shape), names=self.names, orig_shape=transform.shape)
             except Exception:
                 state = "error"

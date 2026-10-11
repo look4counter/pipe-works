@@ -9,6 +9,7 @@ from ultralytics.utils.nms import non_max_suppression
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 from step.tensor_rt_post_process import TensorRTPostProcess
+from pipeworks.image_transform import ImageTransform
 
 
 class NmsTests(unittest.TestCase):
@@ -44,11 +45,13 @@ class NmsTests(unittest.TestCase):
 
     def test_coordinate_slices_match_reference(self):
         boxes = torch.tensor([[-20., 30., 900., 500., .9, 2.]])
-        transform = SimpleNamespace(left=10, top=20, ratio=2., shape=(100, 200))
+        transform = ImageTransform(shape=(100, 200), ratio_xy=(2., 2.),
+                                   left=10, top=20, output_shape=(240, 420),
+                                   resize_mode="letterbox")
         expected = boxes.clone()
         expected[:, [0, 2]] = ((expected[:, [0, 2]] - 10) / 2).clamp(0, 200)
         expected[:, [1, 3]] = ((expected[:, [1, 3]] - 20) / 2).clamp(0, 100)
-        TensorRTPostProcess._restore(boxes, transform)
+        transform.restore_boxes_(boxes)
         torch.testing.assert_close(boxes, expected)
 
     def test_threshold_endpoints_ties_and_reconfiguration(self):

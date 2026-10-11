@@ -131,6 +131,32 @@ class ProcessingTests(unittest.TestCase):
             next(TensorRTPostProcess().process(iter([item])))
         self.assertFalse(any(hasattr(item, name) for name in ("model_input", "model_output", "tensor_rt_transform", "model_cuda_stream")))
 
+    def test_postprocess_delegates_to_an_unrelated_transform(self):
+        item = self.frame()
+        called = []
+
+        class OtherTransform:
+            shape = (4, 8)
+
+            def restore_boxes_(self, boxes):
+                called.append(torch.cuda.current_stream())
+                boxes[:, :4] = boxes.new_tensor([1., 1., 3., 3.])
+                return boxes
+
+        item.tensor_rt_transform = OtherTransform()
+        with torch.cuda.stream(item.cuda_stream):
+            prediction = torch.zeros((1, 84, 10), device="cuda")
+            prediction[0, :4, 0] = 10
+            prediction[0, 6, 0] = .9
+        item.model_output = {"output0": prediction}
+        next(TensorRTPostProcess().process(iter([item])))
+        self.assertEqual(len(called), 1)
+        self.assertEqual(called[0].cuda_stream, item.cuda_stream.cuda_stream)
+        torch.testing.assert_close(item.detections.boxes.xyxy,
+                                   prediction.new_tensor([[1., 1., 3., 3.]]))
+        self.assertEqual(item.detections.orig_shape, (4, 8))
+        self.assertFalse(hasattr(item, "tensor_rt_transform"))
+
     def test_actual_plan_processing(self):
         from pipeworks.embedded import TensorRTInference
         plan = Path(__file__).resolve().parents[1] / "examples/model/yolo11n.plan"

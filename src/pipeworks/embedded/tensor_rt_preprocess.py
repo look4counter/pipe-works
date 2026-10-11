@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from pipeworks.detection_profile import begin, span, use
 from pipeworks.execution import current_model_stream, release_frame
 from pipeworks.image import nv12_to_rgb
+from pipeworks.image_transform import ImageTransform
 from pipeworks.models import PipelineContext, Step
 
 
@@ -233,9 +234,8 @@ class TensorRTPreProcess(Step):
             crop_h, crop_w = self.crop_size or self.size
             top, left = -((resized_h - crop_h) // 2), -((resized_w - crop_w) // 2)
             output = output[:, :, -top : -top + crop_h, -left : -left + crop_w]
-        transform = SimpleNamespace(
+        transform = ImageTransform(
             shape=(height, width),
-            ratio=ratio_xy[0] if ratio_xy[0] == ratio_xy[1] else ratio_xy,
             ratio_xy=ratio_xy,
             left=left,
             top=top,

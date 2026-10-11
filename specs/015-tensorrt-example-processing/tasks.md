@@ -43,3 +43,19 @@ T005 → T006 → T007 순서로 수행한다.
 - [x] T018 examples/config/stream.yml의 옵션 완전성과 기본값 적용을 검증하고 specs/015-tensorrt-example-processing/quickstart.md에 결과를 기록한다. (SC-007)
 
 T016 → T017 → T018 순서로 수행하고 완료 후 수렴 점검한다. 독립 검증은 GPU 작업 없이 YAML의 키와 구성 값으로 수행한다.
+
+## 단계 8: 좌표 복원 객체 준비
+
+- [x] T019 specs/015-tensorrt-example-processing/의 FR-014~016·SC-008·설계·계약 일관성을 분석한다.
+
+## 단계 9: 사용자 시나리오 3 — 전처리와 후처리의 좌표 책임 분리
+
+- [x] T020 [US3] src/pipeworks/image_transform.py에 불변 변환 객체와 축별 제자리 복원을 구현하고 src/pipeworks/embedded/tensor_rt_preprocess.py에서 생성한다. (FR-014, FR-016)
+- [x] T021 [US3] examples/step/tensor_rt_post_process.py에서 좌표 계산을 제거하고 복원을 위임하며 tools/benchmark_postprocess.py의 변환 생성을 갱신한다. (FR-015)
+- [x] T022 [US3] tests/test_image_transform.py·tests/test_tensor_rt_postprocess_optimized.py·tests/test_tensor_rt_processing.py에 세 변환 수치·빈 결과·경계·부가 열·대체 변환 위임 검증을 작성하고 관련 회귀를 실행한다. (SC-008)
+
+## 단계 10: 안내와 수렴
+
+- [x] T023 docs/pipeworks/embedded/tensor_rt_preprocess.md의 복원 계약을 갱신하고 specs/015-tensorrt-example-processing/quickstart.md에 검증 결과를 기록한다. (FR-015, SC-008)
+
+의존성: T019 → T020 → T021 → T022 → T023. 최소 구현은 US3 전체이며 문서까지 완료한다. T021 이후 문서 초안과 변환 수치 검증은 독립 실행할 수 있다. 별도 작업자는 사용하지 않는다.

@@ -1,5 +1,14 @@
 # 구현 계획
 
+## 좌표 복원 객체 후속 계획 (2026-10-11)
+
+이 계획이 기존의 호출자 직접 복원 책임을 대체한다. Python 3.11.9와 기존 PyTorch만 사용한다. src/pipeworks/image_transform.py에 불변 ImageTransform을 정의하고 기존 정보 속성을 유지한다. restore_boxes_는 xyxy의 축별 뷰에 이동량 제거·배율 나누기·경계 제한을 수행한다. CPU 복사·추가 동기화·프레임 참조는 없다.
+
+src/pipeworks/embedded/tensor_rt_preprocess.py는 이 객체를 생성한다. examples/step/tensor_rt_post_process.py의 _restore를 제거하고 메서드를 호출한다. 후처리는 shape와 restore_boxes_만 사용한다. tools/benchmark_postprocess.py도 새 객체를 사용한다.
+
+tests/test_image_transform.py에서 세 모드·옵션·빈 결과·경계·추가 열·저장 공간을 검증하고 tests/test_tensor_rt_processing.py에서 대체 객체 위임을 확인한다. 기존 좌표 테스트를 갱신하고 전후처리·보고 회귀를 실행한다. 문서와 검증 기록을 갱신한다. 헌법은 미작성 템플릿이며 설계 전후 한글 문서·speckit 절차에 위반은 없다.
+
+
 examples/step/tensor_rt_pre_process.py와 tensor_rt_post_process.py의 빈 파일을 구현한다. NV12 색 변환은 기존 local_yolo GPU 함수를 재사용하고 torch 보간·패딩으로 입력과 복원 정보를 만든다. 후처리는 Ultralytics NMS와 Boxes를 이용하여 BoxOverlay와 동일한 감지 계약을 제공한다. 결과는 GPU에 유지하고 원본 orig_img는 만들지 않는다. BoxOverlay는 Async 타임아웃으로 detections 속성이 없는 입력도 결과 누락으로 처리한다.
 
 examples/01_single_stream_rtsp_style.py의 클래스명·plan 경로·불필요 batch 인자를 수정하고 examples/config/stream.yml에 두 단계 설정을 추가한다. tests/test_tensor_rt_processing.py는 실제 CUDA 합성 입력과 출력을 검증한다. test_box_overlay.py의 예제 순서 검증은 TensorRT 경로에 맞춘다. 실제 엔진 추론도 가능한 환경에서 검증한다. 헌법은 미작성 템플릿으로 원칙 검사를 생략한다.

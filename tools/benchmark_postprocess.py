@@ -13,14 +13,16 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 from pipeworks.models import PipelineContext
+from pipeworks.image_transform import ImageTransform
 from step.tensor_rt_post_process import TensorRTPostProcess
 
 
 def run(step, prediction, stream):
     item = PipelineContext(cuda_stream=stream)
     item.model_output = {"output0": prediction}
-    item.tensor_rt_transform = SimpleNamespace(left=0, top=140, ratio=1 / 3,
-                                               shape=(1080, 1920))
+    item.tensor_rt_transform = ImageTransform(
+        shape=(1080, 1920), ratio_xy=(1 / 3, 1 / 3), left=0, top=140,
+        output_shape=(640, 640), resize_mode="letterbox")
     next(step.process(iter([item])))
     return item.detections.boxes.data
 

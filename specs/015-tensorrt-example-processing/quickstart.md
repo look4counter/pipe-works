@@ -1,5 +1,13 @@
 # 검증과 사용
 
+## 좌표 복원 객체 검증 (2026-10-11)
+
+`.venv/Scripts/python.exe -m unittest discover -s tests -p 'test_image_transform.py'`는 3개 검증이 통과했다. CPU·CUDA에서 세 리사이즈 방식·패딩 옵션·확대 제한·빈 결과·경계·추가 열·자료형·저장 공간과 불변 정보를 확인했다.
+
+`test_tensor_rt_processing.py` 7개는 대체 객체의 복원 위임·CUDA 스트림·정리·실제 예제 엔진을 포함해 통과했다. `test_tensor_rt_postprocess_optimized.py` 4개, `test_tensor_rt_preprocess_optimized.py` 3개, `test_detection_report.py` 14개도 통과했다. `test_tensor_rt*.py` 전체는 54개 중 53개 통과하고 1개가 기존 옛 예제 모듈 누락으로 실패했다. HEAD에도 examples/step/tensor_rt_pre_process.py가 없으며 기존 테스트가 해당 경로를 가져온다. 이번 변경은 그 경로를 수정하지 않았다. `git diff --check`는 통과했다.
+
+후처리는 변환 객체의 shape와 restore_boxes_만 사용한다. 상세 계약은 [이미지 좌표 복원 계약](contracts/transform.md)을 참고한다. 수렴 점검에서 FR-014~016·SC-008과 설계에 대한 미구현 차이는 없다.
+
 ## 범용 전처리 검증 절차
 
 CUDA를 사용할 수 있는 기존 가상환경에서 다음 명령을 실행한다.

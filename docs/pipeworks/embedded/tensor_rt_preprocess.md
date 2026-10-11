@@ -101,6 +101,15 @@ TensorRTPreProcess:
 
 `tensor_rt_transform.shape`는 원본 높이·너비, `ratio_xy`는 가로·세로 배율, `left/top`은 패딩 이동량입니다. 중앙 자르기에서는 이동량이 음수입니다. 원본 좌표는 `(변환된 좌표 − 이동량) / 해당 축의 배율`로 복원합니다. `output_shape`는 최종 높이·너비이고 `resize_mode`로 변환 종류를 구분합니다. 기존 `ratio`는 균일 배율이면 숫자, 비균일 배율이면 가로·세로 쌍입니다.
 
-기본 LetterBox는 기존 YOLO 후처리 예제와 호환됩니다. stretch·다른 색상·정규화·레이아웃을 선택한 모델은 해당 모델의 출력 해석에 맞는 후처리가 필요합니다.
+`tensor_rt_transform`은 `pipeworks.image_transform.ImageTransform` 객체이며 좌표 복원 기능을 제공합니다. 후처리는 배율·패딩·크롭을 직접 해석하지 않고 다음처럼 호출합니다.
+
+```python
+transform = context.tensor_rt_transform
+transform.restore_boxes_(boxes)
+```
+
+`boxes`는 모델 입력 이미지의 픽셀 좌표를 사용하는 `N×4` 이상의 실수 텐서입니다. 앞 네 열은 `xyxy`이고 신뢰도·클래스 등 추가 열은 보존됩니다. 원본 경계로 제한한 좌표를 제자리로 쓰고 같은 텐서를 반환합니다. 빈 결과도 지원하며 장치·자료형·저장 공간을 유지하고 CPU 복사나 CUDA 동기화를 추가하지 않습니다. 한 번 복원한 좌표에 중복 호출하지 않습니다.
+
+후처리가 사용하는 계약은 `shape`와 `restore_boxes_()`뿐이므로 다른 전처리도 이 계약의 객체를 전달할 수 있습니다. 예제 후처리는 세 크기 변경 방식을 모두 복원합니다. 중앙 자르기로 없어진 영역의 탐지는 복구하지 않습니다. 모델의 출력 해석·NMS·클래스 이름은 후처리가 담당하며 현재 예제의 COCO YOLO FP32 `(1, 84, N)` 출력 조건은 유지됩니다.
 
 기존 GPU NV12 색 변환과 bilinear 보간을 사용합니다. CPU OpenCV의 uint8 리사이즈·반올림과 비트 단위로 같은 결과를 보장하지 않습니다. 모델 입력 크기·자료형·배치 형식과 TensorRT 동적 프로파일 범위는 호출자가 맞춰야 합니다.
