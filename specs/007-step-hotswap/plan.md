@@ -25,7 +25,7 @@
 7. 디코더 입력 종료 후 `Flush()` 결과를 같은 프레임 계약으로 전달한다.
 8. 처리 경계 확인은 단조 시계 간격으로 제한한다. 공유 감시 서비스는 이벤트가 표시한 파일만 읽고, 30초 간격의 강제 내용 재검사로 이벤트 유실을 복구한다.
 9. `Hotswap.configure()`가 설정 객체를 보관하고 내부 Step에 전달한다. 새 Step을 만들 때 이전 Step의 `config`를 조회하지 않고 보관한 설정으로 다시 구성한다. `Pipeline.step()`은 래퍼의 `configure()`를 호출한다. 기본 Step의 `configure()`는 공통 상태를 저장하지 않고, 내장 단계는 필요한 값을 개별 속성에만 기록한다.
-10. 클래스 정의 파일이 `src/pipeworks/embedded` 아래인지 검사하는 공통 함수를 둔다. `Pipeline.step()`과 `Tap`가 자동 포장 여부를 판단할 때 사용한다. 명시적 `Hotswap`은 그대로 등록한다.
+10. 클래스 정의 파일이 `src/pipeworks/embedded` 아래인지 검사하는 공통 함수를 둔다. `Pipeline.step()`과 `TapSkipIfBusy`가 자동 포장 여부를 판단할 때 사용한다. 명시적 `Hotswap`은 그대로 등록한다.
 
 내장 Step이 원본 입력을 새 컨텍스트로 바꾸는 경우 교체 세대가 전달되지 않을 수 있다. 자동 교체 세대 전파는 연속한 래퍼 구간에 한정한다.
 
@@ -49,7 +49,7 @@
 - `src/pipeworks/pipeline.py`
 - `src/pipeworks/embedded/nvidia_decode.py`
 - `tests/test_hotswap.py`, 기존 테스트
-- `src/pipeworks/embedded/tap.py`
+- `src/pipeworks/embedded/tap_skip_if_busy.py`
 - `specs/006-nvidia-decode`의 종료 동작 기록과 전체 명세 안내
 
 ## 검증

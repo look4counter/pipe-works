@@ -180,13 +180,13 @@ reconnect=false → 원래 FFmpeg 오류 전달
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, StreamReport, Tap
+from pipeworks.embedded import RTSPSource, StreamReport, TapSkipIfBusy
 
 # RTSP 소스에서 받아 로그에 기록만 함
 pipeline = Pipeline("rtsp-basic", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://192.168.1.100:554/stream1"))
 pipeline.step(StreamReport())
-pipeline.step(Tap(step=MyLogStep()))
+pipeline.step(TapSkipIfBusy(step=MyLogStep()))
 pipeline.run()
 ```
 

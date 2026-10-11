@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def _has_stream_report(steps):
     from pipeworks.embedded.stream_report import StreamReport
-    from pipeworks.embedded.tap import Tap
+    from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
     from pipeworks.embedded.cuda_async import CudaAsync
 
     pending, visited = list(steps), set()
@@ -31,7 +31,7 @@ def _has_stream_report(steps):
             return True
         if isinstance(step, Hotswap):
             pending.append(step.wrapped_step)
-        elif isinstance(step, Tap):
+        elif isinstance(step, TapSkipIfBusy):
             pending.append(step.step)
         elif isinstance(step, CudaAsync):
             pending.extend(step._hot_steps)
@@ -155,7 +155,7 @@ class Pipeline:
 
     def _run_local(self, stop_event=None):
         from pipeworks.embedded.stream_report import report_scope
-        from pipeworks.embedded.tap import Tap
+        from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
 
         with (
             report_scope(enabled=_has_stream_report(self.steps)),
@@ -174,7 +174,7 @@ class Pipeline:
                     else type(step).__name__
                 )
                 provider = lambda name=section: watcher.section(name)
-                if isinstance(step, Tap):
+                if isinstance(step, TapSkipIfBusy):
                     inner = step.step
                     if not isinstance(inner, Hotswap):
                         inner = Hotswap(inner, watch_code=False, recover_errors=False)

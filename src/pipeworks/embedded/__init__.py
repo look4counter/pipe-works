@@ -5,7 +5,7 @@ from pipeworks.embedded.nvidia_encode import NvidiaEncode
 from pipeworks.embedded.nvidia_decode import NvidiaDecode
 from pipeworks.embedded.yolo_detect import YoloDetect
 from pipeworks.embedded.tensor_rt_inference import TensorRTInference
-from pipeworks.embedded.tap import Tap
+from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
 from pipeworks.embedded.stream_report import StreamReport
 from pipeworks.embedded.yolo_detect_report import YoloDetectReport
 from pipeworks.embedded.tensor_rt_report import TensorRTReport
@@ -18,7 +18,7 @@ __all__ = [
     "NvidiaDecode",
     "YoloDetect",
     "TensorRTInference",
-    "Tap",
+    "TapSkipIfBusy",
     "StreamReport",
     "YoloDetectReport",
     "TensorRTReport",

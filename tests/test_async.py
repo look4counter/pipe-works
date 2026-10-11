@@ -909,7 +909,7 @@ class AsyncTests(unittest.TestCase):
         import sys
         from types import ModuleType
         import pipeworks.main as main
-        from pipeworks.embedded import Tap
+        from pipeworks.embedded import TapSkipIfBusy
 
         modules = [ModuleType("async_remote_first"), ModuleType("async_remote_second")]
         for module in modules:
@@ -933,7 +933,7 @@ class AsyncTests(unittest.TestCase):
         try:
             pipeline = SimpleNamespace(
                 steps=[
-                    Tap(CudaAsync(modules[0].Custom(), CudaAsync(modules[1].Custom())))
+                    TapSkipIfBusy(CudaAsync(modules[0].Custom(), CudaAsync(modules[1].Custom())))
                 ],
                 development=False,
             )

@@ -187,13 +187,13 @@ def run_remote(pipeline) -> None:
     server_group = "development" if pipeline.development else "production"
     try:
         from pipeworks.hotswap import Hotswap
-        from pipeworks.embedded.tap import Tap
+        from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
         from pipeworks.embedded import CudaAsync
 
         def register_step(step) -> None:
             if isinstance(step, Hotswap):
                 register_step(step.wrapped_step)
-            if isinstance(step, Tap):
+            if isinstance(step, TapSkipIfBusy):
                 register_step(step.step)
             if isinstance(step, CudaAsync):
                 for inner in step.steps:

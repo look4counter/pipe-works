@@ -165,7 +165,7 @@ def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext
 - **Generator 기반**: `yield`를 사용하여 지연 처리
 - **Streaming**: 메모리 효율적 (전체 배열을 메모리에 로드하지 않음)
 - **일반 동기 연결**: 후속 단계의 입력 요청에 맞춰 상류를 소비
-- **백그라운드 단계**: `NvidiaDecode`, `Tap`, `CudaAsync`는 큐·건너뜀·폐기 정책이 있으므로 각 단계의 계약을 확인
+- **백그라운드 단계**: `NvidiaDecode`, `TapSkipIfBusy`, `CudaAsync`는 큐·건너뜀·폐기 정책이 있으므로 각 단계의 계약을 확인
 
 #### 에러 처리
 

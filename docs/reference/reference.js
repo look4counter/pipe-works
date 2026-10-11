@@ -255,9 +255,9 @@
     }
   },
   {
-    "name": "Tap",
+    "name": "TapSkipIfBusy",
     "group": "내장 Step",
-    "description": "별도 스레드에 입력을 전달하면서 주 파이프라인을 계속 진행합니다. Tap으로 감싼 Step의 출력은 기존 파이프라인에 영향을 미치지 않도록 분리됩니다.",
+    "description": "별도 스레드에 입력을 전달하면서 주 파이프라인을 계속 진행하고, 내부 작업이 실행 중이면 새 입력은 건너뜁니다. TapSkipIfBusy로 감싼 Step의 출력은 기존 파이프라인에 영향을 미치지 않도록 분리됩니다.",
     "inputs": {
       "rows": [],
       "text": ""

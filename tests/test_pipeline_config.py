@@ -9,7 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from pipeworks import Pipeline
-from pipeworks.embedded import NvidiaDecode, RTSPSource, Tap
+from pipeworks.embedded import NvidiaDecode, RTSPSource, TapSkipIfBusy
 from pipeworks.models import PipelineContext, Step
 
 
@@ -113,7 +113,7 @@ class TapEditingSource(Step):
         deadline = time.monotonic() + 5
         while not self.seen and time.monotonic() < deadline:
             time.sleep(0.01)
-        self.path.write_text("Tap:\n  offset: 20\n", encoding="utf-8")
+        self.path.write_text("TapSkipIfBusy:\n  offset: 20\n", encoding="utf-8")
         time.sleep(0.6)
         yield PipelineContext(value=2)
 
@@ -183,12 +183,12 @@ class PipelineConfigTests(unittest.TestCase):
     def test_tap_child_uses_updated_config(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.yaml"
-            path.write_text("Tap:\n  offset: 10\n", encoding="utf-8")
+            path.write_text("TapSkipIfBusy:\n  offset: 10\n", encoding="utf-8")
             seen = []
             pipeline = (
                 Pipeline("sink-config", config=path)
                 .step(TapEditingSource(path, seen))
-                .step(Tap(RecordingTap(seen)))
+                .step(TapSkipIfBusy(RecordingTap(seen)))
             )
             pipeline._run_local()
             self.assertEqual(seen, [11, 22])

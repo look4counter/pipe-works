@@ -6,7 +6,7 @@
 
 활성 StreamReport 수집기는 프로세스 공용 발행 작업자 하나에 등록하며 100ms마다 발행한다. 중복 보고자는 참조 계수로 보호한다. 마지막 해제 시 신호 후 잠금 밖 join을 수행하고 새 구독은 독립 작업자 세대로 시작한다. 발행 시각을 스냅샷에 포함하고 FPS 분모도 연속 발행 시각 차이에 맞춘다. Reader는 잠금 없이 같은 불변 자료만 읽고 10초 경계는 조회 시각으로 계산한다.
 
-Pipeline은 Hotswap·Tap·CudaAsync 내부까지 보고자 유무를 확인해 report_scope(enabled=...)를 사용한다. 비활성 기록은 잠금과 시각 측정 전에 반환한다. detection_profile.store는 유지한다. Tap은 copy_context로 실행별 수집기를 전달한다. 명시적 report_scope는 기본 활성이다. 직접 테스트는 publish를 명시적으로 호출하고 내부 누적값 검증을 갱신한다. `stream_report.py`, `pipeline.py`, `tap.py`와 관련 테스트·문서를 수정한다. 기존 보고·감지·GPU·설정·Tap 회귀, 동일 조건 비용 측정과 수렴을 수행한다. 추가 의존성은 없고 미작성 헌장 외 추가 제약도 없다.
+Pipeline은 Hotswap·TapSkipIfBusy·CudaAsync 내부까지 보고자 유무를 확인해 report_scope(enabled=...)를 사용한다. 비활성 기록은 잠금과 시각 측정 전에 반환한다. detection_profile.store는 유지한다. TapSkipIfBusy은 copy_context로 실행별 수집기를 전달한다. 명시적 report_scope는 기본 활성이다. 직접 테스트는 publish를 명시적으로 호출하고 내부 누적값 검증을 갱신한다. `stream_report.py`, `pipeline.py`, `tap_skip_if_busy.py`와 관련 테스트·문서를 수정한다. 기존 보고·감지·GPU·설정·TapSkipIfBusy 회귀, 동일 조건 비용 측정과 수렴을 수행한다. 추가 의존성은 없고 미작성 헌장 외 추가 제약도 없다.
 
 ## 남은 이름 정리 (2026-10-04)
 

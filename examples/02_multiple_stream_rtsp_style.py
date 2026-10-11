@@ -7,7 +7,7 @@ from pipeworks.embedded import (
     NvidiaEncode,
     NvidiaDecode,
     StreamReport,
-    Tap,
+    TapSkipIfBusy,
 )
 from pipeworks.embedded.yolo_detect import YoloDetect
 from step.box_overlay import BoxOverlay
@@ -29,7 +29,7 @@ def build_pipeline(video: str) -> Pipeline:
         )
         .step(BoxOverlay())
         .step(NvidiaEncode())
-        .step(Tap(PostProcess()))
+        .step(TapSkipIfBusy(PostProcess()))
         .step(RTSPPublish(f"rtsp://localhost:8554/{video}"))
         .step(StreamReport())
     )

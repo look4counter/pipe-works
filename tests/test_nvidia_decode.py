@@ -643,7 +643,7 @@ class NativeDecodeTests(unittest.TestCase):
         self.assertEqual(pool.locked, set())
 
     def test_native_decode_multistage_async_does_not_exhaust_locks(self):
-        from pipeworks.embedded import CudaAsync, Tap
+        from pipeworks.embedded import CudaAsync, TapSkipIfBusy
         from pipeworks.hotswap import Hotswap
         from pipeworks.models import Step
 
@@ -672,7 +672,7 @@ class NativeDecodeTests(unittest.TestCase):
             ),
             timeout_ms=1,
         )
-        tap = Tap(Hotswap(Stage(0.025), recover_errors=False, watch_code=False))
+        tap = TapSkipIfBusy(Hotswap(Stage(0.025), recover_errors=False, watch_code=False))
         state = {"inputs": 0, "outputs": 0, "error": None}
 
         def inputs():
@@ -707,7 +707,7 @@ class NativeDecodeTests(unittest.TestCase):
 
     def test_native_decode_hotswap_tap_and_overlay_keep_progressing(self):
         import importlib.util
-        from pipeworks.embedded import Tap, NvidiaEncode
+        from pipeworks.embedded import TapSkipIfBusy, NvidiaEncode
         from pipeworks.hotswap import Hotswap
         from pipeworks.models import Step
 
@@ -770,7 +770,7 @@ class NativeDecodeTests(unittest.TestCase):
             for step in [
                 wrapped(Stage()),
                 wrapped(module.BoxOverlay()),
-                Tap(wrapped(Stage(0.1))),
+                TapSkipIfBusy(wrapped(Stage(0.1))),
                 wrapped(NvidiaEncode()),
             ]:
                 output = step.process(output)

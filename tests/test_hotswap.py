@@ -16,7 +16,7 @@ from pipeworks.pipeline import Pipeline
 from pipeworks.embedded.nvidia_decode import NvidiaDecode
 from pipeworks.embedded.rtsp_source import RTSPSource
 from pipeworks.embedded.rtsp_publish import RTSPPublish
-from pipeworks.embedded.tap import Tap as BackgroundTap
+from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy as BackgroundTap
 
 
 def load_step(path: Path, class_name: str, *args):

@@ -45,12 +45,12 @@ copy_context로 수신 통계를 유지한다. 오류 또는 EOF는 Condition을
 
 문서는 `docs/pipeworks/embedded/async.md`, 디코더 문서와 quickstart에 완료 요청의 수명 계약 및 조합 검증을 반영한다.
 
-실제 디코더와 세 단계 CudaAsync 및 Tap 조합에서 잠금 4개·반환 대기 0개로 생산이 멈추는 문제를 재현했다. 이전 성공 결과의 임시 속성 사전과 버린 입력의 지역 참조를 다음 입력 요청 전에 해제한다. 완료된 요청의 내부 작업 컨텍스트와 입력 텐서 보관도 해제한다. 정상 결과는 별도 결과 컨텍스트로 전달한 뒤 내부 원본 참조를 정리하며, 타임아웃 작업은 GPU 작업이 끝난 뒤 정리한다. 사용 중인 외부 출력·DLPack 별칭은 유지한다. `src/pipeworks/embedded/cuda_async.py`, `tests/test_async.py`, `tests/test_nvidia_decode.py`가 추가 구현 지점이다. 잠금 상한을 늘리는 방식으로 문제를 숨기지 않는다.
+실제 디코더와 세 단계 CudaAsync 및 TapSkipIfBusy 조합에서 잠금 4개·반환 대기 0개로 생산이 멈추는 문제를 재현했다. 이전 성공 결과의 임시 속성 사전과 버린 입력의 지역 참조를 다음 입력 요청 전에 해제한다. 완료된 요청의 내부 작업 컨텍스트와 입력 텐서 보관도 해제한다. 정상 결과는 별도 결과 컨텍스트로 전달한 뒤 내부 원본 참조를 정리하며, 타임아웃 작업은 GPU 작업이 끝난 뒤 정리한다. 사용 중인 외부 출력·DLPack 별칭은 유지한다. `src/pipeworks/embedded/cuda_async.py`, `tests/test_async.py`, `tests/test_nvidia_decode.py`가 추가 구현 지점이다. 잠금 상한을 늘리는 방식으로 문제를 숨기지 않는다.
 
 이벤트로 생산자·소비자의 실행 순서를 제어하여 최신 프레임 교체를 결정적으로 검증한다. 실제 NVDEC가 후속 프레임을 생성해도 잠금 버퍼 내용과 주소가 유지되고 NVENC가 공유 텐서를 소비하는지 확인한다. 미완료 반환 이벤트, 마지막 텐서 참조, 잠금 상한, 오류·취소·EOF를 검증한다. 통계와 복구 목록 및 비동기·감지·인코딩·RTSP 회귀 검사를 실행한 뒤 수렴을 확인한다.
 # 실제 예제의 반복자 참조 정리
 
-2026-10-10 범위: FR-013과 SC-008에 따라 `src/pipeworks/hotswap.py`, `src/pipeworks/embedded/tap.py`, `examples/step/box_overlay.py`의 이미 사용한 출력 참조를 정리한다. 사용 중인 Tap 입력과 외부 텐서는 계속 보호하며 잠금 상한 4개와 무복사 정책은 유지한다. 실제 예제 실행 경로와 네트워크 없는 실제 디코더 회귀를 모두 검증한다. 기존 계획의 헌법 점검 결과를 유지하며 추가 의존성과 외부 송출은 없다.
+2026-10-10 범위: FR-013과 SC-008에 따라 `src/pipeworks/hotswap.py`, `src/pipeworks/embedded/tap_skip_if_busy.py`, `examples/step/box_overlay.py`의 이미 사용한 출력 참조를 정리한다. 사용 중인 TapSkipIfBusy 입력과 외부 텐서는 계속 보호하며 잠금 상한 4개와 무복사 정책은 유지한다. 실제 예제 실행 경로와 네트워크 없는 실제 디코더 회귀를 모두 검증한다. 기존 계획의 헌법 점검 결과를 유지하며 추가 의존성과 외부 송출은 없다.
 
 ## 30개 큐 확대 설계
 

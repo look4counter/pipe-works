@@ -56,11 +56,11 @@ class ReportTests(unittest.TestCase):
 
     def test_pipeline_detects_nested_reports_and_tap_inherits_collection_scope(self):
         from pipeworks.pipeline import _has_stream_report
-        from pipeworks.embedded import CudaAsync, Tap
+        from pipeworks.embedded import CudaAsync, TapSkipIfBusy
         from pipeworks.hotswap import Hotswap
         from pipeworks.models import Step
 
-        nested = Tap(CudaAsync(StreamReport()))
+        nested = TapSkipIfBusy(CudaAsync(StreamReport()))
         self.assertTrue(_has_stream_report([Hotswap(nested, watch_code=False)]))
 
         class Recorder(Step):
@@ -76,7 +76,7 @@ class ReportTests(unittest.TestCase):
 
         with report.report_scope():
             frame = PipelineContext()
-            tap = Tap(Recorder())
+            tap = TapSkipIfBusy(Recorder())
             self.assertEqual(list(tap.process(iter([frame]))), [frame])
             self.assertEqual(report._stats().completed_frames, 1)
 

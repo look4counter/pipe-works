@@ -13,7 +13,7 @@ from pipeworks.embedded import (
     NvidiaEncode,
     RTSPPublish,
     RTSPSource,
-    Tap,
+    TapSkipIfBusy,
     TensorRTInference,
     YoloDetect,
 )
@@ -182,7 +182,7 @@ class StepConfigDefaultsTests(unittest.TestCase):
 
     def test_tap_forwards_defaults_and_overrides(self):
         decoder = NvidiaDecode(gpu_id=2)
-        tap = Tap(decoder)
+        tap = TapSkipIfBusy(decoder)
         tap.configure(SimpleNamespace(gpu_id=0))
         self.assertEqual(decoder.gpu_id, 0)
         tap.configure(SimpleNamespace())

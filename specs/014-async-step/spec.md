@@ -38,7 +38,7 @@ YOLO 개별·배치와 TensorRT 전처리는 별도 RGB 텐서를 생성하고 �
 - FR-014: 요청 전체에 하나의 기한을 적용한다. 만료 후 미시작 Step은 건너뛰고 실행 중 함수·GPU 작업은 강제로 중단하지 않는다.
 - FR-015: 복수 Step에서 전체 입력 release_input은 무시하지만 원본 영상 release_frame은 적용한다. 신호 후 내부 후속 Step은 원본을 다시 사용하지 않는다.
 - FR-016: 내부 설정은 FR-020~021을 따른다. 예전 step·steps 구성 매핑은 지원하지 않는다.
-- FR-017: 중앙 전달은 복수·중첩 CudaAsync와 Tap·Hotswap의 모든 사용자 모듈을 값으로 직렬화한다.
+- FR-017: 중앙 전달은 복수·중첩 CudaAsync와 TapSkipIfBusy·Hotswap의 모든 사용자 모듈을 값으로 직렬화한다.
 - FR-018: 내부 사용자 Step은 처리 경계에서 코드를 핫스왑하고 상태·최신 설정을 유지한다. 잘못된 코드에서는 기존 구현을 유지한다.
 - FR-019: 실행 중 Step은 교체하지 않으며 오류는 공통 정책으로 처리한다.
 - FR-020: CudaAsync.configure는 timeout_ms만 받고 다른 키는 오류로 거부한다.

@@ -8,9 +8,9 @@
 
 RTSPSource/RTSPPublish에 reconnect, reconnect_interval_ms, transport, timeout_ms와 송출 packet_size를 키워드 인자로 추가한다. NvidiaDecode는 gpu_id, NvidiaEncode는 gpu_id/fps, YoloDetect는 classes/confidence/gpu_id/inference_interval_frame, TensorRTInference는 gpu_id/inference_interval_frame/profile_index를 추가한다. CudaAsync는 기존 timeout_ms를 최초 기준으로 보관한다. 각 configure의 시작에서 병합하며 기존 검증과 이전 키 거부는 유지한다. batch와 필수 URL/모델 경로는 기존 생성자 전용 계약을 유지한다.
 
-Pipeline, Hotswap, Tap의 설정 전달 구조는 변경하지 않는다. Hotswap의 기존 최상위 속성 복구는 잘못된 설정에도 적용된다. CudaAsync 내부 Step의 최상위 클래스명 설정도 유지한다. 사용자 정의 Step은 공통 지원을 선택적으로 사용할 수 있고 기존 configure 구현은 유지한다.
+Pipeline, Hotswap, TapSkipIfBusy의 설정 전달 구조는 변경하지 않는다. Hotswap의 기존 최상위 속성 복구는 잘못된 설정에도 적용된다. CudaAsync 내부 Step의 최상위 클래스명 설정도 유지한다. 사용자 정의 Step은 공통 지원을 선택적으로 사용할 수 있고 기존 configure 구현은 유지한다.
 
-검증은 `tests/test_step_config_defaults.py`에서 7개 Step의 생성자 값, 부분 YAML, 덮어쓰기 후 삭제, 거짓 값, 잘못된 값, 기본값 목록 격리, Pipeline/Tap/CudaAsync 등록과 Hotswap 오류 복구를 확인한다. 이어 기존 구성·RTSP·인코딩·디코딩·추론·비동기·핫스왑 검증을 실행한다. 사용 안내는 `docs/pipeworks/pipeline.md`에 우선순위와 사용자 정의 Step 예제를 추가한다. 설계 후 미해결 질문과 원칙 충돌은 없다.
+검증은 `tests/test_step_config_defaults.py`에서 7개 Step의 생성자 값, 부분 YAML, 덮어쓰기 후 삭제, 거짓 값, 잘못된 값, 기본값 목록 격리, Pipeline/TapSkipIfBusy/CudaAsync 등록과 Hotswap 오류 복구를 확인한다. 이어 기존 구성·RTSP·인코딩·디코딩·추론·비동기·핫스왑 검증을 실행한다. 사용 안내는 `docs/pipeworks/pipeline.md`에 우선순위와 사용자 정의 Step 예제를 추가한다. 설계 후 미해결 질문과 원칙 충돌은 없다.
 
 **기준**: [명세](spec.md)
 
@@ -42,10 +42,10 @@ Python 3.11.9, 기존 PyAV와 unittest를 사용하며 새 의존성은 없다. 
 
 1. `Pipeline`에 설정 경로를 보존한다. 실행 프로세스의 설정 감시자는 파일 내용 해시가 달라졌을 때만 YAML을 읽고 구조를 검증한다. 실패한 파일은 기록하고 마지막 정상 설정을 유지한다.
 2. 단계별 감시 요청은 클래스명 섹션의 실제 값 차이만 반환한다. 다른 섹션 변경과 내용이 같은 저장은 현재 단계에 영향을 주지 않는다.
-3. 실행 중 사용자 Step의 기존 `Hotswap`에 설정 공급자를 연결한다. 내장 Step은 등록 목록을 변경하지 않고 실행 경로에서만 코드 감시를 끈 래퍼로 감싸 설정 확인 경계를 제공한다. `Tap`는 내부 Step의 감시자에 공급자를 연결한다.
+3. 실행 중 사용자 Step의 기존 `Hotswap`에 설정 공급자를 연결한다. 내장 Step은 등록 목록을 변경하지 않고 실행 경로에서만 코드 감시를 끈 래퍼로 감싸 설정 확인 경계를 제공한다. `TapSkipIfBusy`는 내부 Step의 감시자에 공급자를 연결한다.
 4. 설정 변경 시 기존 인스턴스의 최상위 속성을 보관하고 해당 인스턴스의 `configure()`를 실행한다. 성공하면 처리 반복자를 유지하고, 실패하면 보관한 속성을 복원해 이전 설정을 유지한다. 코드 변경이 동시에 발생하면 설정 적용 후 기존 코드 교체 계약을 따른다.
 5. 소스는 출력 경계, 입력 단계는 다음 입력 요청에서 설정을 확인한다. 설정 변경만으로 디코더·인코더·송출 생성기를 종료하지 않는다. 현재 열린 자원이 생성 시점에 읽은 값은 자연스러운 자원 재생성 때 적용한다.
-6. 테스트에서는 사용자 Step, 내장 Step, `Tap`, 소스, 잘못된 YAML, 설정 오류, 중앙 실행과 인스턴스·처리 반복자 식별자 유지를 확인한다.
+6. 테스트에서는 사용자 Step, 내장 Step, `TapSkipIfBusy`, 소스, 잘못된 YAML, 설정 오류, 중앙 실행과 인스턴스·처리 반복자 식별자 유지를 확인한다.
 # 후속 계획: 재연결 간격 밀리초 통일
 
 RTSPSource와 RTSPPublish는 reconnect_interval_ms 기본값 3000을 저장한다. timeout_ms와 같은 유한한 비음수 숫자 검증을 적용하며 이전 reconnect_interval 키는 오류로 거부한다. 수신 time.sleep과 stop.wait, 송출 연결 실패와 mux 실패의 retry_at 계산에서는 1000으로 나누어 초로 변환한다. 수신 로그도 밀리초로 표시한다. 다른 재연결 정책은 보존한다.

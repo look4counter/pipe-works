@@ -7,7 +7,7 @@ from pipeworks.embedded import (
     NvidiaDecode,
     StreamReport,
     TensorRTReport,
-    Tap,
+    TapSkipIfBusy,
     CudaAsync,
 )
 from step.tensor_rt_pre_process import TensorRTPreProcess
@@ -46,7 +46,7 @@ def build_pipeline() -> Pipeline:
             ),
         )
         .step(BoxOverlay())
-        .step(Tap(SaveInferenceResultToDB()))
+        .step(TapSkipIfBusy(SaveInferenceResultToDB()))
 
         ###
         .step(NvidiaEncode())

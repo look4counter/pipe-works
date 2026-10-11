@@ -98,7 +98,7 @@ class Step(ABC):
 - **Source Step** (RTSPSource): 영상을 읽어들임
 - **Processing Step** (YoloDetect, CustomProcessor): 데이터 처리
 - **Sink Step** (RTSPPublish): 결과를 출력/저장
-- **Tap Step** (Tap): 원본을 전달하면서 배경 후처리 실행
+- **TapSkipIfBusy Step** (TapSkipIfBusy): 원본을 전달하면서 배경 후처리 실행
 
 ### PipelineContext
 스트림의 각 "프레임" 또는 "패킷" 단위 데이터입니다.
@@ -229,13 +229,13 @@ NVIDIA GPU를 이용해 영상을 인코딩합니다.
 - **설정**: `bitrate`, `framerate`, `codec`
 - **상세**: [docs/pipeworks/embedded/nvidia_encode.md](docs/pipeworks/embedded/nvidia_encode.md)
 
-#### **Tap**
+#### **TapSkipIfBusy**
 원본을 다음 단계로 전달하면서 별도 작업자에서 후처리를 실행합니다.
 
 - **역할**: 배경 후처리, 작업 중 새 입력은 후처리에서 건너뛰기
-- **사용**: `pipeline.step(Tap(step=MyFinalStep()))`
+- **사용**: `pipeline.step(TapSkipIfBusy(step=MyFinalStep()))`
 - **설정**: Step별로 상이
-- **상세**: [docs/pipeworks/embedded/tap.md](docs/pipeworks/embedded/tap.md)
+- **상세**: [docs/pipeworks/embedded/tap_skip_if_busy.md](docs/pipeworks/embedded/tap_skip_if_busy.md)
 
 ---
 
@@ -328,7 +328,7 @@ pipeline.run()
 | RTSPPublish | [docs/pipeworks/embedded/rtsp_publish.md](docs/pipeworks/embedded/rtsp_publish.md) |
 | NvidiaDecode | [docs/pipeworks/embedded/nvidia_decode.md](docs/pipeworks/embedded/nvidia_decode.md) |
 | NvidiaEncode | [docs/pipeworks/embedded/nvidia_encode.md](docs/pipeworks/embedded/nvidia_encode.md) |
-| Tap | [docs/pipeworks/embedded/tap.md](docs/pipeworks/embedded/tap.md) |
+| TapSkipIfBusy | [docs/pipeworks/embedded/tap_skip_if_busy.md](docs/pipeworks/embedded/tap_skip_if_busy.md) |
 | StreamReport | [docs/pipeworks/embedded/stream_report.md](docs/pipeworks/embedded/stream_report.md) |
 
 ---

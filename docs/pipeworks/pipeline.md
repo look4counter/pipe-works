@@ -136,7 +136,7 @@ TensorRTInference:
 
 위 설정에서는 `gpu_id=2`, `profile_index=0`, `inference_interval_frame=3`이 적용됩니다. YAML에서 `profile_index`를 삭제하면 생성자 값인 `1`로 돌아갑니다. URL·모델 경로와 `batch`는 기존처럼 생성자에서 지정합니다.
 
-적용 대상은 `RTSPSource`, `RTSPPublish`, `NvidiaDecode`, `NvidiaEncode`, `YoloDetect`, `TensorRTInference`, `CudaAsync`입니다. `Tap`은 내부 Step에 설정을 전달하고, `CudaAsync` 내부 Step은 기존처럼 최상위 클래스명 섹션으로 설정합니다.
+적용 대상은 `RTSPSource`, `RTSPPublish`, `NvidiaDecode`, `NvidiaEncode`, `YoloDetect`, `TensorRTInference`, `CudaAsync`입니다. `TapSkipIfBusy`은 내부 Step에 설정을 전달하고, `CudaAsync` 내부 Step은 기존처럼 최상위 클래스명 섹션으로 설정합니다.
 
 사용자 정의 Step은 `configure()`와 `process()`를 반드시 구현하거나 구체 구현을 상속해야 합니다. 누락하면 생성 시 `TypeError`가 발생합니다. 설정이 필요 없으면 빈 `configure()`를 구현합니다. 같은 우선순위를 사용하려면 공통 지원을 다음처럼 적용할 수 있습니다. `_set_config_defaults()`는 생성자 값을 보관한 뒤 빈 설정으로 `configure()`를 호출하므로 필요한 상태를 먼저 초기화합니다.
 

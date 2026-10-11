@@ -93,14 +93,14 @@ T020 → T021 → T022 순서로 진행한다. 최신 슬롯 1개와 잠금 상�
 
 ## 다단계 정체 수정 검증
 
-- 실제 디코더·세 단계 CudaAsync·지연 Tap 조합이 수정 전 입력 42개·출력 33개에서 멈췄다. 수정 후 200개 입력을 모두 소비하고 종료한다.
+- 실제 디코더·세 단계 CudaAsync·지연 TapSkipIfBusy 조합이 수정 전 입력 42개·출력 33개에서 멈췄다. 수정 후 200개 입력을 모두 소비하고 종료한다.
 - 내부 참조 정리를 제거하면 다시 멈추므로 완료 요청과 반복자 지역 참조 정리가 모두 필요함을 확인했다.
 - 출력 컨텍스트의 원본 프레임·메타데이터 보존 검증을 추가했다. 외부 DLPack 별칭 보호 검증도 통과했다.
 - 관련 138개 회귀 검증 통과: 디코더 20개, CudaAsync 38개, 프레임 해제 6개, 감지 보고서 14개, 핫스왑 29개, TensorRT 전후처리 6개·추론 14개, 보고서 11개.
 ## 단계 12: 실제 예제의 반복자 정체 수정
 
-- [x] T023 [US1] `tests/test_nvidia_decode.py`에서 메타데이터·핫스왑·지연 Tap·인코딩과 유사한 출력 경계의 잠금 정체를 재현한다. (FR-013, SC-008)
-- [x] T024 [US1] `src/pipeworks/hotswap.py`, `src/pipeworks/embedded/tap.py`, `examples/step/box_overlay.py`에서 완료 출력 참조를 해제한다. (FR-004, FR-013)
+- [x] T023 [US1] `tests/test_nvidia_decode.py`에서 메타데이터·핫스왑·지연 TapSkipIfBusy·인코딩과 유사한 출력 경계의 잠금 정체를 재현한다. (FR-013, SC-008)
+- [x] T024 [US1] `src/pipeworks/hotswap.py`, `src/pipeworks/embedded/tap_skip_if_busy.py`, `examples/step/box_overlay.py`에서 완료 출력 참조를 해제한다. (FR-004, FR-013)
 - [x] T025 실제 예제를 외부 송출 없이 검증하고 관련 회귀 검증과 `specs/006-nvidia-decode/research-zero-copy.md`, `quickstart.md`를 갱신한다. (SC-005~008)
 
 추가 의존 순서는 T023 → T024 → T025다. 단계 11 검증은 단독 조합의 결과이며 실제 예제 전체의 완료 근거로 사용하지 않는다.

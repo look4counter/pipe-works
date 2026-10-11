@@ -30,8 +30,6 @@ class _InputSlot(Iterator[PipelineContext]):
 
     def __next__(self) -> PipelineContext:
         with self._condition:
-            # The wrapped Step has finished with the preceding item when it
-            # requests another one.
             if self._busy and self._pending is _EMPTY:
                 self._busy = False
             while self._pending is _EMPTY:
@@ -48,7 +46,7 @@ class _InputSlot(Iterator[PipelineContext]):
             self._condition.notify_all()
 
 
-class Tap(Step):
+class TapSkipIfBusy(Step):
     def __init__(self, step: Step) -> None:
         self.step = (
             step
@@ -78,12 +76,12 @@ class Tap(Step):
                         if callable(close):
                             close()
                 except Exception:
-                    logger.exception("Tap 작업이 실패했습니다.")
+                    logger.exception("TapSkipIfBusy 작업이 실패했습니다.")
                 finally:
                     slot.close()
 
         worker = Thread(
-            target=context.run, args=(consume,), name="pipeworks-tap", daemon=True
+            target=context.run, args=(consume,), name="pipeworks-tap-skip-if-busy", daemon=True
         )
         worker.start()
         exhausted = False

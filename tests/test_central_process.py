@@ -17,7 +17,7 @@ from io import BytesIO, StringIO
 from unittest.mock import patch
 
 from pipeworks import Pipeline
-from pipeworks.embedded import Tap, StreamReport
+from pipeworks.embedded import TapSkipIfBusy, StreamReport
 from pipeworks.main import (
     _ADDRESS,
     _KEY,
@@ -209,7 +209,7 @@ def _run_tap_print(directory_name: str, message: str, result) -> None:
     output = StringIO()
     with redirect_stdout(output):
         Pipeline(message, config=config).step(PrintingSource("report output")).step(
-            Tap(PrintingStep(message))
+            TapSkipIfBusy(PrintingStep(message))
         ).run()
     result.put(output.getvalue())
 
@@ -595,7 +595,7 @@ class CentralProcessTests(unittest.TestCase):
             pipeline = (
                 Pipeline("sink", config=config)
                 .step(PrintingSource("report output"))
-                .step(Tap(PrintingStep("post output")))
+                .step(TapSkipIfBusy(PrintingStep("post output")))
             )
             output = StringIO()
             with redirect_stdout(output):
