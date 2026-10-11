@@ -1,5 +1,21 @@
 # 구현 계획
 
+## YOLO 공통 ID 후속 구현 계획
+
+기존 Python·PyTorch·Ultralytics를 사용하고 의존성을 추가하지 않는다. src/pipeworks/embedded/yolo_detect.py에 id 구성·검증을 추가한다. 입력마다 기존 사전을 얕게 복사하고 현재 ID에 None을 넣는 공통 메서드가 ID를 반환한다. 두 실행 경로는 해당 ID에 결과를 저장하여 설정 변경 중에도 시작한 입력의 ID를 유지한다. local_yolo와 엔진 공유 키는 바꾸지 않는다. 원본과 GPU 결과 텐서를 복제하지 않는다.
+
+tests/test_yolo_detect.py·test_yolo_batch.py의 결과 읽기를 사전 계약으로 변경한다. tests/test_yolo_model_ids.py에서 설정·실행 중 ID 변경·직렬 결과·혼합 결과 보존·오류·비동기 격리·Overlay 소비를 검증한다. 실제 모델 검증은 기존 YOLO 테스트를 사용한다. docs/pipeworks/embedded/yolo_detect.md·models.md·README.md·examples/config/stream.yml과 공통 계약을 갱신한다. 기존 개별 오류 전파·배치 오류 통과 정책을 유지한다. 헌법은 미작성 템플릿이며 설계 전후 한글 문서·speckit 절차에 위반은 없다.
+
+## 직렬 모델 식별 구현 계획
+
+기존 Python·PyTorch·TensorRT를 사용하고 새 의존성을 추가하지 않는다. tensor_rt_inference.py의 생성자·configure에 id를 추가하고 원자적 검증 뒤 설정한다. process 입력 전달 시 model_id를 설정하여 배치/개별/간격 경로 모두 지원한다. 엔진 공유 키에는 ID를 넣지 않는다.
+
+tensor_rt_pre_process.py의 detections 초기화를 제거한다. tensor_rt_post_process.py는 기존 사전을 얕게 복사한 새 사전에 현재 ID 결과만 넣어 CudaAsync 작업 컨텍스트의 원본 결과 오염을 방지한다. model_id는 finally에서 정리한다. 출력이 존재하면 유효한 model_id가 필수이며 사용자 모의 출력도 이 계약을 따른다.
+
+examples/step/box_overlay.py의 id 선택과 ID별 GPU 박스·완료 이벤트 캐시를 구현한다. 기존 단일 YOLO 결과는 별도 캐시 키로 처리한다. geometry/device/선택 ID가 바뀌면 캐시를 초기화한다. None은 keep_previous 정책을 적용하고 빈 결과는 이전 박스를 지운다. 모델 결과 사전을 합치는 과정은 GPU에서 수행한다.
+
+기존 전후처리 테스트·벤치마크의 결과 읽기를 갱신하고 tests/test_tensor_rt_model_ids.py에서 ID 설정·간격·배치·직렬 실제 엔진·사전 격리·오류 정리·Overlay 선택과 ID별 이전 결과를 검증한다. 기존 추론·Overlay·성능 보고·비동기 테스트를 실행한다. 문서·예제 YAML을 갱신하고 모든 Overlay는 직렬 추론 뒤에 놓도록 안내한다. 헌법은 미작성 템플릿이며 설계 전후 한글 문서·speckit 절차를 준수한다.
+
 ## 모듈 파일명 변경 계획
 
 src/pipeworks/embedded/tensor_rt_pre_process.py를 tensor_rt_pre_process.py로 이동한다. embedded/__init__.py·단일 예제·좌표 변환 테스트·최적화 테스트·benchmark_preprocess.py의 import와 patch 경로를 바꾼다. 벤치마크의 HEAD 원본 조회는 새 경로를 우선하고 해당 리비전에 없으면 옛 경로를 사용한다. 현재 계약의 소스 경로를 갱신한다. 새 의존성·처리 동작 변경은 없으며 기존 검증을 사용한다. 헌법은 미작성 템플릿이고 한글 문서·speckit 절차를 준수한다.

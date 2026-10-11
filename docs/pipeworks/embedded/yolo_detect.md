@@ -20,6 +20,15 @@ pipeline.step(YoloDetect(Path("models/yolo11n.pt"), batch=True))
 
 ## 설정
 
+`id`는 모델 실행 단계를 구분하는 식별자다. 생성자에서 생략하거나 `None`이면 확장자를 포함한 모델 파일명(`yolo11n.pt`, `yolo11n.engine`)을 사용한다. 지정 값은 공백뿐인 값이 아닌 문자열이어야 한다. YAML `id`가 우선하고 `null`은 파일명, 키 제거는 최초 생성자 값으로 돌아간다. 같은 클래스의 여러 인스턴스에서 다른 ID를 쓰려면 YAML의 공통 `id`는 생략하고 생성자에서 각각 지정한다.
+
+```python
+pipeline.step(YoloDetect("models/yolo11n.pt", id="vehicle", classes=[2]))
+pipeline.step(YoloDetect("models/yolo11n.pt", id="person", classes=[0]))
+```
+
+개별·배치 모드 모두 `context.detections[id]`에 결과를 저장한다. 같은 ID만 교체하고 다른 YOLO/TensorRT 결과는 보존한다. 실행 중 ID 구성 변경은 다음 입력부터 적용한다. 모델 세션·공유 배치 키에는 ID가 영향을 주지 않는다.
+
 ```yaml
 YoloDetect:
   classes: null
@@ -35,7 +44,7 @@ YoloDetect:
 
 기존 `inference_interval` 설정은 `inference_interval_frame`으로 변경해야 한다. 값과 프레임 단위 동작은 동일하며 이전 키는 변경 안내 오류로 처리한다.
 
-간격으로 건너뛴 입력은 `detections=None`으로 전달한다. `batch`는 생성자의 불리언 인자이며 기본값은 `False`이다. YAML에서 실행 모드를 바꾸지는 않는다.
+간격으로 건너뛴 입력은 현재 ID의 `detections[id]=None`으로 전달하고 다른 ID의 결과는 유지한다. `batch`는 생성자의 불리언 인자이며 기본값은 `False`이다. YAML에서 실행 모드를 바꾸지는 않는다.
 
 ## 선택적 배치 처리
 
@@ -52,7 +61,7 @@ timeout_ms: 20  # 배치를 모으는 최대 시간, 밀리초
 
 이 `timeout_ms`은 추론 대기 제한이 아니다. 실제 묶음 크기는 동시에 들어오는 요청 수·동일 추론 옵션·모델 엔진의 배치 지원 범위에 따라 달라진다. 실행 중 classes·confidence·gpu_id·inference_interval_frame 설정 변경은 배치 경로에도 입력 경계에서 전달한다.
 
-배치 경로는 기존 동작처럼 실패를 기록하고 `detections=None`으로 원본을 전달한다. 개별 경로의 오류는 예외로 전파한다.
+배치 경로는 기존 동작처럼 실패를 기록하고 현재 ID의 `detections[id]=None`으로 원본을 전달한다. 개별 경로의 오류도 현재 키를 None으로 만들고 예외로 전파한다. 다른 ID와 공유된 원본 결과 사전은 수정하지 않는다.
 
 ## 선택적 비동기 실행
 
@@ -82,15 +91,18 @@ YoloDetect:
 
 ## 결과와 통계
 
+두 모델의 추론을 모두 마친 뒤 `BoxOverlay`를 실행해야 다음 모델 입력에 박스 픽셀이 섞이지 않는다. 비동기 직렬 모델은 각 모델을 별도 `CudaAsync`로 감싼다. `BoxOverlay`의 YAML `id: null`은 전체 결과, `id: vehicle`은 해당 모델만 표시한다. 이전 박스 유지도 ID별로 적용한다.
+
 ```python
-result = getattr(context, "detections", None)
+results = getattr(context, "detections", None) or {}
+result = results.get("vehicle")
 if result is not None:
     boxes = result.boxes.xyxy
     confidence = result.boxes.conf
     classes = result.boxes.cls
 ```
 
-`context.detections`는 Ultralytics 결과 객체이다. 원본 프레임은 그대로 유지한다. `StreamReport`에는 실제 예측 실행부터 GPU 완료까지의 시간을 기록한다. 실패한 예측도 기록하되 입력 검증이나 모델 초기화 실패는 추론 건수에 포함하지 않는다. 개별 컨텍스트에 별도 추론 시간 필드를 추가하지 않는다.
+`context.detections`는 `{모델 ID: Ultralytics 결과 객체 또는 None}` 사전이다. ID를 생략한 위 기본 사용 예제는 `results.get("yolo11n.pt")`로 읽는다. 사용자 결과 소비 단계는 기존 `context.detections.boxes` 대신 ID로 선택한 결과의 `boxes`를 사용해야 한다. `local_yolo.infer()`를 직접 호출하면 기존처럼 결과 객체를 반환한다. 원본 프레임은 그대로 유지한다. `StreamReport`에는 실제 예측 실행부터 GPU 완료까지의 시간을 기록한다. 실패한 예측도 기록하되 입력 검증이나 모델 초기화 실패는 추론 건수에 포함하지 않는다. 개별 컨텍스트에 별도 추론 시간 필드를 추가하지 않는다.
 
 ## 오류 처리
 

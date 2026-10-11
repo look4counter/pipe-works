@@ -20,11 +20,13 @@ from step.tensor_rt_post_process import TensorRTPostProcess
 def run(step, prediction, stream):
     item = PipelineContext(cuda_stream=stream)
     item.model_output = {"output0": prediction}
+    item.model_id = "benchmark"
     item.tensor_rt_transform = ImageTransform(
         shape=(1080, 1920), ratio_xy=(1 / 3, 1 / 3), left=0, top=140,
         output_shape=(640, 640), resize_mode="letterbox")
     next(step.process(iter([item])))
-    return item.detections.boxes.data
+    result = item.detections["benchmark"] if isinstance(item.detections, dict) else item.detections
+    return result.boxes.data
 
 
 def measure(step, source, stream, iterations):

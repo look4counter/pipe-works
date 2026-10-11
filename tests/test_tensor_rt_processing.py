@@ -20,7 +20,7 @@ class ProcessingTests(unittest.TestCase):
         with torch.cuda.stream(stream):
             frame = torch.full((6, 8), 128, dtype=torch.uint8, device="cuda")
             frame[:4] = 16
-        return PipelineContext(frame=frame, pixel_format="NV12", cuda_stream=stream,
+        return PipelineContext(model_id="test", frame=frame, pixel_format="NV12", cuda_stream=stream,
                                video_stream=SimpleNamespace(codec_context=SimpleNamespace(height=4, width=8)))
 
     def test_preprocess_keeps_input_and_padding_on_gpu(self):
@@ -97,12 +97,12 @@ class ProcessingTests(unittest.TestCase):
         ):
             next(step.process(iter([item])))
         item.cuda_stream.synchronize()
-        self.assertEqual(len(item.detections.boxes), 1)
-        self.assertTrue(item.detections.boxes.data.is_cuda)
-        self.assertTrue(torch.allclose(item.detections.boxes.xyxy[0], torch.tensor([2, 1, 6, 3], device="cuda", dtype=torch.float32)))
-        self.assertEqual(item.detections.names[2], "car")
-        self.assertAlmostEqual(item.detections.boxes.conf[0].item(), .9, places=5)
-        self.assertEqual(item.detections.boxes.cls[0].item(), 2)
+        self.assertEqual(len(item.detections["test"].boxes), 1)
+        self.assertTrue(item.detections["test"].boxes.data.is_cuda)
+        self.assertTrue(torch.allclose(item.detections["test"].boxes.xyxy[0], torch.tensor([2, 1, 6, 3], device="cuda", dtype=torch.float32)))
+        self.assertEqual(item.detections["test"].names[2], "car")
+        self.assertAlmostEqual(item.detections["test"].boxes.conf[0].item(), .9, places=5)
+        self.assertEqual(item.detections["test"].boxes.cls[0].item(), 2)
         self.assertTrue(torch.equal(prediction[0, :4, 0], torch.tensor([160, 240, 480, 400], device="cuda")))
         self.assertFalse(any(hasattr(item, name) for name in ("model_input", "model_output", "tensor_rt_transform", "model_cuda_stream")))
         from step.box_overlay import BoxOverlay
@@ -116,12 +116,14 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(item.frame[1, 2].item(), 145)
         self.assertEqual(item.frame[2, 4].item(), 16)
         next(TensorRTPreProcess().process(iter([item])))
+        item.model_id = "test"
         item.model_output = {"output0": torch.zeros_like(prediction)}
         next(step.process(iter([item])))
-        self.assertEqual(len(item.detections.boxes), 0)
+        self.assertEqual(len(item.detections["test"].boxes), 0)
+        item.model_id = "test"
         item.model_output = None
         next(step.process(iter([item])))
-        self.assertIsNone(item.detections)
+        self.assertIsNone(item.detections["test"])
 
     def test_postprocess_failure_also_cleans_buffers(self):
         item = self.frame()
@@ -152,9 +154,9 @@ class ProcessingTests(unittest.TestCase):
         next(TensorRTPostProcess().process(iter([item])))
         self.assertEqual(len(called), 1)
         self.assertEqual(called[0].cuda_stream, item.cuda_stream.cuda_stream)
-        torch.testing.assert_close(item.detections.boxes.xyxy,
+        torch.testing.assert_close(item.detections["test"].boxes.xyxy,
                                    prediction.new_tensor([[1., 1., 3., 3.]]))
-        self.assertEqual(item.detections.orig_shape, (4, 8))
+        self.assertEqual(item.detections["test"].orig_shape, (4, 8))
         self.assertFalse(hasattr(item, "tensor_rt_transform"))
 
     def test_actual_plan_processing(self):
@@ -170,7 +172,7 @@ class ProcessingTests(unittest.TestCase):
         self.assertIsNotNone(item.model_output)
         next(TensorRTPostProcess().process(iter([item])))
         item.cuda_stream.synchronize()
-        self.assertEqual(item.detections.orig_shape, (4, 8))
+        self.assertEqual(item.detections[plan.name].orig_shape, (4, 8))
 
 
 class ConfigurationTests(unittest.TestCase):

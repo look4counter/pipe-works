@@ -61,7 +61,7 @@ class YoloDetectTests(unittest.TestCase):
         with patch("pipeworks.embedded.yolo_detect.infer", side_effect=["first", "fourth", "seventh"]) as infer:
             outputs = list(step.process(iter(frames)))
         self.assertEqual(outputs, frames)
-        self.assertEqual([item.detections for item in outputs], ["first", None, None, "fourth", None, None, "seventh"])
+        self.assertEqual([item.detections[step.id] for item in outputs], ["first", None, None, "fourth", None, None, "seventh"])
         self.assertEqual(infer.call_count, 3)
         self.assertEqual(infer.call_args.args[2:], ([2], .4, 0))
 
@@ -109,7 +109,7 @@ class YoloDetectTests(unittest.TestCase):
                 self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR"):
             outputs = list(step.process(iter(frames)))
         self.assertEqual(outputs, frames)
-        self.assertEqual([item.detections for item in outputs], [None, "recovered"])
+        self.assertEqual([item.detections[step.id] for item in outputs], [None, "recovered"])
 
     def test_async_batch_timeout_after_rgb_passes_original(self):
         from pipeworks.local_yolo import _nv12_to_rgb
@@ -213,7 +213,7 @@ class YoloDetectTests(unittest.TestCase):
         for index, item in enumerate(outputs):
             self.assertIs(item, frames[index])
             self.assertIs(item.frame, originals[index])
-            self.assertEqual(item.detections is not None, index % 3 == 0)
+            self.assertEqual(item.detections[self.step.id] is not None, index % 3 == 0)
         options = model.predict.call_args.kwargs
         self.assertEqual((options["classes"], options["conf"], options["device"]), ([2], 0.4, 0))
         self.assertEqual(tuple(model.predict.call_args.args[0].shape), (1, 3, 640, 640))
@@ -277,7 +277,7 @@ class YoloDetectTests(unittest.TestCase):
                 self.assertFalse(worker.is_alive())
                 self.assertEqual(errors, [])
                 self.assertIs(outputs[0], frame)
-                self.assertIsNotNone(frame.detections)
+                self.assertIsNotNone(frame.detections[self.step.id])
 
     def test_model_sidecar_timeout_is_not_read(self):
         for settings in ("timeout: 0", "timeout: [", "timeout: -1"):
@@ -286,7 +286,7 @@ class YoloDetectTests(unittest.TestCase):
                 frame = context()
                 with patch("ultralytics.YOLO", return_value=self.mock_model()):
                     list(self.step.process(iter([frame])))
-                self.assertIsNotNone(frame.detections)
+                self.assertIsNotNone(frame.detections[self.step.id])
 
     def test_load_and_prediction_errors_propagate(self):
         for fail_load in (False, True):
@@ -341,7 +341,7 @@ class YoloDetectTests(unittest.TestCase):
         ), patch.object(torch.Tensor, "numpy", side_effect=AssertionError("NumPy 변환 금지")):
             list(self.step.process(iter([item])))
         self.assertNotEqual(streams[0].cuda_stream, item.cuda_stream.cuda_stream)
-        self.assertIs(item.detections, result)
+        self.assertIs(item.detections[self.step.id], result)
         self.assertEqual(result.orig_shape, (4, 8))
         self.assertEqual(result.boxes.orig_shape, (4, 8))
         self.assertEqual(tuple(result.orig_img.shape), (4, 8, 3))
@@ -410,9 +410,9 @@ class YoloDetectTests(unittest.TestCase):
             torch.Tensor, "numpy", side_effect=AssertionError("NumPy 변환 금지")
         ):
             list(YoloDetect(model_path).process(iter([item])))
-        self.assertEqual(item.detections.orig_shape, (4, 4))
-        self.assertTrue(item.detections.orig_img.is_cuda)
-        self.assertTrue(item.detections.boxes.data.is_cuda)
+        self.assertEqual(item.detections[model_path.name].orig_shape, (4, 4))
+        self.assertTrue(item.detections[model_path.name].orig_img.is_cuda)
+        self.assertTrue(item.detections[model_path.name].boxes.data.is_cuda)
 
     def test_real_pt_model_infers_one_frame(self):
         self._check_real_model("pt")

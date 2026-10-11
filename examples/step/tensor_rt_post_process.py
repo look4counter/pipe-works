@@ -63,12 +63,23 @@ class TensorRTPostProcess(Step):
         for item in inputs:
             profile = vars(item).pop("_tensor_rt_profile", None)
             state = "completed" if getattr(item, "model_output", None) is not None else "skipped"
-            item.detections = None
             stream = current_model_stream() or getattr(item, "model_cuda_stream", item.cuda_stream)
             outputs = prediction = boxes = None
             try:
+                detections = getattr(item, "detections", None)
+                if detections is not None and not isinstance(detections, dict):
+                    raise ValueError("TensorRT detections는 모델 ID별 사전이어야 합니다.")
+                # Async contexts can share the mapping; replace it without mutating it.
+                item.detections = dict(detections or {})
+                model_id = getattr(item, "model_id", None)
+                if model_id is not None:
+                    if not isinstance(model_id, str) or not model_id.strip():
+                        raise ValueError("model_id는 비어 있지 않은 문자열이어야 합니다.")
+                    item.detections[model_id] = None
                 outputs = getattr(item, "model_output", None)
                 if outputs is not None:
+                    if model_id is None:
+                        raise ValueError("TensorRT 후처리에는 추론 단계의 model_id가 필요합니다.")
                     prediction = outputs.get(self.output_name) if isinstance(outputs, dict) else None
                     if (not isinstance(prediction, torch.Tensor) or not prediction.is_cuda
                             or prediction.device != item.cuda_stream.device or prediction.dtype != torch.float32
@@ -79,7 +90,7 @@ class TensorRTPostProcess(Step):
                         # Consume the raw output in-place; only detections survive.
                         boxes = self._nms(prediction)
                         transform.restore_boxes_(boxes)
-                        item.detections = SimpleNamespace(boxes=Boxes(boxes, transform.shape), names=self.names, orig_shape=transform.shape)
+                        item.detections[model_id] = SimpleNamespace(boxes=Boxes(boxes, transform.shape), names=self.names, orig_shape=transform.shape)
             except Exception:
                 state = "error"
                 raise
@@ -88,7 +99,7 @@ class TensorRTPostProcess(Step):
                     stream.synchronize()
                 if profile is not None:
                     profile.finish(state)
-                for name in ("model_input", "model_output", "tensor_rt_transform", "model_cuda_stream"):
+                for name in ("model_input", "model_output", "tensor_rt_transform", "model_cuda_stream", "model_id"):
                     vars(item).pop(name, None)
                 outputs = prediction = boxes = None
             yield item

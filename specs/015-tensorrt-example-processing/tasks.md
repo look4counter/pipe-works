@@ -1,5 +1,38 @@
 # 작업 목록
 
+## 단계 15: YOLO 공통 ID 준비
+
+- [x] T033 specs/015-tensorrt-example-processing/의 FR-022~024·SC-011·계획·계약 일관성을 분석한다.
+
+## 단계 16: 사용자 시나리오 6 — YOLO ID별 결과
+
+- [x] T034 [US6] src/pipeworks/embedded/yolo_detect.py에 id 구성·원자적 검증·입력별 사전 복사·ID별 결과 교체를 두 실행 경로에 구현한다. (FR-022~024)
+- [x] T035 [US6] tests/test_yolo_detect.py·tests/test_yolo_batch.py를 사전 계약에 맞추고 tests/test_yolo_model_ids.py에서 직렬·혼합·오류·구성 변경·비동기·Overlay를 검증한다. (SC-011)
+- [x] T036 [US6] docs/pipeworks/embedded/yolo_detect.md·docs/pipeworks/models.md·README.md·examples/config/stream.yml과 공통 계약의 결과 읽기 안내를 갱신한다. (FR-023)
+
+## 단계 17: 최종 검증
+
+- [x] T037 tests/test_local_yolo.py·test_detection_report.py·test_box_overlay.py·test_tensor_rt_model_ids.py·test_step_config_defaults.py·test_async.py·test_frame_release.py 회귀를 실행하고 specs/015-tensorrt-example-processing/quickstart.md에 결과를 기록한다. (SC-011)
+
+의존성: T033 → T034 → T035 → T036 → T037. 최소 구현과 최종 전달은 US6 전체다. T034 이후 기존 결과 테스트 갱신과 문서 작성은 독립적으로 가능하나 한 작업자가 순차 수행한다.
+
+## 단계 12: 직렬 모델 결과 식별 준비
+
+- [x] T027 specs/015-tensorrt-example-processing/의 FR-018~021·SC-010·계획·계약 일관성을 분석한다.
+
+## 단계 13: 사용자 시나리오 5 — 모델 ID별 결과와 표시
+
+- [x] T028 [US5] src/pipeworks/embedded/tensor_rt_inference.py에 id 구성·검증·컨텍스트 전달을 구현하고 src/pipeworks/embedded/tensor_rt_pre_process.py의 결과 초기화를 제거한다. (FR-018, FR-019)
+- [x] T029 [US5] examples/step/tensor_rt_post_process.py에 ID별 결과 교체·사전 격리·model_id 정리를 구현한다. (FR-019, FR-021)
+- [x] T030 [US5] examples/step/box_overlay.py의 id 선택·ID별 이전 결과·YOLO 단일 객체 호환을 구현한다. (FR-020)
+- [x] T031 [US5] tests/test_tensor_rt_model_ids.py와 tests/test_tensor_rt_processing.py 및 tools/benchmark_postprocess.py를 새 계약에 맞추고 ID·직렬·배치·Overlay·비동기 회귀를 검증한다. (SC-010)
+
+## 단계 14: 안내와 최종 점검
+
+- [x] T032 examples/config/stream.yml·docs/pipeworks/embedded/tensor_rt_inference.md·tensor_rt_preprocess.md·specs/015-tensorrt-example-processing/contracts/model-ids.md·quickstart.md에 ID별 결과 사용과 마지막 Overlay 배치·검증 결과를 기록한다.
+
+의존성: T027 → T028 → T029 → T030 → T031 → T032. 최소 구현과 최종 전달 모두 US5 전체를 포함한다. T029 이후 추론 ID 검증과 Overlay 구현은 독립적으로 가능하지만 한 작업자가 순서대로 진행한다.
+
 ## 단계 11: 모듈 파일명 변경
 
 - [x] T024 specs/015-tensorrt-example-processing/의 FR-017·SC-009·계획·계약 일관성을 분석한다.

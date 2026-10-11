@@ -24,7 +24,7 @@ pipeline.step(preprocess)
 
 출력은 `context.model_input`에 배치 크기 1의 연속 GPU 텐서로 저장합니다. 기본 형상은 `[1, 3, 640, 640]`입니다. `input_name="images"`를 지정하면 `{"images": tensor}` 사전을 만듭니다. 다중 입력 모델의 나머지 입력은 다른 단계가 추가해야 합니다. `TensorRTInference(batch=True)`는 각 요청의 동일 형상 텐서를 첫 번째 축으로 묶습니다.
 
-`context.model_cuda_stream`에는 모델 작업 스트림, `context.tensor_rt_transform`에는 좌표 변환 정보를 저장합니다. 기존 `detections`는 초기화합니다. 원본 읽기가 끝난 시점에 CUDA 완료 이벤트와 함께 `release_frame()`을 호출해 CudaAsync의 프레임 수명 계약을 유지합니다.
+`context.model_cuda_stream`에는 모델 작업 스트림, `context.tensor_rt_transform`에는 좌표 변환 정보를 저장합니다. 기존 `detections`는 보존하므로 직렬 모델의 이전 결과가 유지됩니다. 원본 읽기가 끝난 시점에 CUDA 완료 이벤트와 함께 `release_frame()`을 호출해 CudaAsync의 프레임 수명 계약을 유지합니다.
 
 ## 옵션
 

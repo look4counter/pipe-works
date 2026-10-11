@@ -305,7 +305,6 @@ class TensorRTPreProcess(Step):
                 )
                 item.tensor_rt_transform = transform
                 item.model_cuda_stream = stream
-                item.detections = None
             except Exception:
                 if stream is not None:
                     stream.synchronize()

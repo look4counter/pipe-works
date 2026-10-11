@@ -32,6 +32,42 @@ if context.model_output is not None:
 
 ## 설정
 
+생성자의 `id`는 결과를 구분하는 모델 실행 단계의 식별자입니다. 생략하거나 `None`이면 확장자를 포함한 모델 파일명(`model.engine`)을 사용합니다. 지정할 때는 공백뿐인 값이 아닌 문자열이어야 합니다. YAML의 `id`가 우선하며 `null`은 파일명으로, 키 제거는 최초 생성자 값으로 돌아갑니다. 같은 클래스의 여러 인스턴스에 다른 ID를 지정하려면 YAML의 공통 `id`를 생략하고 생성자에 각각 지정합니다. ID는 엔진 세션·배치 공유에 영향을 주지 않습니다.
+
+```python
+TensorRTInference("models/yolo11n.plan", id="vehicle")
+TensorRTInference("models/yolo11n.plan", id="person")
+```
+
+추론은 건너뛴 입력도 `context.model_id`를 전달합니다. 예제 후처리는 `context.detections[model_id]`에 결과를 저장하며 같은 ID만 교체합니다. 출력 누락은 해당 키의 `None`, 탐지 없음은 빈 `boxes`를 가진 결과입니다. 후처리는 임시 모델 입출력·변환 정보·스트림과 `model_id`를 정리합니다.
+
+```python
+vehicle = context.detections.get("vehicle")
+if vehicle is not None:
+    consume(vehicle.boxes, vehicle.names)
+```
+
+## 직렬 모델과 마지막 Overlay
+
+모델별 전처리·추론·후처리를 이어 붙인 뒤 마지막에 `BoxOverlay`를 둡니다. Overlay가 수정한 프레임을 다음 모델에 넣으면 박스 픽셀도 입력에 포함됩니다. 비동기 실행에서는 각 모델 묶음을 별도 `CudaAsync`로 감싸 원본 읽기 수명 계약을 유지합니다. 첫 전처리가 `release_frame()`을 호출한 같은 묶음 안에 원본을 다시 읽는 다음 전처리를 넣지 않습니다.
+
+```python
+from pipeworks.embedded import CudaAsync, TensorRTPreProcess
+from step.tensor_rt_post_process import TensorRTPostProcess
+from step.box_overlay import BoxOverlay
+
+for model_id in ("vehicle", "person"):
+    pipeline.step(CudaAsync(
+        TensorRTPreProcess(),
+        TensorRTInference("models/yolo11n.plan", id=model_id),
+        TensorRTPostProcess(),
+        timeout_ms=100,
+    ))
+pipeline.step(BoxOverlay())
+```
+
+`BoxOverlay`의 YAML `id: null`(기본값)은 모든 모델을 표시하고 `id: vehicle`은 해당 ID만 표시합니다. `keep_previous`는 ID별로 적용하므로 한 모델이 건너뛰어도 다른 모델의 갱신이 이전 박스를 지우지 않습니다. 빈 탐지 결과는 해당 모델의 이전 박스를 지웁니다. 기존 YOLO 단일 결과 객체도 ID 선택 없이 표시할 수 있습니다. 성능 보고는 결과 사전과 독립적이며 결과를 읽는 사용자 단계는 ID로 값을 선택해야 합니다.
+
 파이프라인 YAML의 클래스명 섹션에 GPU 번호와 추론 대상 선택 간격을 설정합니다.
 
 ```yaml

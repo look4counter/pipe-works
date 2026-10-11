@@ -1,5 +1,11 @@
 # 범용 전처리 데이터 계약
 
+YoloDetect.id도 파일명 기본값과 생성자/YAML 설정을 따른다. YOLO 결과는 공통 detections[id]의 Ultralytics 결과 객체 또는 None이다. 원본 해상도의 orig_img·orig_shape·boxes는 유지한다. YOLO는 내부 후처리까지 완료하므로 임시 model_id가 필요하지 않다.
+
+## 모델 ID와 결과 사전
+
+TensorRTInference.id는 유효한 문자열이며 기본값은 모델 파일명이다. 입력 컨텍스트의 model_id는 후처리까지 전달하고 완료 후 제거한다. detections는 {ID: 탐지 결과 또는 None}이며 결과의 boxes·names·orig_shape 구조는 유지한다. 후처리는 사전을 복사하고 현재 키만 교체한다. 전처리는 결과 사전을 유지한다. Overlay는 ID별 박스 복사와 CUDA 완료 이벤트를 보관한다.
+
 모듈 파일명 변경은 데이터·클래스·변환 객체 계약을 바꾸지 않는다. 내장 가져오기 경로는 pipeworks.embedded.tensor_rt_pre_process다.
 
 ## 복원 기능을 가진 변환 객체

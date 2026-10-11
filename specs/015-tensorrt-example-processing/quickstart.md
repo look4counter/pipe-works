@@ -1,5 +1,21 @@
 # 검증과 사용
 
+## YOLO 모델 ID 검증 (2026-10-11)
+
+`YoloDetect(model_path, id="vehicle")`도 공통 `detections[id]` 사전에 저장한다. 생성자 id를 생략하면 확장자 포함 파일명이다. 여러 인스턴스의 ID를 다르게 쓰면 YAML 공통 id는 생략한다. 결과 누락은 현재 키의 None이며 다른 키는 유지한다. 두 모델의 추론을 끝낸 뒤 Overlay를 실행한다.
+
+새 ID 검증 10개·기존 YOLO 23개·배치 15개·local_yolo 10개·보고 14개·Overlay 5개·TensorRT ID 13개·생성자 구성 11개·Async 38개·프레임 해제 6개를 실행했다. 총 145개 중 143개 통과하고 실제 .engine 파일이 필요한 기존 검증 2개는 건너뛰었다. 실제 같은 .pt 모델의 직렬 결과 보존·TensorRT와 혼합 저장·입력 경계 ID 고정·개별/배치 오류 정책·늦은 비동기 결과의 원본 사전 격리를 확인했다. local_yolo의 직접 반환 계약은 유지했다.
+
+`git diff --check`가 통과했다. 수렴 점검에서 FR-022~024·SC-011과 구성·공통 결과 계약·문서·기존 오류 정책 사이에 남은 구현 차이는 없으며 추가 작업은 없다.
+
+## 모델 ID별 결과 검증 (2026-10-11)
+
+TensorRTInference의 id를 생략하면 확장자 포함 파일명을 사용한다. 같은 모델을 여러 번 사용하면 생성자에 서로 다른 id를 지정하고 YAML의 공통 id는 생략한다. 결과는 detections[id]에서 읽고 Overlay는 모든 추론 뒤에 배치한다. 비동기 직렬 모델은 모델별 별도 CudaAsync 묶음을 사용한다. 자세한 설정은 [모델 ID별 계약](contracts/model-ids.md)을 참고한다.
+
+실제 CUDA에서 ID 기본값·명시값·YAML 덮어쓰기/제거·검증 실패 원자성·배치/개별/간격 전달·동일 엔진 직렬 실행·ID별 결과 교체·누락/오류 정리·공유 사전 격리·Overlay 전체/단일 선택·ID별 이전 박스·전체 결과 누락·직렬 비동기 결과 보존을 확인한다. 기존 추론·전후처리·Overlay·좌표 복원·보고·비동기·프레임 해제 회귀와 후처리 벤치마크 수치 비교도 실행한다.
+
+검증 결과: 모델 ID 13개·전후처리 7개·Overlay 5개·TensorRT 추론 28개·보고 14개·Async 38개·프레임 해제 6개·최적화 후처리 4개·최적화 전처리 3개·좌표 변환 3개, 총 121개가 통과했다. 후처리 벤치마크는 `--iterations 1`로 4개 구성의 이전 HEAD와 GPU 탐지 수치가 일치함을 확인했다. 반복 횟수가 적어 성능 결론에는 사용하지 않는다. `git diff --check`도 통과했다. 수렴 점검에서 FR-018~021·SC-010 및 계획·계약의 남은 구현 차이는 없다.
+
 ## 내장 모듈 파일명 변경 검증 (2026-10-11)
 
 현재 가져오기 경로는 `pipeworks.embedded.tensor_rt_pre_process`다. 패키지 재수출과 직접 가져오기가 같은 클래스를 제공함을 확인했다. 옛 내장 파일은 없고 소스·예제·테스트·도구에 옛 import가 남지 않았다.
@@ -27,7 +43,7 @@ CUDA를 사용할 수 있는 기존 가상환경에서 다음 명령을 실행�
 
 단일 예제는 TensorRTPreProcess → TensorRTInference(yolo11n.plan) → TensorRTPostProcess를 Async로 감싼다. 모델은 FP32 RGB 1×3×640×640 입력과 1×84×8400 출력의 COCO YOLO11 탐지 엔진이어야 한다.
 
-TensorRTPostProcess 최상위 YAML 섹션에서 classes·confidence·iou·max_det·output_name을 설정한다. 기본 output_name은 output0이며 클래스 필터가 없으면 전체 클래스를 처리한다. 입력 색 변환·중앙 패딩·출력 NMS·좌표 복원은 GPU에서 수행한다. detections.boxes는 xyxy·conf·cls를 제공하고 detections.names는 클래스 ID별 이름을 제공한다. 추론 결과 누락은 detections=None이다.
+TensorRTPostProcess 최상위 YAML 섹션에서 classes·confidence·iou·max_det·output_name을 설정한다. 기본 output_name은 output0이며 클래스 필터가 없으면 전체 클래스를 처리한다. 입력 색 변환·중앙 패딩·출력 NMS·좌표 복원은 GPU에서 수행한다. detections[model_id].boxes는 xyxy·conf·cls를 제공하고 detections[model_id].names는 클래스 ID별 이름을 제공한다. 추론 결과 누락은 해당 키의 None이다.
 
 전처리·후처리 4개, BoxOverlay 5개, Async 35개 검증이 모두 통과했다. 실제 제공된 plan의 역직렬화·추론·후처리도 검증했으며 RTSP 네트워크 연결은 실행하지 않았다. 테스트에서는 실제 엔진 검증의 내부 대기 시간을 30초로 늘려 초기 로딩의 영향을 제외했다. 예제의 운영 제한 시간은 기존 20ms를 유지한다.
 

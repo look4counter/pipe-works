@@ -11,12 +11,15 @@ class BoxOverlay(Step):
         self.line_width = getattr(config, "line_width", 2)
         self.line_color = getattr(config, "line_color", "#00ff00")
         self.keep_previous = getattr(config, "keep_previous", True)
+        self.id = getattr(config, "id", None)
         if isinstance(self.line_width, bool) or not isinstance(self.line_width, int) or self.line_width < 1:
             raise ValueError("line_width는 1 이상의 정수여야 합니다.")
         if not isinstance(self.line_color, str) or re.fullmatch(r"#[0-9a-fA-F]{6}", self.line_color) is None:
             raise ValueError("line_color는 #RRGGBB 형식이어야 합니다.")
         if not isinstance(self.keep_previous, bool):
             raise ValueError("keep_previous는 불리언이어야 합니다.")
+        if self.id is not None and (not isinstance(self.id, str) or not self.id.strip()):
+            raise ValueError("id는 비어 있지 않은 문자열 또는 null이어야 합니다.")
 
         red, green, blue = (int(self.line_color[index:index + 2], 16) for index in (1, 3, 5))
         self.yuv_color = (
@@ -49,9 +52,8 @@ class BoxOverlay(Step):
         return diff.reshape(height + 1, width + 1).cumsum(0, dtype=torch.int32).cumsum(1, dtype=torch.int32)[:height, :width] > 0
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
-        previous = None
+        previous = {}
         previous_key = None
-        ready = None
         for item in inputs:
             pixel_format = getattr(item.pixel_format, "name", item.pixel_format)
             if str(pixel_format).upper() != "NV12":
@@ -61,25 +63,43 @@ class BoxOverlay(Step):
             if height <= 0 or width <= 0 or height % 2 or width % 2:
                 raise ValueError("NV12 dimensions must be positive and even.")
             stream = item.cuda_stream
-            key = (width, height, stream.device)
+            key = (width, height, stream.device, self.id)
             if previous_key != key:
-                previous = ready = None
+                previous = {}
                 previous_key = key
             with torch.cuda.stream(stream), torch.no_grad():
                 detections = getattr(item, "detections", None)
-                if detections is not None:
-                    xyxy = getattr(getattr(detections, "boxes", None), "xyxy", None)
-                    if xyxy is not None and (not isinstance(xyxy, torch.Tensor) or not xyxy.is_cuda
-                                              or xyxy.device != stream.device or xyxy.ndim != 2 or xyxy.shape[1] != 4):
-                        raise ValueError("BoxOverlay boxes must be GPU Nx4 tensors on the frame device.")
-                    previous = None if xyxy is None else xyxy.detach().clone()
-                    ready = torch.cuda.Event()
-                    ready.record(stream)
-                    boxes = previous
+                if isinstance(detections, dict):
+                    selected = ({self.id: detections.get(self.id)} if self.id is not None
+                                else {name: detections.get(name) for name in dict.fromkeys([*previous, *detections])})
+                elif detections is None:
+                    selected = {self.id: None} if self.id is not None else dict.fromkeys(previous)
                 else:
-                    boxes = previous if self.keep_previous else None
+                    # Preserve the single-result YOLO contract when no ID is selected.
+                    selected = {self.id: detections if self.id is None else None}
+                chosen = []
+                for model_id, result in selected.items():
+                    if result is not None:
+                        xyxy = getattr(getattr(result, "boxes", None), "xyxy", None)
+                        if xyxy is not None and (not isinstance(xyxy, torch.Tensor) or not xyxy.is_cuda
+                                                  or xyxy.device != stream.device or xyxy.ndim != 2 or xyxy.shape[1] != 4):
+                            raise ValueError("BoxOverlay boxes must be GPU Nx4 tensors on the frame device.")
+                        if xyxy is None:
+                            previous.pop(model_id, None)
+                        else:
+                            cached = xyxy.detach().clone()
+                            ready = torch.cuda.Event()
+                            ready.record(stream)
+                            previous[model_id] = cached, ready
+                    elif not self.keep_previous:
+                        previous.pop(model_id, None)
+                    if model_id in previous:
+                        cached, ready = previous[model_id]
+                        stream.wait_event(ready)
+                        cached.record_stream(stream)
+                        chosen.append(cached)
+                boxes = (chosen[0] if len(chosen) == 1 else torch.cat(chosen)) if chosen else None
                 if boxes is not None and boxes.shape[0]:
-                    stream.wait_event(ready)
                     boxes.record_stream(stream)
                     frame = torch.from_dlpack(item.frame)
                     if frame.ndim == 1 and frame.numel() == height * width * 3 // 2:

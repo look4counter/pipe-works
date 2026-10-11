@@ -40,7 +40,7 @@ class YoloBatchTests(unittest.TestCase):
         self.assertIs(next(output), frames[0])
         self.assertEqual(pulled, frames[:1])
         self.assertEqual([frames[0], *list(output)], frames)
-        self.assertEqual([frame.detections for frame in frames],
+        self.assertEqual([frame.detections[step.id] for frame in frames],
                          ["first", None, None, "fourth", None, None, "seventh"])
         self.assertEqual(self.infer.call_count, 3)
 
@@ -81,7 +81,7 @@ class YoloBatchTests(unittest.TestCase):
         self.infer.side_effect = [RuntimeError("failed"), "recovered"]
         with self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR"):
             self.assertEqual(list(step.process(iter(frames))), frames)
-        self.assertEqual([frame.detections for frame in frames], [None, "recovered"])
+        self.assertEqual([frame.detections[step.id] for frame in frames], [None, "recovered"])
 
     def test_selected_frame_does_not_synchronize_host_before_queueing(self):
         step = YoloDetect(Path("model.pt"), batch=True)
@@ -117,9 +117,9 @@ class YoloBatchTests(unittest.TestCase):
                 outputs = list(step.process(iter((first, second, third))))
 
             self.assertEqual(outputs, [first, second, third])
-            self.assertIsNone(first.detections)
-            self.assertIs(second.detections, result)
-            self.assertIs(third.detections, result)
+            self.assertIsNone(first.detections[step.id])
+            self.assertIs(second.detections[step.id], result)
+            self.assertIs(third.detections[step.id], result)
             self.assertEqual(self.infer.call_count, 3)
 
     def test_engine_path_uses_worker(self):
@@ -135,7 +135,7 @@ class YoloBatchTests(unittest.TestCase):
             outputs = list(step.process(iter((item,))))
 
             self.assertEqual(outputs, [item])
-            self.assertIs(item.detections, result)
+            self.assertIs(item.detections[step.id], result)
             self.assertEqual(self.infer.call_args.args[0], engine)
 
     def test_inference_keeps_frame_and_passes_car_filter(self):
@@ -151,8 +151,8 @@ class YoloBatchTests(unittest.TestCase):
             outputs = list(step.process(iter((first, second))))
 
             self.assertEqual(outputs, [first, second])
-            self.assertIs(first.detections, result)
-            self.assertIs(second.detections, result)
+            self.assertIs(first.detections[step.id], result)
+            self.assertIs(second.detections[step.id], result)
             self.assertEqual(first.frame.shape, (6, 4))
             self.assertEqual(self.infer.call_count, 2)
             image = self.infer.call_args.args[1]
@@ -172,13 +172,13 @@ class YoloBatchTests(unittest.TestCase):
         step.configure(SimpleNamespace(inference_interval_frame=3))
         frames = [context() for _ in range(7)]
         for frame in frames:
-            frame.detections = "old"
+            frame.detections = {step.id: "old"}
         self.infer.side_effect = ["first", "fourth", "seventh"]
 
         outputs = list(step.process(iter(frames)))
 
         self.assertEqual(outputs, frames)
-        self.assertEqual([frame.detections for frame in frames], ["first", None, None, "fourth", None, None, "seventh"])
+        self.assertEqual([frame.detections[step.id] for frame in frames], ["first", None, None, "fourth", None, None, "seventh"])
         self.assertEqual(self.infer.call_count, 3)
         self.assertEqual(self.record_inference.call_count, 0)
 
@@ -217,7 +217,7 @@ class YoloBatchTests(unittest.TestCase):
             outputs = list(step.process(iter(frames)))
 
         self.assertEqual(outputs, frames)
-        self.assertEqual([frame.detections for frame in frames], [None, None, None, "fourth", None])
+        self.assertEqual([frame.detections[step.id] for frame in frames], [None, None, None, "fourth", None])
         self.assertEqual(self.infer.call_count, 2)
         self.assertEqual(self.record_inference.call_count, 0)
 
@@ -229,8 +229,8 @@ class YoloBatchTests(unittest.TestCase):
             with self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR") as logs:
                 outputs = list(step.process(iter((first, second))))
             self.assertEqual(outputs, [first, second])
-            self.assertIsNone(first.detections)
-            self.assertIsNone(second.detections)
+            self.assertIsNone(first.detections[step.id])
+            self.assertIsNone(second.detections[step.id])
             self.assertEqual(len(logs.records), 2)
 
     def test_unsupported_pixel_format_passes_frame_and_next_frame_runs(self):
@@ -246,8 +246,8 @@ class YoloBatchTests(unittest.TestCase):
             with self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR"):
                 outputs = list(step.process(iter((first, second))))
             self.assertEqual(outputs, [first, second])
-            self.assertIsNone(first.detections)
-            self.assertIs(second.detections, result)
+            self.assertIsNone(first.detections[step.id])
+            self.assertIs(second.detections[step.id], result)
 
     def test_prediction_error_passes_frame_and_recovers(self):
         with TemporaryDirectory() as directory:
@@ -261,6 +261,6 @@ class YoloBatchTests(unittest.TestCase):
             with self.assertLogs("pipeworks.embedded.yolo_detect", level="ERROR"):
                 outputs = list(step.process(iter((first, second))))
             self.assertEqual(outputs, [first, second])
-            self.assertIsNone(first.detections)
-            self.assertIs(second.detections, result)
+            self.assertIsNone(first.detections[step.id])
+            self.assertIs(second.detections[step.id], result)
             self.assertEqual(self.infer.call_count, 2)

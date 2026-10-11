@@ -264,13 +264,14 @@ class _EngineSession:
 
 class TensorRTInference(Step):
     def __init__(self, model_path: Path, *, batch: bool = False, gpu_id: int = 0,
-                 inference_interval_frame: int = 1, profile_index: int = 0):
+                 inference_interval_frame: int = 1, profile_index: int = 0,
+                 id: str | None = None):
         if not isinstance(batch, bool):
             raise ValueError("batch는 불리언이어야 합니다.")
         self.batch = batch
         self.model_path = Path(model_path)
         self._set_config_defaults(gpu_id=gpu_id, inference_interval_frame=inference_interval_frame,
-                                  profile_index=profile_index)
+                                  profile_index=profile_index, id=id)
 
     def configure(self, config: SimpleNamespace):
         config = self._resolve_config(config)
@@ -279,6 +280,9 @@ class TensorRTInference(Step):
         gpu_id = getattr(config, "gpu_id", 0)
         interval = getattr(config, "inference_interval_frame", 1)
         profile_index = getattr(config, "profile_index", 0)
+        model_id = self.model_path.name if config.id is None else config.id
+        if not isinstance(model_id, str) or not model_id.strip():
+            raise ValueError("id는 비어 있지 않은 문자열 또는 null이어야 합니다.")
         _validate_profile_index(profile_index)
         if isinstance(gpu_id, bool) or not isinstance(gpu_id, int) or gpu_id < 0:
             raise ValueError("gpu_id는 음수가 아닌 정수여야 합니다.")
@@ -286,6 +290,7 @@ class TensorRTInference(Step):
             raise ValueError("inference_interval_frame은 1 이상의 정수여야 합니다.")
         self.gpu_id, self.inference_interval_frame = gpu_id, interval
         self.profile_index = profile_index
+        self.id = model_id
 
     def _model_settings(self):
         return _engine_settings(self.model_path, _load_model_config(self.model_path))
@@ -318,6 +323,7 @@ class TensorRTInference(Step):
 
         def profiled_inputs():
             for item in inputs:
+                item.model_id = self.id
                 inherited = getattr(item, "_tensor_rt_profile", None)
                 profile = inherited or begin("TensorRT")
                 current[:] = item, profile, inherited is None

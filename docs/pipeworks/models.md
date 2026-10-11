@@ -31,7 +31,7 @@ context = PipelineContext(
 )
 
 # Processing Step에서 필드 추가
-context.detections = yolo_results
+context.detections = {"yolo11n.pt": yolo_results}
 context.custom_field = "value"
 
 # 다음 Step에서 접근
@@ -54,7 +54,7 @@ context.packet            # av.Packet
 context.pixel_format      # 픽셀 포맷 (e.g., NV12)
 
 # YoloDetect에서 추가
-context.detections        # 감지 결과 (results object)
+context.detections        # YOLO/TensorRT 공통 {모델 ID: 결과 또는 None}
 context.cuda_stream       # CUDA 스트림 (GPU 처리 시)
 
 # StreamReport에서 추가

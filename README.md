@@ -166,6 +166,7 @@ RTSP 카메라에서 영상을 읽습니다.
 
 - **역할**: 객체 감지 (별도 CUDA 스트림에서 동기 처리, 영상·감지 결과의 CPU 복사 금지)
 - **사용**: `pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))`
+- **모델 식별**: `YoloDetect(model_path, id="vehicle")`. 생략하면 모델 파일명을 사용하고 결과는 `context.detections[id]`에서 읽습니다. 같은 ID는 교체하며 다른 모델 결과는 보존합니다. 여러 모델의 Overlay는 모든 추론 뒤에 둡니다.
 - **선택적 배치**: `YoloDetect(model_path, batch=True)`. 기본값은 `False`이며 True는 GPU 입력 복제와 사용 종료 신호를 직접 처리하고 `local_yolo.infer()`에 제출합니다. 배치 수집은 모델 동명 `.yml`의 `max_batch_size`, 밀리초 `timeout`으로 설정합니다.
 - **설정**: `classes`, `confidence`, `gpu_id`, `inference_interval_frame`
 - **선택적 비동기**: `pipeline.step(CudaAsync(YoloDetect(model_path), timeout_ms=5))`. 단일 감지는 모델 동명 `.yml`의 `timeout`을 읽지 않습니다.
@@ -411,10 +412,12 @@ class MyFilter(Step):
     
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
-            if context.detections is not None:
+            results = getattr(context, "detections", None) or {}
+            result = results.get("yolo11n.pt")
+            if result is not None:
                 # confidence 필터링
                 filtered = [
-                    det for det in context.detections.boxes.conf
+                    det for det in result.boxes.conf
                     if det >= self.min_confidence
                 ]
                 if filtered:

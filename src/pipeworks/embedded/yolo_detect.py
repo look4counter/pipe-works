@@ -63,13 +63,14 @@ def _predict(model, image, classes, confidence, gpu_id, stream):
 class YoloDetect(Step):
     def __init__(self, model_path: Path, *, batch: bool = False,
                  classes: list[int] | None = None, confidence: float = 0.25,
-                 gpu_id: int = 0, inference_interval_frame: int = 1) -> None:
+                 gpu_id: int = 0, inference_interval_frame: int = 1,
+                 id: str | None = None) -> None:
         if not isinstance(batch, bool):
             raise ValueError("batch는 불리언이어야 합니다.")
         self.model_path = Path(model_path)
         self.batch = batch
         self._set_config_defaults(classes=classes, confidence=confidence, gpu_id=gpu_id,
-                                  inference_interval_frame=inference_interval_frame)
+                                  inference_interval_frame=inference_interval_frame, id=id)
 
     def configure(self, config: SimpleNamespace) -> None:
         config = self._resolve_config(config)
@@ -79,6 +80,9 @@ class YoloDetect(Step):
         confidence = getattr(config, "confidence", 0.25)
         gpu_id = getattr(config, "gpu_id", 0)
         inference_interval_frame = getattr(config, "inference_interval_frame", 1)
+        model_id = self.model_path.name if config.id is None else config.id
+        if not isinstance(model_id, str) or not model_id.strip():
+            raise ValueError("id는 비어 있지 않은 문자열 또는 null이어야 합니다.")
         if classes is not None and (
             not isinstance(classes, list)
             or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in classes)
@@ -94,6 +98,17 @@ class YoloDetect(Step):
         self.confidence = confidence
         self.gpu_id = gpu_id
         self.inference_interval_frame = inference_interval_frame
+        self.id = model_id
+
+    def _begin_detections(self, item):
+        detections = getattr(item, "detections", None)
+        if detections is not None and not isinstance(detections, dict):
+            raise ValueError("YOLO detections는 모델 ID별 사전이어야 합니다.")
+        # Async contexts can share the original mapping; only replace our copy.
+        item.detections = dict(detections or {})
+        model_id = self.id
+        item.detections[model_id] = None
+        return model_id
 
     def _prepare_frame(self, item):
         pixel_format = getattr(item.pixel_format, "name", item.pixel_format)
@@ -129,7 +144,7 @@ class YoloDetect(Step):
         for frame_index, item in enumerate(inputs):
             dequeued_at = time.perf_counter()
             processing_started_at = getattr(item, "processing_started_at", dequeued_at)
-            item.detections = None
+            model_id = self._begin_detections(item)
             if frame_index % self.inference_interval_frame == 0:
                 try:
                     profile = begin("YOLO")
@@ -138,7 +153,7 @@ class YoloDetect(Step):
                             image, ready_event = self._prepare_rgb(item)
                             release_frame(ready_event=ready_event)
                         options = {"on_profile_complete": profile.merge} if profile is not None else {}
-                        item.detections = infer(
+                        item.detections[model_id] = infer(
                             self.model_path, image, self.classes, self.confidence, self.gpu_id,
                             ready_event=ready_event, on_inference_complete=record_inference, **options,
                         )
@@ -164,7 +179,7 @@ class YoloDetect(Step):
         model_gpu = None
         stream = None
         for frame_index, item in enumerate(inputs):
-            item.detections = None
+            model_id = self._begin_detections(item)
             if frame_index % self.inference_interval_frame == 0:
                 profile = begin("YOLO")
                 try:
@@ -189,7 +204,7 @@ class YoloDetect(Step):
                                 model = YOLO(str(self.model_path))
                                 model_gpu = self.gpu_id
                         with use(profile):
-                            item.detections = _predict(
+                            item.detections[model_id] = _predict(
                                 model, image, self.classes, self.confidence, self.gpu_id, stream,
                             )
                 except Exception:
