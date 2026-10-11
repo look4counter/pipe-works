@@ -213,7 +213,13 @@ RTSPSource:
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
+from pipeworks.embedded import (
+    RTSPSource,
+    YoloDetect,
+    RTSPPublish,
+    NvidiaDecode,
+    NvidiaEncode,
+)
 
 pipeline = Pipeline("rtsp-yolo", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera/main"))

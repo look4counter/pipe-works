@@ -11,7 +11,13 @@
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, NvidiaDecode, YoloDetect, NvidiaEncode, RTSPPublish
+from pipeworks.embedded import (
+    RTSPSource,
+    NvidiaDecode,
+    YoloDetect,
+    NvidiaEncode,
+    RTSPPublish,
+)
 
 pipeline = Pipeline("yolo-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource("rtsp://camera/main"))

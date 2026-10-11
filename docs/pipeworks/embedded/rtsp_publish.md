@@ -20,7 +20,13 @@
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
+from pipeworks.embedded import (
+    RTSPSource,
+    YoloDetect,
+    RTSPPublish,
+    NvidiaDecode,
+    NvidiaEncode,
+)
 
 pipeline = Pipeline("rtsp-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
@@ -79,7 +85,13 @@ url = f"rtsp://mediamtx:8554/output/{cam_id}/high"
 from pathlib import Path
 import threading
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
+from pipeworks.embedded import (
+    RTSPSource,
+    YoloDetect,
+    RTSPPublish,
+    NvidiaDecode,
+    NvidiaEncode,
+)
 
 cameras = [
     ("cam01", "rtsp://192.168.1.10/main"),
@@ -94,7 +106,7 @@ for cam_id, cam_url in cameras:
     # 각 카메라별 경로로 발행
     pipeline.step(NvidiaEncode())
     pipeline.step(RTSPPublish(url=f"rtsp://mediamtx:8554/{cam_id}"))
-    
+
     thread = threading.Thread(target=pipeline.run, daemon=True)
     thread.start()
 ```
