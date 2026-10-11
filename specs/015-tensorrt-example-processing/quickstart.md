@@ -115,3 +115,10 @@ BoxOverlay와 TensorRTPostProcess를 직접 생성한 뒤 제공 YAML의 두 섹
 ## 원격 실행 테스트 구성 수정 검증
 
 두 원격 실행 테스트의 가짜 파이프라인에 development=False를 추가했다. 대상 2개 테스트와 test_async.py 전체 38개 테스트가 통과했다. git diff --check도 통과했다. 앞선 스트림 통일 검증에서 기록한 development 속성 누락 오류는 이번 수정으로 해결했다.
+
+## CudaAsync 내부 스트림 전달 검증
+
+- 내부 작업 컨텍스트의 cuda_stream을 GPU별 작업자 스트림으로 교체하며 원래 스트림 속성과 속성 부재를 결과 반영 시 복원한다. 입력 준비 이벤트 대기와 작업 완료 동기화는 유지한다.
+- YOLO도 cuda_stream을 사용하고 execution의 모델 스트림 ContextVar 및 조회·범위 함수를 제거했다. 이 설계가 앞선 별도 범위 유지 결정을 대체한다.
+- 비동기·프레임 해제·전처리·처리·YOLO 모델 ID·보고 91개 및 TensorRT 직접·배치·모델 ID·최적화 55개 테스트가 모두 통과했다.
+- 소스·테스트·문서에 current_model_stream 및 _model_stream_scope 참조가 없고 git diff --check가 통과했다.

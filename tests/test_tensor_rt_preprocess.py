@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
 
 from pipeworks import Pipeline
 from step.tensor_rt_pre_process import TensorRTPreProcess
-from pipeworks.execution import _frame_scope, _model_stream_scope
+from pipeworks.execution import _frame_scope
 from pipeworks.models import PipelineContext
 
 
@@ -271,7 +271,7 @@ class GpuTests(unittest.TestCase):
 
     def test_frame_release_and_selected_stream_keep_storage_independent(self):
         item = self.image()
-        stream = torch.cuda.Stream()
+        stream = item.cuda_stream
         released = []
 
         def release(event):
@@ -281,10 +281,10 @@ class GpuTests(unittest.TestCase):
                 item.frame.fill_(255)
             released.append(event)
 
-        with _model_stream_scope(stream), _frame_scope(release):
+        with _frame_scope(release):
             self.run_step(item, size=(2, 4), resize_mode="stretch", scale=1)
         self.assertFalse(hasattr(item, "model_cuda_stream"))
-        self.assertIsNot(item.cuda_stream, stream)
+        self.assertIs(item.cuda_stream, stream)
         self.assertEqual(len(released), 1)
         self.assertEqual(item.model_input[0, 0, 0, 0].item(), 10)
         item.cuda_stream.synchronize()

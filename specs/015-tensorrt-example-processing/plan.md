@@ -93,3 +93,7 @@ tests/test_tensor_rt_preprocess.py·test_tensor_rt_processing.py·test_tensor_rt
 ## 원격 실행 테스트 구성 보완 계획
 
  tests/test_async.py의 두 원격 실행 테스트에만 SimpleNamespace(development=False)를 추가한다. 실행 코드와 기존 직렬화 검증은 유지한다. 해당 테스트 두 개를 먼저 실행하고 test_async.py 전체와 공백 검사를 수행한다.
+
+## CudaAsync 내부 스트림 전달 설계
+
+cuda_async.py에서 작업 컨텍스트에 GPU별 작업자 스트림을 설정하고 결과 병합 직전 원본 cuda_stream을 복원한다. 기존 이벤트 대기·작업자 동기화·프레임 해제 정책은 유지한다. execution.py의 모델 스트림 ContextVar와 범위를 제거하고 yolo_detect.py의 선택 경로를 item.cuda_stream으로 통일한다. tests/test_async.py와 전처리 테스트의 기존 범위 의존성을 갱신하며 관련 문서도 수정한다. GPU·오류·타임아웃 회귀와 공백 검사를 실행한다.

@@ -376,8 +376,6 @@ class ProfileSelectionTests(unittest.TestCase):
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
 class InputDependencyTests(unittest.TestCase):
     def test_delayed_input_without_cpu_event_wait(self):
-        from pipeworks.execution import _model_stream_scope
-
         class Session:
             def __init__(self, *args):
                 pass
@@ -410,7 +408,6 @@ class InputDependencyTests(unittest.TestCase):
                         "pipeworks.embedded.tensor_rt_inference._EngineSession", Session
                     ),
                     patch("torch.cuda.Stream", return_value=consumer),
-                    _model_stream_scope(consumer if same_stream else None),
                 ):
                     result = list(
                         TensorRTInference(Path("model.engine")).process(iter([item]))

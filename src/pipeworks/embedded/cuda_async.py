@@ -13,7 +13,7 @@ from typing import Iterator
 import torch
 
 from pipeworks.models import PipelineContext, Step
-from pipeworks.execution import _input_scope, _frame_scope, _model_stream_scope
+from pipeworks.execution import _input_scope, _frame_scope
 from pipeworks.hotswap import Hotswap, is_embedded_step
 from pipeworks.detection_profile import status
 
@@ -339,6 +339,8 @@ class CudaAsync(Step):
                         stream = model_streams[device] = torch.cuda.Stream(
                             device=device
                         )
+                    if stream is not None:
+                        request.item.cuda_stream = stream
                     try:
                         callback = (
                             (
@@ -355,7 +357,6 @@ class CudaAsync(Step):
                         with (
                             _input_scope(callback),
                             _frame_scope(frame_callback),
-                            _model_stream_scope(stream),
                         ):
                             with (
                                 torch.cuda.stream(stream)
@@ -467,6 +468,10 @@ class CudaAsync(Step):
                     with slot.condition:
                         if request.done.is_set() and request.result is not None:
                             fields = vars(request.result).copy()
+                            if "cuda_stream" in vars(item):
+                                fields["cuda_stream"] = item.cuda_stream
+                            else:
+                                fields.pop("cuda_stream", None)
                             vars(item).clear()
                             vars(item).update(fields)
                             del fields

@@ -272,7 +272,6 @@ class DetectionCudaTests(unittest.TestCase):
         from pipeworks.embedded import CudaAsync
         from pipeworks.detection_profile import store
         from pipeworks.models import Step
-        from pipeworks.execution import current_model_stream
 
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
         from step.tensor_rt_pre_process import TensorRTPreProcess
@@ -286,7 +285,7 @@ class DetectionCudaTests(unittest.TestCase):
 
             def process(self, inputs):
                 for item in inputs:
-                    current_model_stream().synchronize()
+                    item.cuda_stream.synchronize()
                     entered.set()
                     unblock.wait(3)
                     item.model_output = None

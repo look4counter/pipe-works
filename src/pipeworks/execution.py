@@ -6,7 +6,6 @@ from contextvars import ContextVar
 
 _input_release = ContextVar("pipeworks_input_release", default=None)
 _frame_release = ContextVar("pipeworks_frame_release", default=None)
-_model_stream = ContextVar("pipeworks_model_stream", default=None)
 _source_cancel = ContextVar("pipeworks_source_cancel", default=None)
 
 
@@ -21,19 +20,6 @@ def _source_cancel_scope(cancel):
         yield
     finally:
         _source_cancel.reset(token)
-
-
-def current_model_stream():
-    return _model_stream.get()
-
-
-@contextmanager
-def _model_stream_scope(stream):
-    token = _model_stream.set(stream)
-    try:
-        yield
-    finally:
-        _model_stream.reset(token)
 
 
 def release_input(*, ready_event=None) -> None:

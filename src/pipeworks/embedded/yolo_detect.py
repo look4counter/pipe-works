@@ -9,7 +9,7 @@ from typing import Iterator
 import torch
 
 from pipeworks.embedded.stream_report import record_inference, record_stage
-from pipeworks.execution import release_frame, current_model_stream
+from pipeworks.execution import release_frame
 from pipeworks.models import PipelineContext, Step
 from pipeworks.detection_profile import begin, span, status, use
 from pipeworks.local_yolo import (
@@ -175,7 +175,7 @@ class YoloDetect(Step):
         return frame[: height * 3 // 2, :width]
 
     def _prepare_rgb(self, item: PipelineContext):
-        stream = current_model_stream() or item.cuda_stream
+        stream = item.cuda_stream
         producer_ready = torch.cuda.Event()
         producer_ready.record(item.cuda_stream)
         stream.wait_event(producer_ready)
@@ -197,7 +197,7 @@ class YoloDetect(Step):
                     profile = begin("YOLO")
                     with use(profile):
                         with span(
-                            "preprocess", current_model_stream() or item.cuda_stream
+                            "preprocess", item.cuda_stream
                         ):
                             image, ready_event = self._prepare_rgb(item)
                             release_frame(ready_event=ready_event)
@@ -248,15 +248,7 @@ class YoloDetect(Step):
                         image = self._prepare_frame(item)
                         ready_event = torch.cuda.Event()
                         ready_event.record(item.cuda_stream)
-                    managed = current_model_stream()
-                    if managed is not None:
-                        if managed.device.index != self.gpu_id:
-                            raise ValueError(
-                                "CudaAsync 모델 스트림의 GPU가 gpu_id와 다릅니다."
-                            )
-                        stream = managed
-                    elif stream is None or stream.device.index != self.gpu_id:
-                        stream = torch.cuda.Stream(device=self.gpu_id)
+                    stream = item.cuda_stream
                     with torch.cuda.stream(stream):
                         stream.wait_event(ready_event)
                         image.record_stream(stream)

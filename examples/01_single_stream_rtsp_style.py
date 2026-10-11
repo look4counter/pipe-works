@@ -29,6 +29,8 @@ def build_pipeline() -> Pipeline:
         )
         .step(RTSPSource("rtsp://210.99.70.120:1935/live/cctv001.stream"))
         .step(NvidiaDecode())
+        ###
+
         .step(MetadataFromDB())
         .step(
             CudaAsync(
@@ -45,6 +47,8 @@ def build_pipeline() -> Pipeline:
         )
         .step(BoxOverlay())
         .step(Tap(SaveInferenceResultToDB()))
+
+        ###
         .step(NvidiaEncode())
         .step(RTSPPublish("rtsp://localhost:8554/cctv001"))
         .step(StreamReport())

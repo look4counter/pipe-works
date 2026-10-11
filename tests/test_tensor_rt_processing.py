@@ -50,7 +50,6 @@ class ProcessingTests(unittest.TestCase):
     ):
         from threading import Event
         from pipeworks.embedded import CudaAsync
-        from pipeworks.execution import current_model_stream
         from pipeworks.models import Step
 
         item = self.frame()
@@ -65,7 +64,7 @@ class ProcessingTests(unittest.TestCase):
 
             def process(inner, inputs):
                 for working in inputs:
-                    current_model_stream().synchronize()
+                    item.cuda_stream.synchronize()
                     observed.append(working.model_input)
                     entered.set()
                     unblock.wait(5)

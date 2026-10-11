@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 from pipeworks import Pipeline
 from pipeworks.embedded import CudaAsync, YoloDetect
-from pipeworks.execution import current_model_stream, release_frame
+from pipeworks.execution import release_frame
 from pipeworks.image_transform import ImageTransform
 from pipeworks.models import PipelineContext
 from step.box_overlay import BoxOverlay
@@ -198,7 +198,7 @@ class YoloIdGpuTests(unittest.TestCase):
 
                 def slow(*args, **kwargs):
                     ready = torch.cuda.Event()
-                    ready.record(current_model_stream())
+                    ready.record(item.cuda_stream)
                     release_frame(ready_event=ready)
                     entered.set()
                     unblock.wait(5)

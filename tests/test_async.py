@@ -55,25 +55,23 @@ class AsyncTests(unittest.TestCase):
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
     def test_manages_shared_model_stream_and_preserves_video_stream(self):
-        from pipeworks.execution import current_model_stream
-
         producer = torch.cuda.Stream()
         observed = []
 
         def process(item, index):
-            managed = current_model_stream()
+            managed = item.cuda_stream
             observed.append(managed.cuda_stream)
             self.assertEqual(
                 torch.cuda.current_stream().cuda_stream, managed.cuda_stream
             )
             self.assertNotEqual(managed.cuda_stream, producer.cuda_stream)
-            self.assertIs(item.cuda_stream, producer)
+            self.assertIsNot(item.cuda_stream, producer)
             return item
 
         wrapper = CudaAsync(
             FunctionStep(process), FunctionStep(process), timeout_ms=1000
         )
-        list(
+        results = list(
             wrapper.process(
                 iter(
                     [
@@ -85,7 +83,39 @@ class AsyncTests(unittest.TestCase):
         )
         self.assertEqual(len(set(observed)), 1)
         self.assertEqual(len(observed), 4)
-        self.assertIsNone(current_model_stream())
+        self.assertTrue(all(item.cuda_stream is producer for item in results))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
+    def test_worker_stream_is_not_added_to_original_context(self):
+        source = PipelineContext(frame=torch.ones(1, device="cuda"))
+
+        def process(item, _):
+            self.assertIsNotNone(item.cuda_stream)
+            item.result = item.frame + 2
+            return item
+
+        outputs = list(
+            CudaAsync(FunctionStep(process), timeout_ms=1000).process(iter([source]))
+        )
+        self.assertEqual(outputs, [source])
+        self.assertFalse(hasattr(source, "cuda_stream"))
+        torch.testing.assert_close(source.result, torch.full((1,), 3.0, device="cuda"))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
+    def test_error_keeps_original_stream(self):
+        producer = torch.cuda.Stream()
+        source = PipelineContext(cuda_stream=producer)
+
+        def process(item, _):
+            self.assertIsNot(item.cuda_stream, producer)
+            raise ValueError("예상 오류")
+
+        with self.assertLogs("pipeworks.embedded.cuda_async", level="ERROR"):
+            outputs = list(
+                CudaAsync(FunctionStep(process), timeout_ms=1000).process(iter([source]))
+            )
+        self.assertEqual(outputs, [source])
+        self.assertIs(source.cuda_stream, producer)
 
     def test_pipeline_internal_class_settings_change_independently(self):
         from pipeworks import Pipeline
