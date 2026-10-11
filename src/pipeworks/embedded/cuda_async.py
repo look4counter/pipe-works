@@ -15,7 +15,8 @@ import torch
 from pipeworks.models import PipelineContext, Step
 from pipeworks.execution import _input_scope, _frame_scope
 from pipeworks.hotswap import Hotswap, is_embedded_step
-from pipeworks.detection_profile import status
+from pipeworks.embedded.yolo_detect_report import status as yolo_status
+from pipeworks.embedded.tensor_rt_report import status as tensor_rt_status
 
 
 logger = logging.getLogger(__name__)
@@ -411,6 +412,7 @@ class CudaAsync(Step):
         worker = None
         acquired = False
         output_writer = _current_output_writer()
+        reporters = {"YOLO": yolo_status, "TensorRT": tensor_rt_status}
         kinds = set()
         for step in self.steps:
             original = step.wrapped_step if isinstance(step, Hotswap) else step
@@ -437,7 +439,7 @@ class CudaAsync(Step):
                     acquired = self._session_lock.acquire(blocking=False)
                     if not acquired:
                         for kind in kinds:
-                            status(kind, "busy")
+                            reporters[kind](kind, "busy")
                         yield item
                         del item
                         continue
@@ -448,7 +450,7 @@ class CudaAsync(Step):
                     except Exception as error:
                         request.error = error
                         for kind in kinds:
-                            status(kind, "error")
+                            reporters[kind](kind, "error")
                         logger.exception(
                             "CudaAsync 입력 준비에 실패하여 원본을 전달합니다."
                         )
@@ -482,7 +484,7 @@ class CudaAsync(Step):
                                 or request.completed_at > request.deadline
                             ):
                                 for kind in kinds:
-                                    status(kind, "timeout")
+                                    reporters[kind](kind, "timeout")
                             input_finished = (
                                 request.done.is_set() and request.input_drained
                             )
@@ -496,7 +498,7 @@ class CudaAsync(Step):
                         continue
                 else:
                     for kind in kinds:
-                        status(kind, "busy")
+                        reporters[kind](kind, "busy")
                 yield item
                 del item
                 request = None

@@ -16,8 +16,8 @@ Python 3.11, PyTorch 2.2.1, Ultralytics 8.4.146, TensorRT 10.10을 사용한다.
 
 ## 구조와 설계
 
-- `src/pipeworks/detection_profile.py`: 요청 프로파일, CPU/GPU 구간, 실행별 통계, 활성 상태, 최근 10초 및 최대 10000개 표본 제한.
-- `src/pipeworks/embedded/yolo_detect_report.py`, `tensor_rt_report.py`: 공통 출력 구현을 상속하는 공개 Step.
+- 각 Report 모듈: 독립 요청 프로파일, CPU/GPU 구간, 실행별 통계, 활성 상태, 최근 10초 및 최대 10000개 표본 제한.
+- `src/pipeworks/embedded/yolo_detect_report.py`, `tensor_rt_report.py`: 각 파일에서 Step을 직접 구현하는 독립 공개 Step.
 - `src/pipeworks/embedded/stream_report.py`: 기존 실행 통계에 감지 저장소 연결.
 - `src/pipeworks/embedded/yolo_detect.py`, `local_yolo.py`: 전처리, predictor inference와 postprocess, 좌표 복원, 상태 기록.
 - `src/pipeworks/embedded/tensor_rt_inference.py`, `local_tensor_rt.py`, `examples/step/tensor_rt_pre_process.py`, `tensor_rt_post_process.py`: 모델 준비, 입력 대기·결합·출력 복사와 감지 계측.
@@ -36,3 +36,11 @@ Python 3.11, PyTorch 2.2.1, Ultralytics 8.4.146, TensorRT 10.10을 사용한다.
 `examples/step/tensor_rt_post_process.py`에서 모듈 초기화 시 torchvision을 명시적으로 가져온다. 설치된 Ultralytics는 sys.modules에 torchvision이 있으면 torchvision.ops.nms를 선택한다. 기존 torchvision 의존성을 사용하므로 추가 패키지는 필요하지 않다. 기존 NMS 호출과 후처리 알고리즘은 유지한다.
 
 새 프로세스에서 후처리 모듈을 가져온 후 torchvision 로드를 확인하고 CUDA 후보를 입력하여 torchvision.ops.nms 호출을 관찰한다. 기존 `tests/test_tensor_rt_processing.py`와 `tests/test_detection_report.py`를 실행하여 감지 결과와 계측을 검증한다. 헌법은 미작성 템플릿이고 설계 원칙 위반은 없다.
+
+## 독립 구현 설계
+
+각 embedded Report 모듈에 프로파일·표본·제한된 통계·ContextVar·출력 루프를 별도로 둔다. 공통 기반 클래스 없이 각 공개 클래스가 Step을 직접 상속한다. 실행 범위는 기존 stream_report의 _stats를 사용하되 yolo_detection_stats와 tensor_rt_detection_stats 필드를 분리한다. YOLO·TensorRT 실행 및 예제 계측 import를 각각 전환하고 CudaAsync 상태 기록도 종류별 Report 함수로 전달한다. 공통 모듈은 제거하며 tests/test_detection_report.py의 두 독립 경로·교차 활성화·프로파일 격리와 기존 GPU·배치 회귀를 검증한다.
+
+## 측정값 중심 출력 설계
+
+두 Report의 _write를 각각 수정한다. 기간별 표본이 없으면 해당 기간을 생략하고 양쪽 모두 없으면 행을 생략한다. GPU 값이 있는 경우에만 GPU 항목을 덧붙인다. 전체·기타는 경과 시간 레이블을 사용한다. tests/test_detection_report.py에서 두 Report의 없는 행·CPU 전용·GPU 값·기간별 누락을 검증한다. 문서의 없음 표기 안내를 갱신한다.

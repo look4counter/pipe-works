@@ -7,7 +7,7 @@ from typing import Iterator
 import torch
 import torch.nn.functional as F
 
-from pipeworks.detection_profile import begin, span, use
+from pipeworks.embedded.tensor_rt_report import begin, span, use
 from pipeworks.execution import release_frame
 from pipeworks.image import nv12_to_rgb
 from pipeworks.image_transform import ImageTransform

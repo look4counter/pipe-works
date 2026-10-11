@@ -11,7 +11,7 @@ from ultralytics.utils.ops import xywh2xyxy
 from ultralytics.utils.nms import non_max_suppression
 
 from pipeworks.models import Step
-from pipeworks.detection_profile import span, use
+from pipeworks.embedded.tensor_rt_report import span, use
 
 
 class TensorRTPostProcess(Step):

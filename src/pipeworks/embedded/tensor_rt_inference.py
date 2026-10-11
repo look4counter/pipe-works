@@ -14,7 +14,7 @@ import yaml
 
 from pipeworks.embedded.stream_report import record_inference
 from pipeworks.models import PipelineContext, Step
-from pipeworks.detection_profile import _current, begin, span
+from pipeworks.embedded.tensor_rt_report import _current, begin, span
 
 
 logger = logging.getLogger(__name__)

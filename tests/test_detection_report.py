@@ -16,8 +16,57 @@ import torch
 
 
 class DetectionProfileTests(unittest.TestCase):
+    def test_report_implementations_have_independent_activation_and_profiles(self):
+        from pipeworks.embedded import yolo_detect_report as yolo
+        from pipeworks.embedded import tensor_rt_report as tensor
+        from pipeworks.models import Step
+
+        self.assertEqual(yolo.YoloDetectReport.__bases__, (Step,))
+        self.assertEqual(tensor.TensorRTReport.__bases__, (Step,))
+        with report_scope():
+            self.assertIsNot(yolo.store(), tensor.store())
+            yolo.store().activate("YOLO")
+            self.assertIsNone(tensor.begin("TensorRT"))
+            tensor.store().activate("TensorRT")
+            first, second = yolo.begin("YOLO"), tensor.begin("TensorRT")
+            with yolo.use(first), tensor.use(second):
+                with yolo.span("inference"):
+                    pass
+                self.assertNotIn("inference", second.parts)
+                with tensor.span("postprocess"):
+                    pass
+                self.assertNotIn("postprocess", first.parts)
+            first.finish()
+            second.finish("error")
+            self.assertEqual(yolo.store().snapshot("YOLO", 0)["states"], {"completed": 1})
+            self.assertEqual(tensor.store().snapshot("TensorRT", 0)["states"], {"error": 1})
+
+    def test_reports_only_print_available_measurements(self):
+        from collections import Counter
+        from pipeworks.embedded import YoloDetectReport, TensorRTReport
+
+        snapshot = {
+            "window": {"inference": (2, 3, 4, 3), "total": (6, 3, None, 0)},
+            "recent": {"input_wait": (1, 2, None, 0), "other": (0.5, 2, None, 0)},
+            "states": Counter(),
+            "recent_states": Counter(),
+        }
+        stats = SimpleNamespace(snapshot=lambda *args: snapshot)
+        for report in (YoloDetectReport(), TensorRTReport()):
+            with self.subTest(report=type(report).__name__):
+                output = StringIO()
+                with redirect_stdout(output):
+                    report._write(stats, 0)
+                text = output.getvalue()
+                self.assertNotIn("없음", text)
+                self.assertNotIn("배치 큐 대기:", text)
+                self.assertIn("모델 실행: CPU 2.00ms(n=3), GPU 4.00ms(n=3)/1s", text)
+                self.assertIn("전체: 경과 시간 6.00ms(n=3)/1s", text)
+                self.assertIn("입력 동기화: CPU 1.00ms(n=2)/10s", text)
+                self.assertIn("기타 실행 비용: 경과 시간 0.50ms(n=2)/10s", text)
+
     def test_request_parts_are_summed_and_runs_are_isolated(self):
-        from pipeworks.detection_profile import store, Profile
+        from pipeworks.embedded.yolo_detect_report import store, Profile
 
         with report_scope():
             stats = store()
@@ -33,7 +82,7 @@ class DetectionProfileTests(unittest.TestCase):
                 self.assertEqual(store().snapshot("YOLO", 0)["recent"], {})
 
     def test_pending_events_are_not_synchronized(self):
-        from pipeworks.detection_profile import store, Profile
+        from pipeworks.embedded.tensor_rt_report import store, Profile
 
         start = SimpleNamespace(elapsed_time=lambda end: 4.0)
         end = SimpleNamespace(query=lambda: False)
@@ -49,7 +98,8 @@ class DetectionProfileTests(unittest.TestCase):
 
     def test_report_preserves_objects_and_flushes_short_run(self):
         from pipeworks.embedded import YoloDetectReport, TensorRTReport
-        from pipeworks.detection_profile import begin
+        from pipeworks.embedded.yolo_detect_report import begin as yolo_begin
+        from pipeworks.embedded.tensor_rt_report import begin as tensor_rt_begin
 
         for report, kind in (
             (YoloDetectReport(), "YOLO"),
@@ -58,7 +108,7 @@ class DetectionProfileTests(unittest.TestCase):
             item = PipelineContext(value=1)
 
             def inputs():
-                profile = begin(kind)
+                profile = (yolo_begin if kind == "YOLO" else tensor_rt_begin)(kind)
                 profile.add("inference", 0.004)
                 profile.finish("completed")
                 yield item
@@ -71,7 +121,7 @@ class DetectionProfileTests(unittest.TestCase):
             self.assertIn("CPU 4.00ms", output.getvalue())
 
     def test_disabled_measurement_does_not_create_events(self):
-        from pipeworks.detection_profile import begin, span
+        from pipeworks.embedded.yolo_detect_report import begin, span
 
         with report_scope(), patch("torch.cuda.Event") as event:
             self.assertIsNone(begin("YOLO"))
@@ -80,19 +130,19 @@ class DetectionProfileTests(unittest.TestCase):
             event.assert_not_called()
 
     def test_recent_window_expires_and_history_is_bounded(self):
-        from pipeworks.detection_profile import DetectionStats, Sample
+        from pipeworks.embedded.yolo_detect_report import DetectionStats, Sample
 
         stats = DetectionStats()
-        with patch("pipeworks.detection_profile.time.perf_counter", return_value=1):
+        with patch("pipeworks.embedded.yolo_detect_report.time.perf_counter", return_value=1):
             for _ in range(10001):
                 stats.record("YOLO", {"inference": Sample(0.002)}, "completed")
         self.assertEqual(len(stats.samples["YOLO"]), 10000)
-        with patch("pipeworks.detection_profile.time.perf_counter", return_value=12):
+        with patch("pipeworks.embedded.yolo_detect_report.time.perf_counter", return_value=12):
             self.assertEqual(stats.snapshot("YOLO", 11)["recent"], {})
             self.assertEqual(len(stats.states["YOLO"]), 0)
 
     def test_finish_records_once_and_report_types_do_not_mix(self):
-        from pipeworks.detection_profile import store, Profile
+        from pipeworks.embedded.yolo_detect_report import store, Profile
 
         with report_scope():
             stats = store()
@@ -150,7 +200,7 @@ class DetectionCudaTests(unittest.TestCase):
         )
 
     def test_gpu_span_never_adds_synchronization(self):
-        from pipeworks.detection_profile import Profile, span, use
+        from pipeworks.embedded.yolo_detect_report import Profile, span, use
 
         stream = torch.cuda.Stream()
         profile = Profile("YOLO")
@@ -171,7 +221,7 @@ class DetectionCudaTests(unittest.TestCase):
 
     def test_real_yolo_single_and_batch_have_separate_model_and_nms_times(self):
         from pipeworks.embedded import YoloDetect
-        from pipeworks.detection_profile import store
+        from pipeworks.embedded.yolo_detect_report import store
 
         path = Path(__file__).resolve().parents[1] / "examples/model/yolo11n.pt"
         if not path.is_file():
@@ -194,7 +244,7 @@ class DetectionCudaTests(unittest.TestCase):
 
     def test_real_tensor_rt_pipeline_has_all_stages(self):
         from pipeworks.embedded import TensorRTInference
-        from pipeworks.detection_profile import store, _current
+        from pipeworks.embedded.tensor_rt_report import store, _current
 
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
         from step.tensor_rt_pre_process import TensorRTPreProcess
@@ -226,7 +276,7 @@ class DetectionCudaTests(unittest.TestCase):
 
     def test_batch_profiles_return_to_their_original_run(self):
         from pipeworks import local_tensor_rt
-        from pipeworks.detection_profile import begin, span, store
+        from pipeworks.embedded.tensor_rt_report import begin, span, store
 
         class Session:
             def __init__(self, *args):
@@ -270,7 +320,7 @@ class DetectionCudaTests(unittest.TestCase):
 
     def test_tensor_timeout_records_partial_work(self):
         from pipeworks.embedded import CudaAsync
-        from pipeworks.detection_profile import store
+        from pipeworks.embedded.tensor_rt_report import store
         from pipeworks.models import Step
 
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
@@ -314,7 +364,7 @@ class DetectionCudaTests(unittest.TestCase):
 class DetectionAsyncTests(unittest.TestCase):
     def test_busy_and_timeout_are_separate_from_late_completion(self):
         from pipeworks.embedded import CudaAsync, YoloDetect
-        from pipeworks.detection_profile import begin, store
+        from pipeworks.embedded.yolo_detect_report import begin, store
         from pipeworks.execution import release_frame
 
         entered, unblock = Event(), Event()
@@ -346,7 +396,7 @@ class DetectionAsyncTests(unittest.TestCase):
 
     def test_quick_error_is_not_counted_as_timeout(self):
         from pipeworks.embedded import CudaAsync, YoloDetect
-        from pipeworks.detection_profile import store
+        from pipeworks.embedded.yolo_detect_report import store
 
         with report_scope():
             stats = store()

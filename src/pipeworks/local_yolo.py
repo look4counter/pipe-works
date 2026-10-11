@@ -14,7 +14,7 @@ import time
 import torch
 import torch.nn.functional as F
 import yaml
-from pipeworks.detection_profile import Profile, span, use
+from pipeworks.embedded.yolo_detect_report import Profile, span, use
 
 
 _workers: dict[Path, "_ModelWorker"] = {}

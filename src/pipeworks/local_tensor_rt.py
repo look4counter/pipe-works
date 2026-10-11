@@ -19,7 +19,7 @@ from pipeworks.embedded.tensor_rt_inference import (
     _load_model_config,
     _validate_profile_index,
 )
-from pipeworks.detection_profile import Profile, span, use
+from pipeworks.embedded.tensor_rt_report import Profile, span, use
 
 
 _workers = {}

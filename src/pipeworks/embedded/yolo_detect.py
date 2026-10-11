@@ -11,7 +11,7 @@ import torch
 from pipeworks.embedded.stream_report import record_inference, record_stage
 from pipeworks.execution import release_frame
 from pipeworks.models import PipelineContext, Step
-from pipeworks.detection_profile import begin, span, status, use
+from pipeworks.embedded.yolo_detect_report import begin, span, status, use
 from pipeworks.local_yolo import (
     _GpuDetectionPredictor,
     _INPUT_SIZE,

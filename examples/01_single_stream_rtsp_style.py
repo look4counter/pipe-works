@@ -29,26 +29,21 @@ def build_pipeline() -> Pipeline:
         )
         .step(RTSPSource("rtsp://210.99.70.120:1935/live/cctv001.stream"))
         .step(NvidiaDecode())
-        ###
-
         .step(MetadataFromDB())
         .step(
             CudaAsync(
                 # YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt", batch = False),
-                # YoloDetect(Path(__file__).with_name("model") / "yolo11n.pt", batch = True),
                 TensorRTPreProcess(),
                 TensorRTInference(
                     Path(__file__).with_name("model") / "yolo11n.plan", batch=False
                 ),
-                # TensorRTInference(Path(__file__).with_name("model") / "yolo11n.plan", batch = True),
                 TensorRTPostProcess(),
                 timeout_ms=20,
             ),
         )
+        .step(TensorRTReport())
         .step(BoxOverlay())
         .step(TapSkipIfBusy(SaveInferenceResultToDB()))
-
-        ###
         .step(NvidiaEncode())
         .step(RTSPPublish("rtsp://localhost:8554/cctv001"))
         .step(StreamReport())
