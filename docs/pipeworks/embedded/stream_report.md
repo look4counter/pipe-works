@@ -18,13 +18,16 @@
 ## 🔑 사용법
 
 ```python
+from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, StreamReport, RTSPPublish
+from pipeworks.embedded import RTSPSource, YoloDetect, StreamReport, RTSPPublish, NvidiaDecode, NvidiaEncode
 
 pipeline = Pipeline("pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
+pipeline.step(NvidiaDecode())
 pipeline.step(YoloDetect(model_path=Path("models/yolov8n.pt")))
 pipeline.step(StreamReport())  # 성능 자동 표시
+pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 pipeline.run()
 ```
@@ -55,8 +58,7 @@ StreamReport는 발행된 스냅샷 참조를 한 번 읽으며, 보고자 초�
 ## ⚙️ 설정 (config.yaml)
 
 ```yaml
-StreamReport:
-  # 자동 표시 (별도 설정 불필요)
+StreamReport: {}  # 이 섹션은 생략해도 됩니다.
 ```
 
 ---

@@ -18,6 +18,7 @@ NVIDIA GPU를 사용해 RTSP 패킷을 디코딩합니다. 내부 스레드에�
 ## 🔑 사용법
 
 ```python
+from pathlib import Path
 from pipeworks import Pipeline
 from pipeworks.embedded import RTSPSource, NvidiaDecode, YoloDetect
 

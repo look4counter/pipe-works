@@ -11,7 +11,7 @@
 Pipeline 클래스는:
 - Step들을 순차 연결하는 **빌더 패턴** 제공
 - YAML 설정 파일 로드 및 적용
-- 파이프라인 실행 (로컬 또는 중앙 서버)
+- 선택한 운영·개발 중앙 프로세스에서 파이프라인 실행
 - 실행 중 설정 변경 감지 (Hotswap)
 
 ---
@@ -41,8 +41,10 @@ pipeline = Pipeline(name="my-pipeline", config=Path("config.yaml"))
 ```python
 pipeline = Pipeline("my-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
+pipeline.step(NvidiaDecode())
 pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
-pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/{stream_id}"))
+pipeline.step(NvidiaEncode())
+pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 ```
 
 **메서드 체이닝 지원:**
@@ -50,7 +52,9 @@ pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/{stream_id}"))
 (
     Pipeline("pipeline", config=Path("config.yaml"))
     .step(RTSPSource(url="rtsp://camera"))
+    .step(NvidiaDecode())
     .step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+    .step(NvidiaEncode())
     .step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 )
 ```
@@ -59,17 +63,19 @@ pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/{stream_id}"))
 
 1. **첫 번째 Step은 Source**: 데이터 입력
 2. **중간 Step들**: 데이터 처리
-3. **마지막 Step은 Sink**: 데이터 출력
+3. **출력 Step**: 앞 단계의 출력 형식에 맞는 소비 단계를 연결합니다. `StreamReport`는 `RTSPPublish` 뒤에도 둘 수 있습니다.
 
 ```python
 # ✅ 올바른 구조
 pipeline.step(RTSPSource(...))  # Source (입력)
+pipeline.step(NvidiaDecode())
 pipeline.step(YoloDetect(...))  # Processing
 pipeline.step(StreamReport(...))  # Processing
+pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(...))  # Sink (출력)
 
 # ❌ 잘못된 구조
-pipeline.step(RTSPPublish(...))  # X: Sink가 먼저 와야 함
+pipeline.step(RTSPPublish(...))  # X: 입력을 만드는 소스가 필요함
 pipeline.step(RTSPSource(...))  # X: Source가 먼저 와야 함
 ```
 
@@ -164,7 +170,9 @@ YoloDetect:
   gpu_id: 0
 
 RTSPPublish:
-  bitrate: "5000k"
+  transport: tcp
+  timeout_ms: 5000
+  packet_size: 1452
 ```
 
 ### 설정 로드 및 적용
@@ -185,6 +193,9 @@ class MyCustomStep(Step):
     def configure(self, config: SimpleNamespace) -> None:
         # config는 YAML의 MyCustomStep 섹션
         self.param1 = getattr(config, "param1", "default")
+
+    def process(self, inputs):
+        yield from inputs
 ```
 
 ### 실행 중 설정 변경 (Hotswap)
@@ -241,11 +252,13 @@ Source 끝
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish
+from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
 
 pipeline = Pipeline("basic-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera/main"))
+pipeline.step(NvidiaDecode())
 pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 
 if __name__ == "__main__":
@@ -267,8 +280,9 @@ YoloDetect:
   inference_interval_frame: 1
 
 RTSPPublish:
-  bitrate: "5000k"
-  framerate: 30
+  transport: tcp
+  timeout_ms: 5000
+  packet_size: 1452
 ```
 
 **실행:**
@@ -298,7 +312,11 @@ class MyProcessor(Step):
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
             if self.enabled and hasattr(context, "detections"):
-                count = len(context.detections)
+                count = sum(
+                    len(result.boxes)
+                    for result in (context.detections or {}).values()
+                    if result is not None
+                )
                 logger.info(f"감지된 객체: {count}")
                 context.detection_count = count
             yield context
@@ -318,20 +336,24 @@ YoloDetect:
   gpu_id: 0
 
 RTSPPublish:
-  bitrate: "5000k"
+  transport: tcp
+  timeout_ms: 5000
+  packet_size: 1452
 ```
 
 **pipeline.py:**
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish
+from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
 from my_processor import MyProcessor
 
 pipeline = Pipeline("custom-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
+pipeline.step(NvidiaDecode())
 pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
 pipeline.step(MyProcessor())
+pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 
 if __name__ == "__main__":
@@ -344,14 +366,16 @@ if __name__ == "__main__":
 import threading
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, StreamReport, RTSPPublish
+from pipeworks.embedded import RTSPSource, YoloDetect, StreamReport, RTSPPublish, NvidiaDecode, NvidiaEncode
 
 
 def create_pipeline(cam_id: str, cam_url: str):
     pipeline = Pipeline(f"pipeline-{cam_id}", config=Path("config.yaml"))
     pipeline.step(RTSPSource(url=cam_url))
+    pipeline.step(NvidiaDecode())
     pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
     pipeline.step(StreamReport())
+    pipeline.step(NvidiaEncode())
     pipeline.step(RTSPPublish(url=f"rtsp://mediamtx:8554/{cam_id}"))
     return pipeline
 
@@ -382,7 +406,7 @@ if __name__ == "__main__":
 
 ## 🛠️ 심화 사용법
 
-### 설정 파일 없이 파이프라인 생성
+### 임시 설정 파일로 파이프라인 생성
 
 임시 설정만 필요할 경우:
 
@@ -396,11 +420,13 @@ config_content = """
 RTSPSource:
   timeout_ms: 5000
 RTSPPublish:
-  bitrate: "5000k"
+  transport: tcp
+  timeout_ms: 5000
+  packet_size: 1452
 """
 
-config_path = Path("/tmp/config.yaml")
-config_path.write_text(config_content)
+config_path = Path("config.temporary.yaml")
+config_path.write_text(config_content, encoding="utf-8")
 
 pipeline = Pipeline("temp-pipeline", config=config_path)
 pipeline.step(RTSPSource(url="rtsp://camera"))
@@ -418,7 +444,9 @@ logger = logging.getLogger(__name__)
 
 pipeline = Pipeline("error-handling", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
+pipeline.step(NvidiaDecode())
 pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 
 try:
@@ -438,7 +466,7 @@ except Exception as e:
 - [Models](models.md): PipelineContext와 Step 정의
 - [Hotswap](hotswap.md): 실행 중 코드/설정 재로드
 - [Main](main.md): 중앙 스트림 프로세싱
-- [Embedded Steps](../embedded/): 내장 Step들
+- [Embedded Steps](embedded/): 내장 Step들
 
 ---
 

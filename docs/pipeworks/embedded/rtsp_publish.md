@@ -1,6 +1,6 @@
 # RTSPPublish: RTSP 스트림 발행
 
-처리된 영상을 RTSP 서버로 발행합니다.
+`packet`과 `video_stream`을 받은 뒤 압축 비디오 패킷을 RTSP 서버로 송출합니다. 원본 패킷 전달은 `RTSPSource → RTSPPublish`, GPU 처리 후 송출은 `RTSPSource → NvidiaDecode → 처리 단계 → NvidiaEncode → RTSPPublish`로 연결합니다.
 
 **파일 위치:** `src/pipeworks/embedded/rtsp_publish.py`  
 **역할**: Sink Step (최종 출력)
@@ -9,22 +9,25 @@
 
 ## 📚 개요
 
-- 처리된 영상을 RTSP로 인코딩 및 발행
+- 입력 스트림을 템플릿으로 연결을 열고 PyAV 패킷 송출
 - MediaMTX와 호환
-- URL 템플릿 지원 (`{stream_id}` 치환)
+- 생성자에서 지정한 URL로 송출
 
 ---
 
 ## 🔑 사용법
 
 ```python
+from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish
+from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
 
 pipeline = Pipeline("rtsp-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
+pipeline.step(NvidiaDecode())
 pipeline.step(YoloDetect(model_path=Path("models/yolov8n.pt")))
-pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/{stream_id}"))
+pipeline.step(NvidiaEncode())
+pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 pipeline.run()
 ```
 
@@ -47,7 +50,6 @@ RTSPPublish:
 |------|------|------|
 | reconnect | 재연결 여부 | true |
 | reconnect_interval_ms | 재연결 간격(밀리초) | 3000 |
-
 | transport | 전송 방식 | tcp, udp |
 | timeout_ms | 제한 시간(밀리초, 기본값 5000) | 250, 5000, 10000 |
 | packet_size | 패킷 크기 | 1452 |
@@ -58,18 +60,13 @@ RTSPPublish:
 
 ---
 
-## 📝 URL 템플릿
+## 📝 송출 URL
 
-`{stream_id}`는 context의 stream_id로 치환됩니다.
+송출 URL은 생성자에서 완성해 지정합니다. 컨텍스트의 속성으로 URL을 자동 치환하지 않습니다.
 
 ```python
-# context.stream_id = "cam01"
-url = "rtsp://mediamtx:8554/{stream_id}"
-# → rtsp://mediamtx:8554/cam01
-
-# 여러 카메라
-url = "rtsp://mediamtx:8554/output/{stream_id}/high"
-# → rtsp://mediamtx:8554/output/cam01/high
+cam_id = "cam01"
+url = f"rtsp://mediamtx:8554/output/{cam_id}/high"
 ```
 
 ---
@@ -79,9 +76,10 @@ url = "rtsp://mediamtx:8554/output/{stream_id}/high"
 ### 다중 카메라 발행
 
 ```python
+from pathlib import Path
 import threading
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish
+from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
 
 cameras = [
     ("cam01", "rtsp://192.168.1.10/main"),
@@ -91,8 +89,10 @@ cameras = [
 for cam_id, cam_url in cameras:
     pipeline = Pipeline(f"pipeline-{cam_id}", config=Path("config.yaml"))
     pipeline.step(RTSPSource(url=cam_url))
+    pipeline.step(NvidiaDecode())
     pipeline.step(YoloDetect(model_path=Path("models/yolov8n.pt")))
     # 각 카메라별 경로로 발행
+    pipeline.step(NvidiaEncode())
     pipeline.step(RTSPPublish(url=f"rtsp://mediamtx:8554/{cam_id}"))
     
     thread = threading.Thread(target=pipeline.run, daemon=True)
@@ -109,8 +109,9 @@ YoloDetect:
   gpu_id: 0
 
 RTSPPublish:
-  bitrate: "5000k"
-  framerate: 30
+  transport: tcp
+  timeout_ms: 5000
+  packet_size: 1452
 ```
 
 ---
@@ -118,8 +119,8 @@ RTSPPublish:
 ## 💡 TIP
 
 1. **MediaMTX 설정**: RTSP 서버가 실행 중이어야 함
-2. **비트레이트**: 낮을수록 빠르지만 화질 저하
-3. **코덱 선택**: h264 (호환성), hevc (효율성)
+2. **인코딩 위치**: 프레임을 처리했으면 `NvidiaEncode`에서 패킷을 만든 뒤 송출
+3. **스트림 형식**: 입력 스트림의 코덱·크기·시간 정보를 사용
 
 ---
 

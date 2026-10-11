@@ -11,7 +11,7 @@ RTSP 카메라에서 영상을 받아 파이프라인에 공급합니다.
 - **역할**: Source Step (파이프라인의 입력)
 - **기능**: RTSP 스트림 수신, 패킷 추출, 자동 재연결
 - **의존성**: `av` (PyAV)
-- **GPU**: 지원 안 함 (디코딩은 CPU)
+- **처리**: 압축 비디오 패킷 수신. GPU 디코딩은 `NvidiaDecode`에서 수행
 
 ---
 
@@ -112,14 +112,12 @@ RTSPSource:
 
 ## 📤 생성되는 PipelineContext
 
-각 RTSP 패킷마다 PipelineContext를 생성합니다.
+각 유효한 RTSP 패킷마다 `packet`과 `video_stream`을 담은 컨텍스트를 생성합니다. `frame`·`pixel_format`·`cuda_stream`은 후속 `NvidiaDecode`에서 제공하며 소스 단계는 디코딩하지 않습니다.
 
 ```python
 context = PipelineContext(
     video_stream=av.VideoStream,  # 비디오 스트림 객체
     packet=av.Packet,  # H.264/H.265 패킷
-    pixel_format="NV12",  # 픽셀 포맷 (하드웨어 디코딩 사용 시)
-    # ... GPU 처리 관련 필드
 )
 ```
 
@@ -159,7 +157,7 @@ RTSP 연결 시도
 패킷 끝 (EOS 도달)
     ↓
 reconnect=true → 대기 후 다시 시도
-reconnect=false → 파이프라인 종료
+reconnect=false → 스트림 종료 오류 전달
 ```
 
 ### 에러 재연결
@@ -170,7 +168,7 @@ RTSP 연결 시도
 [실패] → FFmpegError 발생
     ↓
 reconnect=true → 대기 후 다시 시도
-reconnect=false → 파이프라인 중단 (RuntimeError)
+reconnect=false → 원래 FFmpeg 오류 전달
 ```
 
 ---
@@ -215,11 +213,13 @@ RTSPSource:
 ```python
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish
+from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish, NvidiaDecode, NvidiaEncode
 
 pipeline = Pipeline("rtsp-yolo", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera/main"))
+pipeline.step(NvidiaDecode())
 pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 pipeline.run()
 ```
@@ -236,8 +236,9 @@ YoloDetect:
   gpu_id: 0
 
 RTSPPublish:
-  bitrate: "5000k"
-  framerate: 30
+  transport: tcp
+  timeout_ms: 5000
+  packet_size: 1452
 ```
 
 ---

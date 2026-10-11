@@ -48,16 +48,23 @@ print(context.custom_field)
 # RTSPSource에서 생성
 context.video_stream  # av.VideoStream
 context.packet  # av.Packet
-context.pixel_format  # 픽셀 포맷 (e.g., NV12)
 
-# YoloDetect에서 추가
-context.detections  # YOLO/TensorRT 공통 {모델 ID: 결과 또는 None}
-context.cuda_stream  # CUDA 스트림 (GPU 처리 시)
+# NvidiaDecode에서 생성한 새 컨텍스트
+context.frame  # GPU 프레임
+context.pixel_format  # 픽셀 형식 (예: NV12)
+context.cuda_stream  # 영상 처리 CUDA 스트림
+context.processing_started_at  # 후속 처리 시작 시각, perf_counter 기준
 
-# StreamReport에서 추가
-context.inference_time_ms  # 추론 시간 (ms)
-context.receive_time  # 수신 시간 (unix timestamp)
+# YoloDetect 또는 예제 TensorRT 후처리에서 추가
+context.detections  # {모델 ID: 결과 또는 None}
+
+# TensorRT 전처리·추론의 임시 속성
+context.model_input  # GPU 텐서 또는 이름별 GPU 텐서 사전
+context.model_output  # 이름별 GPU 출력 사전 또는 None
+context.model_id  # 모델 실행 ID, 후처리에서 정리
 ```
+
+`StreamReport`는 실행별 수집기의 통계를 읽으며 컨텍스트에 개별 추론 시간이나 수신 시각 필드를 추가하지 않습니다. 디코더·인코더가 새 컨텍스트를 만들 때 임의 입력 속성을 자동 승계하지 않습니다.
 
 #### 필드 접근 패턴
 
@@ -97,7 +104,7 @@ class MyStep(Step):
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         """입력을 받아 처리 후 출력합니다."""
-        pass
+        yield from inputs
 ```
 
 #### configure(config) 메서드
@@ -124,10 +131,13 @@ class MyStep(Step):
         self.threshold = getattr(config, "threshold", 0.5)
         self.gpu_id = getattr(config, "gpu_id", 0)
         self.max_batch_size = getattr(config, "max_batch_size", 32)
+
+    def process(self, inputs):
+        yield from inputs
 ```
 
 **호출 시점:**
-- 파이프라인 시작 시 (초기화)
+- `Pipeline.step()` 등록 시 (초기 구성)
 - Hotswap으로 config.yaml이 변경됨 (재구성)
 
 #### process(inputs) 메서드
@@ -154,7 +164,8 @@ def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext
 **특징:**
 - **Generator 기반**: `yield`를 사용하여 지연 처리
 - **Streaming**: 메모리 효율적 (전체 배열을 메모리에 로드하지 않음)
-- **Back-pressure 처리**: 다운스트림이 느리면 자동으로 업스트림도 느려짐
+- **일반 동기 연결**: 후속 단계의 입력 요청에 맞춰 상류를 소비
+- **백그라운드 단계**: `NvidiaDecode`, `Tap`, `CudaAsync`는 큐·건너뜀·폐기 정책이 있으므로 각 단계의 계약을 확인
 
 #### 에러 처리
 
@@ -203,17 +214,17 @@ class LogStep(Step):
 ```python
 class FilterStep(Step):
     def configure(self, config: SimpleNamespace) -> None:
-        self.min_confidence = getattr(config, "min_confidence", 0.5)
+        pass
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         for context in inputs:
-            if hasattr(context, "detections"):
-                # detections가 있을 때만 전달
-                if context.detections.size > 0:
-                    yield context
-                # 아니면 스킵
-            else:
-                # detections 필드 없으면 원본 전달
+            results = getattr(context, "detections", None)
+            if results is None:
+                yield context
+            elif any(
+                result is not None and len(result.boxes) > 0
+                for result in results.values()
+            ):
                 yield context
 ```
 

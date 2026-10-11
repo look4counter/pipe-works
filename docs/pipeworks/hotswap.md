@@ -296,8 +296,9 @@ class StatefulStep(Step):
 ```
 
 Hotswap 재로드 시:
-- 기본적으로 상태는 보존되지 않음 (새로운 인스턴스 생성)
-- 모델 재로드는 비효율적이므로 주의
+- 새 인스턴스를 만들고 이전 인스턴스의 속성 사전을 얕게 복사하므로 속성에 저장한 모델·캐시를 보존합니다.
+- 최신 설정은 `configure()`로 다시 적용합니다. 처리 생성기의 지역 상태는 새 실행 구간에서 다시 시작합니다.
+- 생성자에서만 수행한 초기화에 의존하지 않도록 새 코드가 기존 속성을 사용할 수 있어야 합니다.
 
 ### 최적화: 상태 유지
 
@@ -322,7 +323,7 @@ step = Hotswap(
 
 - [Pipeline](pipeline.md): 파이프라인 조립
 - [Models](models.md): Step과 PipelineContext
-- [Embedded Steps](../embedded/): 내장 Step 구현
+- [Embedded Steps](embedded/): 내장 Step 구현
 
 ---
 
