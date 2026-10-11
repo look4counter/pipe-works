@@ -1,5 +1,7 @@
 # 범용 전처리 데이터 계약
 
+모듈 파일명 변경은 데이터·클래스·변환 객체 계약을 바꾸지 않는다. 내장 가져오기 경로는 pipeworks.embedded.tensor_rt_pre_process다.
+
 ## 복원 기능을 가진 변환 객체
 
 ImageTransform은 아래 정보를 불변으로 보관하고 ratio는 ratio_xy에서 계산한다. restore_boxes_(boxes)는 모델 입력 픽셀 좌표의 N×4 이상 실수 텐서 앞 네 xyxy 열만 원본 경계로 제자리 복원한다. 장치·자료형·추가 열·저장 공간을 유지하고 같은 텐서를 반환한다. 후처리 계약은 shape와 restore_boxes_뿐이며 수명·정리는 기존과 같다.

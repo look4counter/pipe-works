@@ -10,7 +10,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from pipeworks.embedded.tensor_rt_preprocess import TensorRTPreProcess
+from pipeworks.embedded.tensor_rt_pre_process import TensorRTPreProcess
 
 
 def measure(step, frame, iterations, pixel_format):
@@ -41,7 +41,12 @@ def main():
     if not torch.cuda.is_available():
         parser.error("CUDA is required")
     # Preserve the exact pre-change implementation as the independent baseline.
-    source = subprocess.check_output(["git", "show", "HEAD:src/pipeworks/embedded/tensor_rt_preprocess.py"], cwd=ROOT).decode("utf-8")
+    baseline_path = "src/pipeworks/embedded/tensor_rt_pre_process.py"
+    exists = subprocess.run(["git", "cat-file", "-e", f"HEAD:{baseline_path}"],
+                            cwd=ROOT, capture_output=True)
+    if exists.returncode:
+        baseline_path = "src/pipeworks/embedded/tensor_rt_preprocess.py"
+    source = subprocess.check_output(["git", "show", f"HEAD:{baseline_path}"], cwd=ROOT).decode("utf-8")
     scope = {"__name__": "preprocess_baseline"}
     exec(compile(source, "preprocess_baseline", "exec"), scope)
     baseline_type = scope["TensorRTPreProcess"]

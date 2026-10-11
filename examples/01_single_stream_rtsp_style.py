@@ -10,7 +10,7 @@ from pipeworks.embedded import (
     Tap,
     CudaAsync,
 )
-from pipeworks.embedded.tensor_rt_preprocess import TensorRTPreProcess
+from pipeworks.embedded.tensor_rt_pre_process import TensorRTPreProcess
 from pipeworks.embedded.tensor_rt_inference import TensorRTInference
 from pipeworks.embedded.yolo_detect import YoloDetect
 from pipeworks.embedded.yolo_detect_report import YoloDetectReport

@@ -1,5 +1,13 @@
 # 작업 목록
 
+## 단계 11: 모듈 파일명 변경
+
+- [x] T024 specs/015-tensorrt-example-processing/의 FR-017·SC-009·계획·계약 일관성을 분석한다.
+- [x] T025 [US4] src/pipeworks/embedded/tensor_rt_pre_process.py로 이동하고 src/pipeworks/embedded/__init__.py·examples/01_single_stream_rtsp_style.py·tests/test_image_transform.py·tests/test_tensor_rt_preprocess_optimized.py·tools/benchmark_preprocess.py의 현재 경로를 갱신한다.
+- [x] T026 [US4] specs/015-tensorrt-example-processing/contracts/preprocess.md의 경로를 갱신하고 관련 회귀와 수렴 점검 결과를 quickstart.md에 기록한다.
+
+T024 → T025 → T026 순서로 수행한다. 단일 시나리오 전체가 최소 구현이며 독립 검증은 새 모듈 가져오기와 기존 전처리·좌표 복원·후처리 테스트다.
+
 - [x] T001 명세·명확화·계획을 분석하여 형식과 수용 기준의 일관성을 확인한다. (FR-001~004)
 - [x] T002 두 사용자 Step과 YAML 설정 및 단일 예제를 구현한다. (FR-001~004)
 - [x] T003 합성 GPU 전후처리·예제와 실제 엔진 검증을 실행한다. (SC-001~002)

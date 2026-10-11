@@ -5,7 +5,7 @@ from pipeworks.embedded.nvidia_encode import NvidiaEncode
 from pipeworks.embedded.nvidia_decode import NvidiaDecode
 from pipeworks.embedded.yolo_detect import YoloDetect
 from pipeworks.embedded.tensor_rt_inference import TensorRTInference
-from pipeworks.embedded.tensor_rt_preprocess import TensorRTPreProcess
+from pipeworks.embedded.tensor_rt_pre_process import TensorRTPreProcess
 from pipeworks.embedded.tap import Tap
 from pipeworks.embedded.stream_report import StreamReport
 from pipeworks.embedded.yolo_detect_report import YoloDetectReport

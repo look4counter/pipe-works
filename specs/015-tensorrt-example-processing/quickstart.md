@@ -1,5 +1,11 @@
 # 검증과 사용
 
+## 내장 모듈 파일명 변경 검증 (2026-10-11)
+
+현재 가져오기 경로는 `pipeworks.embedded.tensor_rt_pre_process`다. 패키지 재수출과 직접 가져오기가 같은 클래스를 제공함을 확인했다. 옛 내장 파일은 없고 소스·예제·테스트·도구에 옛 import가 남지 않았다.
+
+좌표 복원 3개·전처리 최적화 3개·전후처리 7개 검증이 통과했다. `tools/benchmark_preprocess.py --iterations 1`도 실행해 과거 HEAD 경로 조회와 RGB/NV12 6개 구성의 수치 비교가 통과했다. `git diff --check`는 통과했다. 수렴 점검에서 FR-017·SC-009의 남은 차이는 없다. 이전에 확인한 옛 예제 모듈 누락 테스트는 이번 내장 파일명 변경 범위에 포함하지 않는다.
+
 ## 좌표 복원 객체 검증 (2026-10-11)
 
 `.venv/Scripts/python.exe -m unittest discover -s tests -p 'test_image_transform.py'`는 3개 검증이 통과했다. CPU·CUDA에서 세 리사이즈 방식·패딩 옵션·확대 제한·빈 결과·경계·추가 열·자료형·저장 공간과 불변 정보를 확인했다.

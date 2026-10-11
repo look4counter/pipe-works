@@ -8,7 +8,7 @@ from unittest.mock import patch
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from pipeworks.embedded.tensor_rt_preprocess import TensorRTPreProcess
+from pipeworks.embedded.tensor_rt_pre_process import TensorRTPreProcess
 
 
 class OptimizedTests(unittest.TestCase):
@@ -38,7 +38,7 @@ class OptimizedTests(unittest.TestCase):
 
     def test_same_size_does_not_interpolate(self):
         step = TensorRTPreProcess(size=(4, 6), resize_mode="stretch")
-        with patch("pipeworks.embedded.tensor_rt_preprocess.F.interpolate",
+        with patch("pipeworks.embedded.tensor_rt_pre_process.F.interpolate",
                    side_effect=AssertionError("unnecessary resize")):
             result, _ = step._resize(torch.zeros(3, 4, 6))
         self.assertEqual(result.shape, (1, 3, 4, 6))

@@ -1,10 +1,14 @@
 # 구현 계획
 
+## 모듈 파일명 변경 계획
+
+src/pipeworks/embedded/tensor_rt_pre_process.py를 tensor_rt_pre_process.py로 이동한다. embedded/__init__.py·단일 예제·좌표 변환 테스트·최적화 테스트·benchmark_preprocess.py의 import와 patch 경로를 바꾼다. 벤치마크의 HEAD 원본 조회는 새 경로를 우선하고 해당 리비전에 없으면 옛 경로를 사용한다. 현재 계약의 소스 경로를 갱신한다. 새 의존성·처리 동작 변경은 없으며 기존 검증을 사용한다. 헌법은 미작성 템플릿이고 한글 문서·speckit 절차를 준수한다.
+
 ## 좌표 복원 객체 후속 계획 (2026-10-11)
 
 이 계획이 기존의 호출자 직접 복원 책임을 대체한다. Python 3.11.9와 기존 PyTorch만 사용한다. src/pipeworks/image_transform.py에 불변 ImageTransform을 정의하고 기존 정보 속성을 유지한다. restore_boxes_는 xyxy의 축별 뷰에 이동량 제거·배율 나누기·경계 제한을 수행한다. CPU 복사·추가 동기화·프레임 참조는 없다.
 
-src/pipeworks/embedded/tensor_rt_preprocess.py는 이 객체를 생성한다. examples/step/tensor_rt_post_process.py의 _restore를 제거하고 메서드를 호출한다. 후처리는 shape와 restore_boxes_만 사용한다. tools/benchmark_postprocess.py도 새 객체를 사용한다.
+src/pipeworks/embedded/tensor_rt_pre_process.py는 이 객체를 생성한다. examples/step/tensor_rt_post_process.py의 _restore를 제거하고 메서드를 호출한다. 후처리는 shape와 restore_boxes_만 사용한다. tools/benchmark_postprocess.py도 새 객체를 사용한다.
 
 tests/test_image_transform.py에서 세 모드·옵션·빈 결과·경계·추가 열·저장 공간을 검증하고 tests/test_tensor_rt_processing.py에서 대체 객체 위임을 확인한다. 기존 좌표 테스트를 갱신하고 전후처리·보고 회귀를 실행한다. 문서와 검증 기록을 갱신한다. 헌법은 미작성 템플릿이며 설계 전후 한글 문서·speckit 절차에 위반은 없다.
 
@@ -20,7 +24,7 @@ examples/01_single_stream_rtsp_style.py의 클래스명·plan 경로·불필요 
 
 Python 3.11.9와 기존 PyTorch 2.2.1 CUDA 연산을 사용하고 새 의존성을 추가하지 않는다. 헌장은 미작성 템플릿이므로 원칙 검사를 생략한다. 한글 문서·순차 speckit 절차를 준수하며 별도 연구가 필요한 미확정 사항은 없다.
 
-src/pipeworks/embedded/tensor_rt_preprocess.py에 옵션 검증·생성자 기본값·GPU 색상 변환·크기 변환·정규화·출력 구성을 구현한다. 기존 NV12 변환을 src/pipeworks/image.py로 분리하고 local_yolo.py는 같은 함수를 기존 이름으로 가져와 YOLO와의 수치 계약을 보존한다. RGB/BGR HWC 입력은 FP32 CHW의 독립 저장 공간으로 변환한다. 모델 라이브러리를 가져오지 않는다.
+src/pipeworks/embedded/tensor_rt_pre_process.py에 옵션 검증·생성자 기본값·GPU 색상 변환·크기 변환·정규화·출력 구성을 구현한다. 기존 NV12 변환을 src/pipeworks/image.py로 분리하고 local_yolo.py는 같은 함수를 기존 이름으로 가져와 YOLO와의 수치 계약을 보존한다. RGB/BGR HWC 입력은 FP32 CHW의 독립 저장 공간으로 변환한다. 모델 라이브러리를 가져오지 않는다.
 
 모든 설정은 구성 검증을 마친 뒤 한 번에 적용한다. _set_config_defaults와 _resolve_config로 기존 설정 우선순위를 유지한다. letterbox는 round와 bilinear 보간·stride 나머지 패딩, stretch는 독립 가로·세로 배율, 중앙 자르기는 size를 채우는 배율과 음수 이동량을 사용한다. 연산은 FP32로 수행하고 마지막에 FP16/FP32 및 NCHW/NHWC를 연속 저장 공간으로 반환한다. 채널별 패딩은 새 GPU 버퍼를 채우고 리사이즈 결과를 복사한다.
 

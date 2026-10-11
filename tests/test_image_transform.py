@@ -7,7 +7,7 @@ from unittest.mock import patch
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from pipeworks.embedded.tensor_rt_preprocess import TensorRTPreProcess
+from pipeworks.embedded.tensor_rt_pre_process import TensorRTPreProcess
 from pipeworks.image_transform import ImageTransform
 
 
