@@ -198,9 +198,24 @@ def run_remote(pipeline) -> None:
             if isinstance(step, CudaAsync):
                 for inner in step.steps:
                     register_step(inner)
-            module_name = type(step).__module__
-            if not module_name.startswith("pipeworks.") and module_name in sys.modules:
-                cloudpickle.register_pickle_by_value(sys.modules[module_name])
+            module_names = {type(step).__module__}
+            # Reused methods can belong to a different user module than the Step.
+            for cls in type(step).__mro__:
+                for member in vars(cls).values():
+                    member = getattr(member, "__func__", member)
+                    module_name = getattr(member, "__module__", None)
+                    if module_name is not None:
+                        module_names.add(module_name)
+            for module_name in module_names:
+                if not module_name.startswith("pipeworks.") and module_name in sys.modules:
+                    if module_name == type(step).__module__ or any(
+                        module_name == cls.__module__.split(".")[0]
+                        or module_name.startswith(cls.__module__.split(".")[0] + ".")
+                        for cls in type(step).__mro__
+                        if not cls.__module__.startswith("pipeworks.")
+                        and cls.__module__ != "builtins"
+                    ):
+                        cloudpickle.register_pickle_by_value(sys.modules[module_name])
 
         for step in pipeline.steps:
             register_step(step)

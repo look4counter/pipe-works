@@ -63,3 +63,7 @@ TensorRTReport와 별도 저장소를 제거하고 YoloReport에서 모든 실�
 ## 전후처리 예제 경계
 
 YoloPreProcess와 YoloPostProcess는 examples/step에서 직접 구현한다. ImageTransform과 nv12_to_rgb는 step.yolo_pre_process에서 가져온다. TensorRTPreProcess/TensorRTPostProcess는 기존 예제 이름을 유지하며 같은 메서드를 재사용한다. YoloDetect 및 infer_detection과 네 코어 이미지 모듈은 제거한다. 기존 감지 파이프라인은 전처리 → 필수 backend를 지정한 YoloInference → 후처리 조합으로 이관한다.
+
+## 재사용 메서드 원격 전달
+
+원격 Step의 사용자 메서드 정의 모듈도 직렬화에 포함한다. 중앙은 예제 패키지를 설치하거나 경로를 추가하지 않아도 전달받은 Step을 복원한다.

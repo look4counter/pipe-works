@@ -174,3 +174,7 @@ YoloDetect 모듈과 embedded export, CudaAsync의 legacy 분류를 삭제한다
 ### 이관 검증 보완
 
 중앙 감지 Source를 예제 전처리·원시 추론·예제 후처리로 바꾸고 전용 서버 그룹에서 검증하여 운영 프로세스에 영향을 주지 않는다. 다중 스트림 예제의 삭제된 PostProcess 가져오기는 실제 존재하는 SaveInferenceResultToDB로 연결한다. 문서의 감지 필터 설정은 YoloPostProcess로, 실행 옵션은 YoloInference로 구분한다.
+
+## 예제 메서드 직렬화 수정
+
+main.run_remote의 register_step에서 타입의 MRO에 정의된 메서드 모듈을 함께 pickle-by-value로 등록한다. TensorRT 래퍼가 재사용한 YoloPreProcess/YoloPostProcess 메서드의 모듈도 포함한다. 파이프라인 연결부와 프로토콜 및 서버 경로는 변경하지 않는다. 새 subprocess에서 step 패키지를 차단하고 실제 전달 payload를 복원해 CPU 좌표·NMS 도우미를 호출하여 참조 누락을 재현한다.

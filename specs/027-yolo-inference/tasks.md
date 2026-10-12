@@ -249,3 +249,12 @@ T077 → T078 → T079 → T080 → T081 순서로 수행한다. 독립 테스�
 - [x] T088 관련 실제 GPU·전후처리·보고·비동기·설정·Overlay 및 세 backend 중앙 배치 테스트를 실행하고 specs/027-yolo-inference/quickstart.md에 결과를 기록한다. (SC-017)
 
 T082 → T083 → T084 → T085 → T086 → T087 → T088 순서로 진행한다. 서로 다른 전후처리 파일 작성은 독립적이나 이번 작업은 순차 수행한다. 코어 삭제와 모든 사용처 이관을 완료한 후 GPU 검증을 수행하고 수렴을 확인한다.
+
+## 단계 40: 원격 예제 전달 수정
+
+- [x] T089 specs/027-yolo-inference/spec.md·plan.md·research.md·contracts/yolo-inference.md에 오류 원인·수정 계약을 기록하고 명확화·체크리스트를 검토한다. (FR-057)
+- [x] T090 [US14] tests/test_remote_example_dependencies.py에 실제 전달 payload의 새 프로세스 복원 회귀를 추가한다. (SC-018)
+- [x] T091 [US14] src/pipeworks/main.py에서 재사용 메서드 정의 모듈을 함께 등록한다. (FR-057)
+- [x] T092 테스트와 기존 원격 직렬화 회귀를 실행하고 specs/027-yolo-inference/quickstart.md에 기록한다. (SC-018)
+
+T089 → T090 → T091 → T092 순서이며 수정은 직렬화 등록 범위에 한정한다.

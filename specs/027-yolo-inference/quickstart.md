@@ -193,3 +193,9 @@ examples/step/yolo_pre_process.py가 NV12 변환·ImageTransform·설정·프레
 | ULTRALYTICS | 30276 | 2, 2 | 같은 세션 | 요청 4개 | 파이프라인별 2 |
 
 현행 문서의 추론 코드 예제 32개와 레퍼런스 JavaScript 구문 검증도 통과했다. 삭제 경로는 현행 소스·예제·문서에 남지 않는다. 다중 스트림 예제의 기존 누락 PostProcess 가져오기는 현재 SaveInferenceResultToDB로 연결했다. 이전 유지 요구는 사용자의 이번 삭제 지시로 대체한다.
+
+## 재사용 예제 메서드 원격 오류 수정: 2026-10-13
+
+TensorRT 예제가 YOLO 예제의 메서드를 재사용하면서 클래스 모듈만 값으로 등록되어 step.yolo_pre_process 참조가 중앙 복원에 남았다. main.run_remote가 Step의 MRO 메서드 정의 모듈도 값으로 등록하도록 수정했다.
+
+새 회귀는 실제 run_remote 전달 payload를 받아 step 패키지를 차단한 독립 Python 프로세스에서 TensorRT 전후처리를 복원하고 리사이즈·좌표 정보·NMS 메서드를 실행한다. 수정 전 같은 ModuleNotFoundError를 재현했고 수정 후 통과했다. 기존 중첩 사용자 Step 등록·패키지 없는 복원 회귀와 함께 총 3개가 통과했다(2.387초). 실제 RTSP 접속은 이 검증에 포함하지 않는다.
