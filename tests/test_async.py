@@ -120,7 +120,8 @@ class AsyncTests(unittest.TestCase):
     def test_pipeline_internal_class_settings_change_independently(self):
         from pipeworks import Pipeline
         from pipeworks.pipeline import _LiveConfig, _watch_async_children
-        from pipeworks.embedded import YoloDetect
+        from pipeworks.embedded import YoloInference
+        from pipeworks import Backend
 
         first = FunctionStep(
             lambda item, index: PipelineContext(value=inner_value(item))
@@ -145,7 +146,7 @@ class AsyncTests(unittest.TestCase):
 
             def save(a, b):
                 path.write_text(
-                    f"FunctionStep:\n  offset: {a}\nOther:\n  offset: {b}\nYoloDetect:\n  confidence: 0.4\n",
+                    f"FunctionStep:\n  offset: {a}\nOther:\n  offset: {b}\nYoloInference:\n  inference_interval_frame: 4\n",
                     encoding="utf-8",
                 )
 
@@ -183,16 +184,16 @@ class AsyncTests(unittest.TestCase):
                 self.assertTrue(wrapper._session_lock.acquire(timeout=1))
                 wrapper._session_lock.release()
 
-            yolo = YoloDetect(Path("model.pt"))
+            yolo = YoloInference(Path("model.pt"), backend=Backend.ULTRALYTICS)
             embedded = CudaAsync(yolo)
             Pipeline("embedded", config=path).step(embedded)
-            self.assertEqual(yolo.confidence, 0.4)
+            self.assertEqual(yolo.inference_interval_frame, 4)
             _watch_async_children(embedded, watcher, vars(pipeline.config))
             embedded._hot_steps[0].check_interval = 0
-            path.write_text("YoloDetect:\n  confidence: 0.6\n", encoding="utf-8")
+            path.write_text("YoloInference:\n  inference_interval_frame: 6\n", encoding="utf-8")
             notify_config_change()
             embedded._hot_steps[0]._check_for_update(force=True)
-            self.assertEqual(yolo.confidence, 0.6)
+            self.assertEqual(yolo.inference_interval_frame, 6)
 
     def test_internal_hotswap_reloads_code_and_preserves_settings(self):
         import sys

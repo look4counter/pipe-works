@@ -15,8 +15,7 @@ import torch
 from pipeworks.models import PipelineContext, Step
 from pipeworks.execution import _input_scope, _frame_scope
 from pipeworks.hotswap import Hotswap, is_embedded_step
-from pipeworks.embedded.yolo_detect_report import status as yolo_status
-from pipeworks.embedded.tensor_rt_report import status as tensor_rt_status
+from pipeworks.embedded.yolo_report import status as yolo_status
 
 
 logger = logging.getLogger(__name__)
@@ -396,9 +395,10 @@ class CudaAsync(Step):
                     request.context.run(_close, outputs)
                     outputs = None
                 finally:
-                    profile = getattr(request.item, "_tensor_rt_profile", None)
-                    if profile is not None and not profile.finished:
-                        profile.finish("error" if result is None else "partial")
+                    for name in ("_inference_profile", "_tensor_rt_profile", "_yolo_profile"):
+                        profile = getattr(request.item, name, None)
+                        if profile is not None and not profile.finished:
+                            profile.finish("error" if result is None else "partial")
                     slot.finish(request, result)
                 request = result = None
         finally:
@@ -412,19 +412,25 @@ class CudaAsync(Step):
         worker = None
         acquired = False
         output_writer = _current_output_writer()
-        reporters = {"YOLO": yolo_status, "TensorRT": tensor_rt_status}
         kinds = set()
+        inference_kinds = set()
         for step in self.steps:
             original = step.wrapped_step if isinstance(step, Hotswap) else step
             names = {cls.__name__ for cls in type(original).__mro__}
-            if "YoloDetect" in names:
+            if "YoloInference" in names:
+                inference_kinds.add(
+                    original.report_kind
+                )
+            if names & {
+                "YoloInference", "YoloPreProcess", "YoloPostProcess"
+            }:
                 kinds.add("YOLO")
             elif names & {
                 "TensorRTPreProcess",
-                "TensorRTInference",
                 "TensorRTPostProcess",
             }:
                 kinds.add("TensorRT")
+        kinds = inference_kinds or kinds
 
         def consume():
             try:
@@ -439,7 +445,7 @@ class CudaAsync(Step):
                     acquired = self._session_lock.acquire(blocking=False)
                     if not acquired:
                         for kind in kinds:
-                            reporters[kind](kind, "busy")
+                            yolo_status(kind, "busy")
                         yield item
                         del item
                         continue
@@ -450,7 +456,7 @@ class CudaAsync(Step):
                     except Exception as error:
                         request.error = error
                         for kind in kinds:
-                            reporters[kind](kind, "error")
+                            yolo_status(kind, "error")
                         logger.exception(
                             "CudaAsync 입력 준비에 실패하여 원본을 전달합니다."
                         )
@@ -484,7 +490,7 @@ class CudaAsync(Step):
                                 or request.completed_at > request.deadline
                             ):
                                 for kind in kinds:
-                                    reporters[kind](kind, "timeout")
+                                    yolo_status(kind, "timeout")
                             input_finished = (
                                 request.done.is_set() and request.input_drained
                             )
@@ -498,7 +504,7 @@ class CudaAsync(Step):
                         continue
                 else:
                     for kind in kinds:
-                        reporters[kind](kind, "busy")
+                        yolo_status(kind, "busy")
                 yield item
                 del item
                 request = None

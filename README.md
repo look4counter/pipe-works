@@ -1,4 +1,4 @@
-# Pipe Works: AI-Powered Video Stream Processing SDK
+# Pipe Works: 실시간 영상 처리 SDK
 
 영상 스트림을 처리하는 실시간 파이프라인을 **선언형 API**로 만드는 Python SDK입니다.  
 사람도 이해하고, **AI Agent도 이를 기반으로 실제 애플리케이션을 구현**할 수 있습니다.
@@ -12,6 +12,8 @@
 - **실시간 처리**: RTSP 스트림, YOLO, NVIDIA GPU 최적화
 - **AI 친화적 문서**: README만으로도 AI Agent가 애플리케이션 구현 가능
 
+전처리와 후처리를 개별 단계로 구성하려면 [YoloInference](docs/pipeworks/embedded/yolo_inference.md)를 사용합니다. GPU `model_input`을 받아 이름별 `model_output`에 모든 원시 출력을 전달합니다. 기본 TorchScript와 사용자 GPU 실행부는 특정 YOLO 라이브러리에 의존하지 않으며, 전처리·후처리 구현은 examples/step의 두 YOLO 예제 파일에서 제공하며 코어에는 포함하지 않습니다.
+
 ---
 
 ## ⚡ 1분 만에 이해하기
@@ -19,26 +21,28 @@
 ### 파이프라인의 흐름
 
 ```
-RTSPSource → YoloDetect → RTSPPublish
-(영상 입력)  (객체 감지)   (결과 송출)
+RTSPSource → NvidiaDecode → YoloPreProcess → YoloInference → YoloPostProcess → NvidiaEncode → RTSPPublish
 ```
 
 ### 최소 코드
 
+examples가 모듈 탐색 경로에 있도록 실행하거나 예제 단계 파일을 애플리케이션에 포함합니다.
+
 ```python
 from pathlib import Path
-from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish
+from pipeworks import Backend, Pipeline
+from pipeworks.embedded import RTSPSource, NvidiaDecode, YoloInference, NvidiaEncode, RTSPPublish
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
 
-# 1. 파이프라인 생성 (YAML 설정 파일 지정)
 pipeline = Pipeline("my-pipeline", config=Path("config.yaml"))
-
-# 2. Step 순차 추가
 pipeline.step(RTSPSource(url="rtsp://camera/main"))
-pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
-pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/{stream_id}"))
-
-# 3. 실행
+pipeline.step(NvidiaDecode())
+pipeline.step(YoloPreProcess())
+pipeline.step(YoloInference(Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS))
+pipeline.step(YoloPostProcess())
+pipeline.step(NvidiaEncode())
+pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 pipeline.run()
 ```
 
@@ -53,15 +57,18 @@ RTSPSource:
   transport: tcp
   timeout_ms: 5000
 
-YoloDetect:
-  classes: null  # null = 모든 클래스
-  confidence: 0.25
+YoloInference:
+  backend: ultralytics
   gpu_id: 0
   inference_interval_frame: 1
 
+YoloPostProcess:
+  classes: null  # null = 모든 클래스
+  confidence: 0.25
+
 RTSPPublish:
-  bitrate: "5000k"
-  framerate: 30
+  reconnect: true
+  transport: tcp
 ```
 
 ---
@@ -96,7 +103,7 @@ class Step(ABC):
 
 **Step의 종류:**
 - **Source Step** (RTSPSource): 영상을 읽어들임
-- **Processing Step** (YoloDetect, CustomProcessor): 데이터 처리
+- **Processing Step** (YoloInference, CustomProcessor): 데이터 처리
 - **Sink Step** (RTSPPublish): 결과를 출력/저장
 - **TapSkipIfBusy Step** (TapSkipIfBusy): 원본을 전달하면서 배경 후처리 실행
 
@@ -163,25 +170,25 @@ RTSP 카메라에서 영상을 읽습니다.
 - **지원**: 입력 하나당 출력 하나인 단계. 공유 입력은 읽기 전용이며 보호 복사는 하지 않습니다. YOLO와 예제 TensorRT 전처리는 RGB 생성 후 원본 사용 종료를 알립니다. 늦은 결과는 폐기합니다.
 - **상세**: [CudaAsync 안내](docs/pipeworks/embedded/async.md)
 
-#### **YoloDetect**
-선택 프레임의 YOLO 감지를 동기로 실행하고 GPU 결과 준비까지 기다립니다. 오류는 호출자에게 전파합니다.
+#### **YoloInference**
 
-- **역할**: 객체 감지 (별도 CUDA 스트림에서 동기 처리, 영상·감지 결과의 CPU 복사 금지)
-- **사용**: `pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))`
-- **모델 식별**: `YoloDetect(model_path, id="vehicle")`. 생략하면 모델 파일명을 사용하고 결과는 `context.detections[id]`에서 읽습니다. 같은 ID는 교체하며 다른 모델 결과는 보존합니다. 여러 모델의 Overlay는 모든 추론 뒤에 둡니다.
-- **선택적 배치**: `YoloDetect(model_path, batch=True)`. 기본값은 `False`이며 True는 GPU 입력 복제와 사용 종료 신호를 직접 처리하고 `local_yolo.infer()`에 제출합니다. 배치 수집은 모델 동명 `.yml`의 `max_batch_size`, 밀리초 `timeout`으로 설정합니다.
-- **설정**: `classes`, `confidence`, `gpu_id`, `inference_interval_frame`
-- **선택적 비동기**: `pipeline.step(CudaAsync(YoloDetect(model_path), timeout_ms=5))`. 단일 감지는 모델 동명 `.yml`의 `timeout`을 읽지 않습니다.
-- **상세**: [docs/pipeworks/embedded/yolo_detect.md](docs/pipeworks/embedded/yolo_detect.md)
+- **역할**: 준비된 GPU `model_input`을 실행하여 모든 원시 GPU 출력을 이름별 `model_output`으로 전달합니다. TorchScript 실행부는 TorchScript이며 사용자 실행부를 선택할 수 있습니다.
+- **사용**: `pipeline.step(YoloInference(Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS))`
+- **연결**: 전처리 → `YoloInference` → 후처리 순서로 구성하며 개별·공유 배치와 `CudaAsync`를 지원합니다.
+- **상세**: [YoloInference 안내](docs/pipeworks/embedded/yolo_inference.md)
 
-#### **TensorRTInference**
+예제의 `step.yolo_pre_process.YoloPreProcess`와 `step.yolo_post_process.YoloPostProcess`를 앞뒤로 연결하면 GPU 전처리·NMS·좌표 복원을 수행하고 `YoloReport`에서 전체 YOLO 처리 시간을 확인할 수 있습니다. 전처리는 기본 RGB NCHW FP32, 후처리는 모든 COCO 클래스를 대상으로 하며 생성자와 클래스별 YAML로 설정합니다.
+
+#### **YoloInference의 TensorRT 실행**
+
+YOLO와 TensorRT 전후처리 예제는 같은 옵션과 `image_transform` 계약을 사용하므로 전후처리를 유지하고 추론 단계만 교체할 수 있습니다. 두 후처리의 기본 클래스 필터는 `None`이며 차량만 필요하면 `classes=[2]`를 지정합니다. [공통 계약과 교체 예제](docs/pipeworks/embedded/yolo_inference.md)를 참고하세요.
 전처리 단계의 `context.model_input` GPU 텐서를 TensorRT로 추론하고 `context.model_output`에 원시 GPU 출력을 저장합니다.
 
 - **입출력**: 단일 텐서 또는 입력 이름별 GPU 텐서 사전 → 출력 이름별 GPU 텐서 사전. 바인딩 이름은 엔진에서 읽습니다.
-- **사용**: `pipeline.step(TensorRTInference(Path("models/model.engine")))`
+- **사용**: `pipeline.step(YoloInference(Path("models/model.engine"), backend=Backend.TENSORRT))`
 - **설정**: 클래스명 YAML의 `gpu_id`, `inference_interval_frame`, `profile_index`(기본 0); 모델 동명 `.yml`의 `plugins`(기본 빈 목록), 배치 수집용 `max_batch_size`·`timeout_ms`
 - **동작**: 전처리·후처리 없이 동기 추론하며 GPU 완료 후 결과를 전달합니다. 연속 입력은 복제하지 않고 오류는 전파합니다. 시간 제한·오류 통과는 공통 Async로 적용합니다.
-- **상세**: [TensorRTInference 안내](docs/pipeworks/embedded/tensor_rt_inference.md)
+- **상세**: [TensorRT 엔진 안내](docs/pipeworks/embedded/tensor_rt_inference.md)
 
 #### **NvidiaDecode**
 NVIDIA GPU를 이용해 RTSP 패킷을 디코딩합니다.
@@ -201,10 +208,10 @@ NVIDIA GPU를 이용해 RTSP 패킷을 디코딩합니다.
 - **설정**: 없음 (자동 수집)
 - **상세**: [docs/pipeworks/embedded/stream_report.md](docs/pipeworks/embedded/stream_report.md)
 
-#### **YoloDetectReport / TensorRTReport**
+#### **YoloReport**
 감지 경로의 전처리, 배치 큐 대기, 입력 결합, 모델 실행, 후처리, 출력 복사와 전체 지연을 비교합니다.
 
-- **사용**: 감지 단계 뒤에 `pipeline.step(YoloDetectReport())` 또는 `pipeline.step(TensorRTReport())`. CudaAsync 사용 시 래퍼 바깥에 둡니다.
+- **사용**: 감지 단계 뒤에 `pipeline.step(YoloReport())`. CudaAsync 사용 시 래퍼 바깥에 둡니다.
 - **출력**: 구간별 CPU/GPU 시간, 1초·최근 10초 평균과 표본 수, 완료·건너뜀·바쁨·타임아웃·오류 건수.
 - **측정**: 모델 실행은 NMS를 제외합니다. 측정 때문에 추가 GPU 동기화를 넣지 않습니다.
 - **상세**: [감지 성능 리포트 안내](docs/pipeworks/embedded/detection_report.md)
@@ -316,7 +323,7 @@ pipeline.run()
 | **Hotswap** | 실행 중 코드/설정 재로드 | [docs/pipeworks/hotswap.md](docs/pipeworks/hotswap.md) |
 | **Models** | PipelineContext, Step 기본 클래스 | [docs/pipeworks/models.md](docs/pipeworks/models.md) |
 | **Main** | 중앙 스트림 프로세싱 (내부용) | [docs/pipeworks/main.md](docs/pipeworks/main.md) |
-| **LocalYolo** | 로컬 YOLO 모델 로드 (유틸) | [docs/pipeworks/local_yolo.md](docs/pipeworks/local_yolo.md) |
+| **공유 YOLO 추론** | 세 backend와 감지의 공유 GPU 배치 실행 | [docs/pipeworks/local_yolo_inference.md](docs/pipeworks/local_yolo_inference.md) |
 
 ### Embedded Step 문서
 
@@ -324,7 +331,7 @@ pipeline.run()
 |------|------|
 | CudaAsync | [CudaAsync 안내](docs/pipeworks/embedded/async.md) |
 | RTSPSource | [docs/pipeworks/embedded/rtsp_source.md](docs/pipeworks/embedded/rtsp_source.md) |
-| YoloDetect | [docs/pipeworks/embedded/yolo_detect.md](docs/pipeworks/embedded/yolo_detect.md) |
+| YoloInference | [docs/pipeworks/embedded/yolo_inference.md](docs/pipeworks/embedded/yolo_inference.md) |
 | RTSPPublish | [docs/pipeworks/embedded/rtsp_publish.md](docs/pipeworks/embedded/rtsp_publish.md) |
 | NvidiaDecode | [docs/pipeworks/embedded/nvidia_decode.md](docs/pipeworks/embedded/nvidia_decode.md) |
 | NvidiaEncode | [docs/pipeworks/embedded/nvidia_encode.md](docs/pipeworks/embedded/nvidia_encode.md) |
@@ -338,13 +345,17 @@ pipeline.run()
 ### 예제 1: RTSP → YOLO 객체 감지 → RTSP 발행
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish
+from pipeworks.embedded import RTSPSource, YoloInference, RTSPPublish
 
 pipeline = Pipeline("rtsp-yolo-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera/main"))
-pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/{stream_id}"))
 pipeline.run()
 ```
@@ -355,9 +366,12 @@ RTSPSource:
   reconnect: true
   reconnect_interval_ms: 3000
 
-YoloDetect:
-  confidence: 0.5
+YoloInference:
+  backend: ultralytics
   gpu_id: 0
+
+YoloPostProcess:
+  confidence: 0.5
 
 RTSPPublish:
   bitrate: "5000k"
@@ -369,9 +383,13 @@ RTSPPublish:
 ### 예제 2: 여러 RTSP 카메라 동시 처리
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, StreamReport, RTSPPublish
+from pipeworks.embedded import RTSPSource, YoloInference, StreamReport, RTSPPublish
 
 # 각 카메라별로 독립적인 파이프라인 생성
 cameras = [
@@ -382,7 +400,7 @@ cameras = [
 for cam_id, cam_url in cameras:
     pipeline = Pipeline(f"pipeline-{cam_id}", config=Path("config.yaml"))
     pipeline.step(RTSPSource(url=cam_url))
-    pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+    pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
     pipeline.step(StreamReport())
     pipeline.step(RTSPPublish(url=f"rtsp://mediamtx:8554/{cam_id}"))
     # 각 파이프라인을 백그라운드에서 실행
@@ -439,14 +457,18 @@ MyFilter:
 
 **pipeline.py:**
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, YoloDetect, RTSPPublish
+from pipeworks.embedded import RTSPSource, YoloInference, RTSPPublish
 from my_filter import MyFilter
 
 pipeline = Pipeline("live-dev-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera/main"))
-pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
 pipeline.step(MyFilter())  # 여기서 Hotswap이 적용됨
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 pipeline.run()
@@ -573,3 +595,7 @@ MIT License
 ---
 
 **다음 단계:** 특정 모듈에 대해 알아보려면 위의 "전체 모듈 문서" 섹션에서 링크를 클릭하세요.
+
+추론 단계는 `YoloInference`로 통합되었습니다. `Backend.ULTRALYTICS`, `Backend.TORCHSCRIPT`, `Backend.TENSORRT`로 실행 방식을 선택합니다. TensorRT의 `profile_index`와 공유 배치·플러그인·GPU 입출력 계약은 유지되며 `YoloReport`를 연결합니다.
+
+`YoloReport`는 모든 추론 backend를 활성화하고 `YOLO`, `ULTRALYTICS`, `TORCHSCRIPT`, `TensorRT`별로 처리 시간과 상태를 구분하여 출력합니다. 공유 배치·전후처리·비동기 상태는 같은 보고 저장소로 연결됩니다.

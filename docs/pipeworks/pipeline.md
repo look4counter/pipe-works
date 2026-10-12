@@ -39,21 +39,29 @@ pipeline = Pipeline(name="my-pipeline", config=Path("config.yaml"))
 #### step() 메서드
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 pipeline = Pipeline("my-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
 pipeline.step(NvidiaDecode())
-pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
 pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 ```
 
 **메서드 체이닝 지원:**
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 (
     Pipeline("pipeline", config=Path("config.yaml"))
     .step(RTSPSource(url="rtsp://camera"))
     .step(NvidiaDecode())
-    .step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+    .step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
     .step(NvidiaEncode())
     .step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 )
@@ -66,10 +74,14 @@ pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 3. **출력 Step**: 앞 단계의 출력 형식에 맞는 소비 단계를 연결합니다. `StreamReport`는 `RTSPPublish` 뒤에도 둘 수 있습니다.
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 # ✅ 올바른 구조
 pipeline.step(RTSPSource(...))  # Source (입력)
 pipeline.step(NvidiaDecode())
-pipeline.step(YoloDetect(...))  # Processing
+pipeline.step(YoloPreProcess()).step(YoloInference(..., backend=Backend.ULTRALYTICS)).step(YoloPostProcess())  # Processing
 pipeline.step(StreamReport(...))  # Processing
 pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(...))  # Sink (출력)
@@ -120,8 +132,10 @@ except KeyboardInterrupt:
 설정 가능한 내장 Step은 **YAML 값 → 생성자 값 → 기본값** 순서로 옵션을 선택합니다. YAML 섹션이나 옵션이 없으면 생성자 값을 사용합니다. 실행 중 YAML에서 옵션을 삭제하면 최초 생성자 값으로 돌아갑니다. YAML에 지정한 `0`, `false`, 빈 목록, `null`은 누락으로 취급하지 않으며 해당 옵션의 검증 규칙을 적용합니다. 설정 파일 자체가 없는 경우의 오류 처리는 기존과 같습니다.
 
 ```python
-inference = TensorRTInference(
+from pipeworks import Backend
+inference = YoloInference(
     Path("model.engine"),
+    backend=Backend.TENSORRT,
     gpu_id=2,
     profile_index=1,
     inference_interval_frame=3,
@@ -130,13 +144,14 @@ pipeline.step(inference)
 ```
 
 ```yaml
-TensorRTInference:
+YoloInference:
+  backend: tensorrt
   profile_index: 0
 ```
 
 위 설정에서는 `gpu_id=2`, `profile_index=0`, `inference_interval_frame=3`이 적용됩니다. YAML에서 `profile_index`를 삭제하면 생성자 값인 `1`로 돌아갑니다. URL·모델 경로와 `batch`는 기존처럼 생성자에서 지정합니다.
 
-적용 대상은 `RTSPSource`, `RTSPPublish`, `NvidiaDecode`, `NvidiaEncode`, `YoloDetect`, `TensorRTInference`, `CudaAsync`입니다. `TapSkipIfBusy`은 내부 Step에 설정을 전달하고, `CudaAsync` 내부 Step은 기존처럼 최상위 클래스명 섹션으로 설정합니다.
+적용 대상은 `RTSPSource`, `RTSPPublish`, `NvidiaDecode`, `NvidiaEncode`, `YoloInference`, `CudaAsync`입니다. `TapSkipIfBusy`은 내부 Step에 설정을 전달하고, `CudaAsync` 내부 Step은 기존처럼 최상위 클래스명 섹션으로 설정합니다.
 
 사용자 정의 Step은 `configure()`와 `process()`를 반드시 구현하거나 구체 구현을 상속해야 합니다. 누락하면 생성 시 `TypeError`가 발생합니다. 설정이 필요 없으면 빈 `configure()`를 구현합니다. 같은 우선순위를 사용하려면 공통 지원을 다음처럼 적용할 수 있습니다. `_set_config_defaults()`는 생성자 값을 보관한 뒤 빈 설정으로 `configure()`를 호출하므로 필요한 상태를 먼저 초기화합니다.
 
@@ -165,9 +180,12 @@ RTSPSource:
   reconnect: true
   timeout_ms: 5000
 
-YoloDetect:
-  confidence: 0.5
+YoloInference:
+  backend: ultralytics
   gpu_id: 0
+
+YoloPostProcess:
+  confidence: 0.5
 
 RTSPPublish:
   transport: tcp
@@ -210,12 +228,21 @@ YAML 파일을 저장하면 자동으로:
 
 ```yaml
 # 초기 설정
-YoloDetect:
+YoloInference:
+  backend: ultralytics
+
+
+YoloPostProcess:
   confidence: 0.25
 
 # 실행 중 수정 → 저장
-YoloDetect:
+YoloInference:
+  backend: ultralytics
+
+
+YoloPostProcess:
   confidence: 0.5  # 자동으로 반영됨
+
 ```
 
 ---
@@ -250,11 +277,15 @@ Source 끝
 
 **pipeline.py:**
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 from pathlib import Path
 from pipeworks import Pipeline
 from pipeworks.embedded import (
     RTSPSource,
-    YoloDetect,
+    YoloInference,
     RTSPPublish,
     NvidiaDecode,
     NvidiaEncode,
@@ -263,7 +294,7 @@ from pipeworks.embedded import (
 pipeline = Pipeline("basic-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera/main"))
 pipeline.step(NvidiaDecode())
-pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
 pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 
@@ -279,11 +310,14 @@ RTSPSource:
   transport: tcp
   timeout_ms: 5000
 
-YoloDetect:
-  classes: null
-  confidence: 0.25
+YoloInference:
+  backend: ultralytics
   gpu_id: 0
   inference_interval_frame: 1
+
+YoloPostProcess:
+  classes: null
+  confidence: 0.25
 
 RTSPPublish:
   transport: tcp
@@ -337,9 +371,12 @@ RTSPSource:
 MyProcessor:
   enabled: true
 
-YoloDetect:
-  confidence: 0.5
+YoloInference:
+  backend: ultralytics
   gpu_id: 0
+
+YoloPostProcess:
+  confidence: 0.5
 
 RTSPPublish:
   transport: tcp
@@ -349,11 +386,15 @@ RTSPPublish:
 
 **pipeline.py:**
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 from pathlib import Path
 from pipeworks import Pipeline
 from pipeworks.embedded import (
     RTSPSource,
-    YoloDetect,
+    YoloInference,
     RTSPPublish,
     NvidiaDecode,
     NvidiaEncode,
@@ -363,7 +404,7 @@ from my_processor import MyProcessor
 pipeline = Pipeline("custom-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
 pipeline.step(NvidiaDecode())
-pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
 pipeline.step(MyProcessor())
 pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
@@ -375,12 +416,16 @@ if __name__ == "__main__":
 ### 예제 3: 다중 파이프라인 (멀티 카메라)
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 import threading
 from pathlib import Path
 from pipeworks import Pipeline
 from pipeworks.embedded import (
     RTSPSource,
-    YoloDetect,
+    YoloInference,
     StreamReport,
     RTSPPublish,
     NvidiaDecode,
@@ -392,7 +437,7 @@ def create_pipeline(cam_id: str, cam_url: str):
     pipeline = Pipeline(f"pipeline-{cam_id}", config=Path("config.yaml"))
     pipeline.step(RTSPSource(url=cam_url))
     pipeline.step(NvidiaDecode())
-    pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+    pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
     pipeline.step(StreamReport())
     pipeline.step(NvidiaEncode())
     pipeline.step(RTSPPublish(url=f"rtsp://mediamtx:8554/{cam_id}"))
@@ -456,6 +501,10 @@ pipeline.run()
 ### 에러 처리
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -464,7 +513,7 @@ logger = logging.getLogger(__name__)
 pipeline = Pipeline("error-handling", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
 pipeline.step(NvidiaDecode())
-pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
 pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 

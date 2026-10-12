@@ -6,15 +6,10 @@ import logging
 import math
 from pathlib import Path
 import time
-from types import SimpleNamespace
-from typing import Iterator
 
 import torch
 import yaml
 
-from pipeworks.embedded.stream_report import record_inference
-from pipeworks.models import PipelineContext, Step
-from pipeworks.embedded.tensor_rt_report import _current, begin, span
 
 
 logger = logging.getLogger(__name__)
@@ -34,7 +29,7 @@ def _load_model_config(model_path):
         raise ValueError("모델 YAML의 timeout 대신 timeout_ms를 사용하세요.")
     if "profile_index" in config:
         raise ValueError(
-            "profile_index는 모델 YAML 대신 stream.yml의 TensorRTInference 아래에 설정하세요."
+            "profile_index는 모델 YAML 대신 stream.yml의 YoloInference 아래에 설정하세요."
         )
     return config
 
@@ -234,6 +229,9 @@ class _EngineSession:
         self.close()
 
     def infer(self, tensors, stream, report_context):
+        from pipeworks.embedded.stream_report import record_inference
+        from pipeworks.embedded.yolo_report import span
+
         with span("prepare"):
             if not self._profile_selected:
                 if not self.context.set_optimization_profile_async(
@@ -336,184 +334,23 @@ class _EngineSession:
                 raise RuntimeError(f"TensorRT 출력 주소 설정 실패: {name}")
 
 
-class TensorRTInference(Step):
-    def __init__(
-        self,
-        model_path: Path,
-        *,
-        batch: bool = False,
-        gpu_id: int = 0,
-        inference_interval_frame: int = 1,
-        profile_index: int = 0,
-        id: str | None = None,
-    ):
-        if not isinstance(batch, bool):
-            raise ValueError("batch는 불리언이어야 합니다.")
-        self.batch = batch
-        self.model_path = Path(model_path)
-        self._set_config_defaults(
-            gpu_id=gpu_id,
-            inference_interval_frame=inference_interval_frame,
-            profile_index=profile_index,
-            id=id,
+class TensorRTBackend:
+    """Execute a TensorRT engine with the shared GPU backend contract."""
+
+    def __init__(self, model_path, gpu_id):
+        self.gpu_id = gpu_id
+        model_path = Path(model_path)
+        self.session = _EngineSession(
+            model_path, _engine_settings(model_path, _load_model_config(model_path))
         )
 
-    def configure(self, config: SimpleNamespace):
-        config = self._resolve_config(config)
-        gpu_id = getattr(config, "gpu_id", 0)
-        interval = getattr(config, "inference_interval_frame", 1)
-        profile_index = getattr(config, "profile_index", 0)
-        model_id = self.model_path.name if config.id is None else config.id
-        if not isinstance(model_id, str) or not model_id.strip():
-            raise ValueError("id는 비어 있지 않은 문자열 또는 null이어야 합니다.")
-        _validate_profile_index(profile_index)
-        if isinstance(gpu_id, bool) or not isinstance(gpu_id, int) or gpu_id < 0:
-            raise ValueError("gpu_id는 음수가 아닌 정수여야 합니다.")
-        if isinstance(interval, bool) or not isinstance(interval, int) or interval < 1:
-            raise ValueError("inference_interval_frame은 1 이상의 정수여야 합니다.")
-        self.gpu_id, self.inference_interval_frame = gpu_id, interval
-        self.profile_index = profile_index
-        self.id = model_id
+    def infer(self, inputs):
+        # The outer inference step records elapsed time for this request.
+        from pipeworks.embedded.stream_report import report_scope
 
-    def _model_settings(self):
-        return _engine_settings(self.model_path, _load_model_config(self.model_path))
+        stream = torch.cuda.current_stream(self.gpu_id)
+        with report_scope():
+            return self.session.infer(inputs, stream, copy_context())
 
-    def _prepare_inputs(self, item):
-        inputs = getattr(item, "model_input", None)
-        if isinstance(inputs, torch.Tensor):
-            tensors = {None: inputs}
-        elif (
-            isinstance(inputs, dict)
-            and inputs
-            and all(isinstance(name, str) for name in inputs)
-        ):
-            tensors = inputs
-        else:
-            raise ValueError(
-                "model_input must be a GPU tensor or a named tensor mapping."
-            )
-        for tensor in tensors.values():
-            if (
-                not isinstance(tensor, torch.Tensor)
-                or not tensor.is_cuda
-                or tensor.device.index != self.gpu_id
-            ):
-                raise ValueError("model_input GPU must match gpu_id.")
-        producer = getattr(item, "cuda_stream", None)
-        if producer is None:
-            producer = torch.cuda.current_stream(self.gpu_id)
-            item.cuda_stream = producer
-        if producer.device.index != self.gpu_id:
-            raise ValueError("Input CUDA stream GPU must match gpu_id.")
-        ready = torch.cuda.Event()
-        ready.record(producer)
-        return inputs, ready
-
-    def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
-        # 원래 생성기를 유지하여 엔진/스트림 수명을 바꾸지 않는다.
-        current = [None, None, False]
-
-        def profiled_inputs():
-            for item in inputs:
-                item.model_id = self.id
-                inherited = getattr(item, "_tensor_rt_profile", None)
-                profile = inherited or begin("TensorRT")
-                current[:] = item, profile, inherited is None
-                _current.set(profile)
-                yield item
-
-        outputs = self._process(profiled_inputs())
-        try:
-            while True:
-                token = _current.set(None)
-                try:
-                    item = next(outputs)
-                except StopIteration:
-                    break
-                finally:
-                    _current.reset(token)
-                profile = current[1]
-                if profile is not None and current[2]:
-                    profile.finish(
-                        "completed" if item.model_output is not None else "skipped"
-                    )
-                yield item
-        except Exception:
-            if current[1] is not None:
-                current[1].finish("error")
-            raise
-        finally:
-            outputs.close()
-
-    def _process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
-        if self.batch:
-            from pipeworks.local_tensor_rt import infer
-
-            for index, item in enumerate(inputs):
-                item.model_output = None
-                if index % self.inference_interval_frame == 0:
-                    tensors, ready_event = self._prepare_inputs(item)
-                    profile = _current.get()
-                    options = (
-                        {"on_profile_complete": profile.merge}
-                        if profile is not None
-                        else {}
-                    )
-                    item.model_output = infer(
-                        self.model_path,
-                        tensors,
-                        self.gpu_id,
-                        profile_index=self.profile_index,
-                        ready_event=ready_event,
-                        on_inference_complete=record_inference,
-                        **options,
-                    )
-                yield item
-            return
-        plugins = self._model_settings()
-        session = stream = None
-        session_settings = None
-        try:
-            for index, item in enumerate(inputs):
-                item.model_output = None
-                if index % self.inference_interval_frame == 0:
-                    tensors, ready_event = self._prepare_inputs(item)
-                    settings = self.gpu_id, self.profile_index
-                    if session_settings != settings:
-                        if stream is not None:
-                            stream.synchronize()
-                        if session is not None:
-                            session.close()
-                        session = None
-                        session_settings = settings
-                    stream = item.cuda_stream
-                    with torch.cuda.stream(stream):
-                        try:
-                            # Keep input ordering on the GPU, including caller-owned streams.
-                            with span("input_wait"):
-                                stream.wait_event(ready_event)
-                            tensors = (
-                                {
-                                    name: tensor.contiguous()
-                                    for name, tensor in tensors.items()
-                                }
-                                if isinstance(tensors, dict)
-                                else tensors.contiguous()
-                            )
-                            if session is None:
-                                with span("prepare"):
-                                    session = _EngineSession(
-                                        self.model_path, plugins, self.profile_index
-                                    )
-                            item.model_output = session.infer(
-                                tensors, stream, copy_context()
-                            )
-                        finally:
-                            with span("completion_wait"):
-                                stream.synchronize()
-                yield item
-        finally:
-            if stream is not None:
-                stream.synchronize()
-            if session is not None:
-                session.close()
+    def close(self):
+        self.session.close()

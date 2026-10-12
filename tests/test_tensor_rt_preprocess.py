@@ -148,6 +148,7 @@ class GpuTests(unittest.TestCase):
 
     def test_letterbox_padding_and_input_preserved(self):
         item = self.image()
+        item.cuda_stream.synchronize()
         original = item.frame.clone()
         self.run_step(item, size=(8, 8), scale=1, padding_value=(40, 50, 60))
         self.assertEqual(tuple(item.model_input.shape), (1, 3, 8, 8))
@@ -163,7 +164,7 @@ class GpuTests(unittest.TestCase):
                 item.model_input[0, :, 3, 3], torch.tensor([10, 20, 30], device="cuda")
             )
         )
-        transform = item.tensor_rt_transform
+        transform = item.image_transform
         self.assertEqual((transform.ratio, transform.left, transform.top), (2, 0, 2))
         self.assertEqual(transform.ratio_xy, (2, 2))
         self.assertFalse(hasattr(item, "model_cuda_stream"))
@@ -172,16 +173,16 @@ class GpuTests(unittest.TestCase):
         item = self.image(height=3, width=5)
         self.run_step(item, size=(8, 8), auto=True, stride=4)
         self.assertEqual(tuple(item.model_input.shape), (1, 3, 8, 8))
-        self.assertEqual(item.tensor_rt_transform.top, 1)
+        self.assertEqual(item.image_transform.top, 1)
         item = self.image(height=2, width=4)
         self.run_step(item, size=(8, 8), auto=True, stride=4)
         self.assertEqual(tuple(item.model_input.shape), (1, 3, 4, 8))
-        self.assertEqual(item.tensor_rt_transform.output_shape, (4, 8))
+        self.assertEqual(item.image_transform.output_shape, (4, 8))
         item = self.image(height=2, width=4)
         self.run_step(item, size=(8, 8), scaleup=False, center=False, scale=1)
-        self.assertEqual(item.tensor_rt_transform.ratio, 1)
+        self.assertEqual(item.image_transform.ratio, 1)
         self.assertEqual(
-            (item.tensor_rt_transform.left, item.tensor_rt_transform.top), (0, 0)
+            (item.image_transform.left, item.image_transform.top), (0, 0)
         )
         self.assertEqual(item.model_input[0, 0, 0, 0].item(), 10)
         self.assertEqual(item.model_input[0, 0, 2, 0].item(), 114)
@@ -223,9 +224,9 @@ class GpuTests(unittest.TestCase):
         item = self.image()
         self.run_step(item, size=(6, 8), resize_mode="stretch")
         self.assertEqual(tuple(item.model_input.shape), (1, 3, 6, 8))
-        self.assertEqual(item.tensor_rt_transform.ratio_xy, (2, 3))
+        self.assertEqual(item.image_transform.ratio_xy, (2, 3))
         self.assertEqual(
-            (item.tensor_rt_transform.left, item.tensor_rt_transform.top), (0, 0)
+            (item.image_transform.left, item.image_transform.top), (0, 0)
         )
 
     def test_center_crop_keeps_expected_pixels_and_coordinates(self):
@@ -246,15 +247,15 @@ class GpuTests(unittest.TestCase):
             )
         )
         self.assertEqual(
-            (item.tensor_rt_transform.left, item.tensor_rt_transform.top), (-2, -1)
+            (item.image_transform.left, item.image_transform.top), (-2, -1)
         )
         item = self.image(height=4, width=8)
         self.run_step(item, size=(8, 8), resize_mode="resize_center_crop")
-        self.assertEqual(item.tensor_rt_transform.ratio, 2)
-        self.assertEqual(item.tensor_rt_transform.left, -4)
+        self.assertEqual(item.image_transform.ratio, 2)
+        self.assertEqual(item.image_transform.left, -4)
 
     def test_nv12_defaults_match_existing_conversion(self):
-        from pipeworks.local_yolo import _nv12_to_rgb
+        from step.yolo_pre_process import nv12_to_rgb as _nv12_to_rgb
 
         item = self.image()
         with torch.cuda.stream(item.cuda_stream):

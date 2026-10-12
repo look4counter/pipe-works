@@ -9,7 +9,7 @@ from ultralytics.utils.nms import non_max_suppression
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 from step.tensor_rt_post_process import TensorRTPostProcess
-from pipeworks.image_transform import ImageTransform
+from step.yolo_pre_process import ImageTransform
 
 
 class NmsTests(unittest.TestCase):
@@ -27,8 +27,12 @@ class NmsTests(unittest.TestCase):
                     with self.subTest(device=device, count=count, classes=classes):
                         step = TensorRTPostProcess()
                         step.configure(SimpleNamespace(classes=classes, max_det=15))
+                        reference = prediction.clone()
+                        if count == 6:
+                            # Avoid the library's automatic end2end shape branch.
+                            reference = torch.cat((reference, reference.new_zeros((1, 84, 1))), dim=2)
                         expected = non_max_suppression(
-                            prediction.clone(),
+                            reference,
                             step.confidence,
                             step.iou,
                             classes=classes,

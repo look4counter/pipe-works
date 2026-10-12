@@ -11,9 +11,10 @@ import time
 import torch
 
 from pipeworks.models import Step
+from pipeworks.backend import Backend
 
 
-_current = ContextVar("pipeworks_tensor_rt_report_profile", default=None)
+_current = ContextVar("pipeworks_yolo_report_profile", default=None)
 LABELS = {
     "preprocess": "전처리",
     "queue": "배치 큐 대기",
@@ -62,7 +63,14 @@ class DetectionStats:
 
     def enabled(self, kind):
         with self.lock:
-            return self.active[kind] > 0
+            return self.active[kind] > 0 or self.active["*"] > 0
+
+    def kinds(self):
+        with self.lock:
+            return sorted(
+                kind for kind in self.samples.keys() | self.states.keys()
+                if self.samples.get(kind) or self.states.get(kind)
+            )
 
     def _prune(self, records, now):
         while records and records[0][0] <= now - 10:
@@ -127,9 +135,9 @@ def store():
 
     stats = _stats()
     with stats.lock:
-        if stats.tensor_rt_detection_stats is None:
-            stats.tensor_rt_detection_stats = DetectionStats()
-        return stats.tensor_rt_detection_stats
+        if stats.yolo_detection_stats is None:
+            stats.yolo_detection_stats = DetectionStats()
+        return stats.yolo_detection_stats
 
 
 class Profile:
@@ -165,6 +173,15 @@ class Profile:
                 for name, s in self.parts.items()
             }
             self.stats.record(self.kind, samples, status)
+
+
+def backend_kind(backend):
+    if backend == Backend.TENSORRT:
+        return "TensorRT"
+    try:
+        return Backend(backend).name
+    except ValueError:
+        return str(backend)
 
 
 def begin(kind):
@@ -207,19 +224,24 @@ def span(name, stream=None):
         profile.add(name, time.perf_counter() - started, events)
 
 
-class TensorRTReport(Step):
+class YoloReport(Step):
     def configure(self, config):
         pass
 
-    kind = "TensorRT"
+    kind = "YOLO"
 
     def _write(self, stats, since):
-        snapshot = stats.snapshot(self.kind, since)
+        kinds = stats.kinds() if callable(getattr(stats, "kinds", None)) else []
+        for kind in kinds or [self.kind]:
+            self._write_kind(stats, since, kind)
+
+    def _write_kind(self, stats, since, kind):
+        snapshot = stats.snapshot(kind, since)
         counts = " | ".join(
             f"{label} {snapshot['states'][name]}/{snapshot['recent_states'][name]}"
             for name, label in STATES.items()
         )
-        lines = [f"{type(self).__name__} | 건수 1s/10s | {counts}"]
+        lines = [f"{type(self).__name__} | {kind} | 건수 1s/10s | {counts}"]
 
         def format_value(row, name):
             cpu, count, gpu, gpu_count = row
@@ -244,7 +266,7 @@ class TensorRTReport(Step):
         from pipeworks.main import _current_output_writer, _use_output_writer
 
         stats = store()
-        stats.activate(self.kind)
+        stats.activate("*")
         done = Event()
         context = copy_context()
         output_writer = _current_output_writer()
@@ -273,4 +295,4 @@ class TensorRTReport(Step):
             try:
                 report()
             finally:
-                stats.activate(self.kind, -1)
+                stats.activate("*", -1)

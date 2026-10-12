@@ -18,14 +18,18 @@ NVIDIA GPU를 사용해 RTSP 패킷을 디코딩합니다. 내부 스레드에�
 ## 🔑 사용법
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 from pathlib import Path
 from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, NvidiaDecode, YoloDetect
+from pipeworks.embedded import RTSPSource, NvidiaDecode, YoloInference
 
 pipeline = Pipeline("gpu-decode", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
 pipeline.step(NvidiaDecode())  # GPU 디코딩
-pipeline.step(YoloDetect(model_path=Path("models/yolov8n.pt")))
+pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolov8n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
 pipeline.run()
 ```
 

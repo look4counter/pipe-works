@@ -18,15 +18,7 @@ NvidiaEncode:
   gpu_id: 0
   fps: 30
 
-YoloDetect:
+YoloInference:
   # id: vehicle  # 생략하면 모델 파일명, 여러 실행 단계는 생성자에서 서로 다른 ID 지정
   gpu_id: 0
   inference_interval_frame: 1
-  classes: [2]
-  confidence: 0.25
-
-TensorRTInference:
-  # id: vehicle  # 생략하면 모델 파일명, 여러 실행 단계는 생성자에서 서로 다른 ID 지정
-  gpu_id: 0
-  inference_interval_frame: 1
-  profile_index: 0

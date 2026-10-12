@@ -7,7 +7,10 @@ from unittest.mock import Mock, patch
 
 import torch
 
-from pipeworks.embedded import CudaAsync, YoloDetect
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
+from pipeworks import Backend
+from pipeworks.embedded import CudaAsync, YoloInference
 from pipeworks.models import PipelineContext, Step
 
 
@@ -151,6 +154,63 @@ class FrameReleaseTests(unittest.TestCase):
         self.assertIsNone(release_frame())
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
+    def test_preprocess_releases_frame_before_single_or_batch_inference_wait(self):
+        from step.yolo_pre_process import YoloPreProcess, nv12_to_rgb
+
+        for batch in (False, True):
+            with self.subTest(batch=batch):
+                stream = torch.cuda.Stream()
+                with torch.cuda.stream(stream):
+                    frame = torch.full((6, 4), 128, dtype=torch.uint8, device="cuda")
+                    expected = nv12_to_rgb(frame).unsqueeze(0)
+                stream.synchronize()
+                item = PipelineContext(
+                    frame=frame, cuda_stream=stream, pixel_format="NV12",
+                    video_stream=SimpleNamespace(codec_context=SimpleNamespace(height=4, width=4)),
+                )
+                entered, unblock = Event(), Event()
+                observed = []
+
+                def slow(inputs, *args, ready_event=None, **kwargs):
+                    if not isinstance(inputs, torch.Tensor):
+                        inputs = args[0]
+                    if ready_event is not None:
+                        ready_event.synchronize()
+                    torch.cuda.current_stream().synchronize()
+                    observed.append(inputs)
+                    entered.set()
+                    unblock.wait(5)
+                    callback = kwargs.get("on_inference_complete")
+                    if callback is not None:
+                        callback(0.001)
+                    return {"output0": inputs.neg()}
+
+                wrapper = CudaAsync(
+                    YoloPreProcess(size=(4, 4)),
+                    YoloInference("model.pt", backend=Backend.ULTRALYTICS, batch=batch),
+                    timeout_ms=500,
+                )
+                with (
+                    patch("pipeworks.embedded.yolo_inference._Session", return_value=SimpleNamespace(infer=slow)),
+                    patch("pipeworks.local_yolo_inference.infer", side_effect=slow),
+                ):
+                    try:
+                        self.assertEqual(list(wrapper.process(iter([item]))), [item])
+                        self.assertTrue(entered.is_set())
+                        self.assertIs(item.frame, frame)
+                        before = observed[0].clone()
+                        torch.testing.assert_close(before, expected)
+                        with torch.cuda.stream(stream):
+                            frame.fill_(7)
+                        stream.synchronize()
+                        torch.testing.assert_close(observed[0], before)
+                        self.assertFalse(hasattr(item, "model_input"))
+                    finally:
+                        unblock.set()
+                        self.assertTrue(wrapper._session_lock.acquire(timeout=3))
+                        wrapper._session_lock.release()
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
     def test_failed_cuda_cleanup_drops_unreleased_original(self):
         class NoRelease(Step):
             def configure(self, config):
@@ -163,88 +223,9 @@ class FrameReleaseTests(unittest.TestCase):
         original = PipelineContext(cuda_stream=stream)
         wrapper = CudaAsync(NoRelease(), timeout_ms=1000)
         with (
-            patch.object(
-                torch.cuda.Stream,
-                "synchronize",
-                side_effect=RuntimeError("CUDA cleanup failed"),
-            ),
+            patch.object(torch.cuda.Stream, "synchronize", side_effect=RuntimeError("CUDA cleanup failed")),
             self.assertLogs("pipeworks.embedded.cuda_async", level="ERROR"),
         ):
             self.assertEqual(list(wrapper.process(iter([original]))), [])
             self.assertTrue(wrapper._session_lock.acquire(timeout=2))
             wrapper._session_lock.release()
-
-    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
-    def test_yolo_single_and_batch_release_rgb_before_inference_wait(self):
-        from pipeworks.local_yolo import _nv12_to_rgb
-        from ultralytics.engine.results import Results
-
-        for batch in (False, True):
-            with self.subTest(batch=batch):
-                stream = torch.cuda.Stream()
-                with torch.cuda.stream(stream):
-                    frame = torch.full((6, 4), 128, dtype=torch.uint8, device="cuda")
-                    expected = _nv12_to_rgb(frame)
-                stream.synchronize()
-                item = PipelineContext(
-                    frame=frame,
-                    cuda_stream=stream,
-                    pixel_format="NV12",
-                    video_stream=SimpleNamespace(
-                        codec_context=SimpleNamespace(height=4, width=4)
-                    ),
-                )
-                entered, unblock = Event(), Event()
-                self.addCleanup(unblock.set)
-                observed = []
-
-                def predict(images, **kwargs):
-                    prepared = torch.cuda.Event()
-                    prepared.record(torch.cuda.current_stream())
-                    prepared.synchronize()
-                    observed.append(images)
-                    entered.set()
-                    unblock.wait(5)
-                    return [
-                        Results(
-                            images[0].permute(1, 2, 0),
-                            path="test",
-                            names={},
-                            boxes=torch.empty((0, 6), device="cuda"),
-                        )
-                    ]
-
-                def infer(path, rgb, *args, ready_event, **kwargs):
-                    ready_event.synchronize()
-                    observed.append(rgb)
-                    entered.set()
-                    unblock.wait(5)
-                    self.assertTrue(torch.equal(rgb, expected))
-                    return None
-
-                model = Mock()
-                model.predict.side_effect = predict
-                wrapper = CudaAsync(
-                    YoloDetect(Path("model.pt"), batch=batch), timeout_ms=500
-                )
-                with (
-                    patch("ultralytics.YOLO", return_value=model),
-                    patch("pipeworks.embedded.yolo_detect.infer", side_effect=infer),
-                ):
-                    try:
-                        self.assertEqual(list(wrapper.process(iter([item]))), [item])
-                        self.assertTrue(entered.is_set())
-                        self.assertIs(item.frame, frame)
-                        model_input_before = observed[0].clone()
-                        with torch.cuda.stream(stream):
-                            frame.fill_(7)
-                        stream.synchronize()
-                        self.assertTrue(torch.equal(observed[0], model_input_before))
-                        if batch:
-                            self.assertEqual(observed[0].shape, (3, 4, 4))
-                            self.assertEqual(observed[0].dtype, torch.float32)
-                            self.assertTrue(torch.equal(observed[0], expected))
-                    finally:
-                        unblock.set()
-                        self.assertTrue(wrapper._session_lock.acquire(timeout=3))
-                        wrapper._session_lock.release()

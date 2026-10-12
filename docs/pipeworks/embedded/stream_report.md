@@ -18,11 +18,15 @@
 ## 🔑 사용법
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 from pathlib import Path
 from pipeworks import Pipeline
 from pipeworks.embedded import (
     RTSPSource,
-    YoloDetect,
+    YoloInference,
     StreamReport,
     RTSPPublish,
     NvidiaDecode,
@@ -32,7 +36,7 @@ from pipeworks.embedded import (
 pipeline = Pipeline("pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
 pipeline.step(NvidiaDecode())
-pipeline.step(YoloDetect(model_path=Path("models/yolov8n.pt")))
+pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolov8n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
 pipeline.step(StreamReport())  # 성능 자동 표시
 pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))

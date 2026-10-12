@@ -9,8 +9,9 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
+from pipeworks import Backend
 from pipeworks import Pipeline
-from pipeworks.embedded import CudaAsync, TensorRTInference
+from pipeworks.embedded import CudaAsync, YoloInference
 from step.tensor_rt_pre_process import TensorRTPreProcess
 from pipeworks.models import PipelineContext, Step
 from step.box_overlay import BoxOverlay
@@ -19,11 +20,11 @@ from step.tensor_rt_post_process import TensorRTPostProcess
 
 class IdConfigurationTests(unittest.TestCase):
     def test_default_explicit_yaml_and_removal(self):
-        self.assertEqual(TensorRTInference("models/yolo.plan").id, "yolo.plan")
-        step = TensorRTInference("models/yolo.plan", id="vehicle")
+        self.assertEqual(YoloInference("models/yolo.plan", backend=Backend.TENSORRT).id, "yolo.plan")
+        step = YoloInference("models/yolo.plan", backend=Backend.TENSORRT, id="vehicle")
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "stream.yml"
-            config.write_text("TensorRTInference:\n  id: person\n", encoding="utf-8")
+            config.write_text("YoloInference:\n  id: person\n", encoding="utf-8")
             Pipeline("ids", config=config).step(step)
         self.assertEqual(step.id, "person")
         step.configure(SimpleNamespace(id=None))
@@ -32,11 +33,11 @@ class IdConfigurationTests(unittest.TestCase):
         self.assertEqual(step.id, "vehicle")
 
     def test_invalid_id_does_not_partially_apply(self):
-        step = TensorRTInference("model.plan", id="original", gpu_id=1)
+        step = YoloInference("model.plan", backend=Backend.TENSORRT, id="original", gpu_id=1)
         for value in ("", " \t", True, 4, [], {}):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(ValueError, "id"):
-                    TensorRTInference("model.plan", id=value)
+                    YoloInference("model.plan", backend=Backend.TENSORRT, id=value)
                 with self.assertRaisesRegex(ValueError, "id"):
                     step.configure(SimpleNamespace(id=value, gpu_id=0))
                 self.assertEqual((step.id, step.gpu_id), ("original", 1))
@@ -44,7 +45,7 @@ class IdConfigurationTests(unittest.TestCase):
                     BoxOverlay().configure(SimpleNamespace(id=value))
 
     def test_id_is_forwarded_even_when_processing_is_mocked(self):
-        step = TensorRTInference("models/yolo.plan", id="vehicle")
+        step = YoloInference("models/yolo.plan", backend=Backend.TENSORRT, id="vehicle")
         item = PipelineContext(model_output=None)
         with patch.object(step, "_process", side_effect=lambda inputs: inputs):
             self.assertEqual(list(step.process(iter([item]))), [item])
@@ -120,7 +121,7 @@ class ModelIdGpuTests(unittest.TestCase):
             "model_id",
             "model_input",
             "model_output",
-            "tensor_rt_transform",
+            "image_transform",
         ):
             self.assertFalse(hasattr(item, name))
 
@@ -135,8 +136,8 @@ class ModelIdGpuTests(unittest.TestCase):
     def test_batch_and_interval_forward_ids(self):
         for batch in (False, True):
             with self.subTest(batch=batch):
-                step = TensorRTInference(
-                    "unused.plan", batch=batch, id="person", inference_interval_frame=2
+                step = YoloInference(
+                    "unused.plan", backend=Backend.TENSORRT, batch=batch, id="person", inference_interval_frame=2
                 )
                 items = [self.frame() for _ in range(3)]
                 for item in items:
@@ -155,10 +156,10 @@ class ModelIdGpuTests(unittest.TestCase):
                 with (
                     patch.object(step, "_model_settings", return_value=()),
                     patch(
-                        "pipeworks.embedded.tensor_rt_inference._EngineSession", Session
+                        "pipeworks.embedded.yolo_inference._EngineSession", Session
                     ),
                     patch(
-                        "pipeworks.local_tensor_rt.infer",
+                        "pipeworks.local_yolo_inference.infer",
                         return_value={"output": torch.ones(1, device="cuda")},
                     ),
                 ):
@@ -178,7 +179,7 @@ class ModelIdGpuTests(unittest.TestCase):
         for model_id in ("vehicle", "person", "vehicle"):
             next(TensorRTPreProcess().process(iter([item])))
             torch.testing.assert_close(item.frame, original)
-            list(TensorRTInference(plan, id=model_id).process(iter([item])))
+            list(YoloInference(plan, backend=Backend.TENSORRT, id=model_id).process(iter([item])))
             next(TensorRTPostProcess().process(iter([item])))
         self.assertEqual(set(item.detections), {"vehicle", "person"})
         for result in item.detections.values():

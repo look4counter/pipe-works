@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from pipeworks import Pipeline
+from pipeworks import Backend, Pipeline
 from pipeworks.embedded import (
     RTSPSource,
     RTSPPublish,
@@ -9,10 +9,12 @@ from pipeworks.embedded import (
     StreamReport,
     TapSkipIfBusy,
 )
-from pipeworks.embedded.yolo_detect import YoloDetect
+from pipeworks.embedded import YoloInference
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
 from step.box_overlay import BoxOverlay
 from step.metadata_from_db import MetadataFromDB
-from step.post_process import PostProcess
+from step.save_inference_result_to_db import SaveInferenceResultToDB
 
 
 def build_pipeline(video: str) -> Pipeline:
@@ -24,12 +26,17 @@ def build_pipeline(video: str) -> Pipeline:
         .step(RTSPSource(f"rtsp://210.99.70.120:1935/live/{video}.stream"))
         .step(NvidiaDecode())
         .step(MetadataFromDB())
+        .step(YoloPreProcess())
         .step(
-            YoloDetect(Path(__file__).with_name("model") / "yolo11n.engine", batch=True)
+            YoloInference(
+                Path(__file__).with_name("model") / "yolo11n.engine",
+                backend=Backend.TENSORRT, batch=True,
+            )
         )
+        .step(YoloPostProcess())
         .step(BoxOverlay())
         .step(NvidiaEncode())
-        .step(TapSkipIfBusy(PostProcess()))
+        .step(TapSkipIfBusy(SaveInferenceResultToDB()))
         .step(RTSPPublish(f"rtsp://localhost:8554/{video}"))
         .step(StreamReport())
     )

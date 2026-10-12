@@ -18,11 +18,15 @@
 ## 🔑 사용법
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 from pathlib import Path
 from pipeworks import Pipeline
 from pipeworks.embedded import (
     RTSPSource,
-    YoloDetect,
+    YoloInference,
     RTSPPublish,
     NvidiaDecode,
     NvidiaEncode,
@@ -31,7 +35,7 @@ from pipeworks.embedded import (
 pipeline = Pipeline("rtsp-pipeline", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera"))
 pipeline.step(NvidiaDecode())
-pipeline.step(YoloDetect(model_path=Path("models/yolov8n.pt")))
+pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolov8n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
 pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 pipeline.run()
@@ -82,12 +86,16 @@ url = f"rtsp://mediamtx:8554/output/{cam_id}/high"
 ### 다중 카메라 발행
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 from pathlib import Path
 import threading
 from pipeworks import Pipeline
 from pipeworks.embedded import (
     RTSPSource,
-    YoloDetect,
+    YoloInference,
     RTSPPublish,
     NvidiaDecode,
     NvidiaEncode,
@@ -102,7 +110,7 @@ for cam_id, cam_url in cameras:
     pipeline = Pipeline(f"pipeline-{cam_id}", config=Path("config.yaml"))
     pipeline.step(RTSPSource(url=cam_url))
     pipeline.step(NvidiaDecode())
-    pipeline.step(YoloDetect(model_path=Path("models/yolov8n.pt")))
+    pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolov8n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
     # 각 카메라별 경로로 발행
     pipeline.step(NvidiaEncode())
     pipeline.step(RTSPPublish(url=f"rtsp://mediamtx:8554/{cam_id}"))
@@ -116,9 +124,12 @@ for cam_id, cam_url in cameras:
 RTSPSource:
   reconnect: true
 
-YoloDetect:
-  confidence: 0.5
+YoloInference:
+  backend: ultralytics
   gpu_id: 0
+
+YoloPostProcess:
+  confidence: 0.5
 
 RTSPPublish:
   transport: tcp

@@ -10,7 +10,9 @@ from unittest.mock import Mock, patch
 
 import torch
 
-from pipeworks.embedded.tensor_rt_inference import TensorRTInference, _EngineSession
+from pipeworks import Backend
+from pipeworks.embedded import YoloInference
+from pipeworks.yolo_backends.tensorrt import _EngineSession
 from pipeworks.embedded.stream_report import _stats, report_scope
 from pipeworks.models import PipelineContext
 
@@ -177,7 +179,7 @@ class SettingsTests(unittest.TestCase):
     def test_profile_and_plugins_settings(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "model.engine"
-            step = TensorRTInference(path)
+            step = YoloInference(path, backend=Backend.TENSORRT)
             self.assertEqual(step._model_settings(), ())
             self.assertEqual(step.profile_index, 0)
             step.configure(SimpleNamespace(profile_index=1))
@@ -216,7 +218,7 @@ class SettingsTests(unittest.TestCase):
                         step._model_settings()
 
     def test_interval_default_and_configuration_update(self):
-        step = TensorRTInference(Path("model.engine"))
+        step = YoloInference(Path("model.engine"), backend=Backend.TENSORRT)
         self.assertEqual(step.inference_interval_frame, 1)
         self.assertFalse(hasattr(step, "inference_interval"))
         step.configure(SimpleNamespace(inference_interval_frame=3))
@@ -225,7 +227,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(step.inference_interval_frame, 1)
 
     def test_invalid_interval_preserves_settings(self):
-        step = TensorRTInference(Path("model.engine"))
+        step = YoloInference(Path("model.engine"), backend=Backend.TENSORRT)
         step.configure(SimpleNamespace(gpu_id=1, inference_interval_frame=3))
         for value in (0, -1, True, 1.5, "3", None):
             with self.subTest(value=value):
@@ -242,26 +244,26 @@ class SettingsTests(unittest.TestCase):
                 ({"inference_interval": 99, "inference_interval_frame": 4}, 4),
             ]:
                 with self.subTest(batch=batch, config=config):
-                    step = TensorRTInference(Path("model.engine"), batch=batch)
+                    step = YoloInference(Path("model.engine"), backend=Backend.TENSORRT, batch=batch)
                     step.configure(SimpleNamespace(**config))
                     self.assertEqual(step.inference_interval_frame, interval)
                     self.assertFalse(hasattr(step, "inference_interval"))
 
 
     def test_batch_flag_validation(self):
-        self.assertFalse(TensorRTInference(Path("model.plan")).batch)
-        self.assertTrue(TensorRTInference(Path("model.plan"), batch=True).batch)
+        self.assertFalse(YoloInference(Path("model.plan"), backend=Backend.TENSORRT).batch)
+        self.assertTrue(YoloInference(Path("model.plan"), backend=Backend.TENSORRT, batch=True).batch)
         for value in (0, 1, None, "true"):
             with self.assertRaises(ValueError):
-                TensorRTInference(Path("model.plan"), batch=value)
+                YoloInference(Path("model.plan"), backend=Backend.TENSORRT, batch=value)
 
     def test_settings_and_public_export(self):
-        from pipeworks.embedded import TensorRTInference as exported
+        from pipeworks.embedded import YoloInference as exported
 
-        self.assertIs(exported, TensorRTInference)
+        self.assertIs(exported, YoloInference)
         with TemporaryDirectory() as directory:
             path = Path(directory) / "model.engine"
-            step = TensorRTInference(path)
+            step = YoloInference(path, backend=Backend.TENSORRT)
             self.assertEqual(step._model_settings(), ())
             path.with_suffix(".yml").write_text(
                 "timeout_ms: 25\nplugins: [custom.dll]\nmax_batch_size: 10",
@@ -279,11 +281,11 @@ class SettingsTests(unittest.TestCase):
                 path.with_suffix(".yml").write_text(
                     f"timeout_ms: {value}", encoding="utf-8"
                 )
-                self.assertEqual(TensorRTInference(path)._model_settings(), ())
+                self.assertEqual(YoloInference(path, backend=Backend.TENSORRT)._model_settings(), ())
             for content in ("[]", "timeout_ms: [", "plugins: wrong", "plugins: [3]"):
                 path.with_suffix(".yml").write_text(content, encoding="utf-8")
                 with self.assertRaises(ValueError):
-                    TensorRTInference(path)._model_settings()
+                    YoloInference(path, backend=Backend.TENSORRT)._model_settings()
         for config in (
             SimpleNamespace(gpu_id=True),
             SimpleNamespace(gpu_id=-1),
@@ -291,7 +293,7 @@ class SettingsTests(unittest.TestCase):
             SimpleNamespace(inference_interval_frame=True),
         ):
             with self.assertRaises(ValueError):
-                TensorRTInference(Path("model.engine")).configure(config)
+                YoloInference(Path("model.engine"), backend=Backend.TENSORRT).configure(config)
 
 
 class ProfileSelectionTests(unittest.TestCase):
@@ -405,12 +407,12 @@ class InputDependencyTests(unittest.TestCase):
                         side_effect=AssertionError("CPU input wait"),
                     ),
                     patch(
-                        "pipeworks.embedded.tensor_rt_inference._EngineSession", Session
+                        "pipeworks.embedded.yolo_inference._EngineSession", Session
                     ),
                     patch("torch.cuda.Stream", return_value=consumer),
                 ):
                     result = list(
-                        TensorRTInference(Path("model.engine")).process(iter([item]))
+                        YoloInference(Path("model.engine"), backend=Backend.TENSORRT).process(iter([item]))
                     )[0]
                 torch.testing.assert_close(
                     result.model_output["output"],
@@ -419,7 +421,7 @@ class InputDependencyTests(unittest.TestCase):
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
-class TensorRTInferenceTests(unittest.TestCase):
+class YoloInferenceTests(unittest.TestCase):
     def test_cached_input_metadata_preserves_dynamic_validation_and_output_queries(
         self,
     ):
@@ -475,14 +477,15 @@ class TensorRTInferenceTests(unittest.TestCase):
                     )
 
     def test_batch_submits_inputs_events_interval_and_statistics(self):
-        step = TensorRTInference(self.path, batch=True)
+        step = YoloInference(self.path, backend=Backend.TENSORRT, batch=True)
         step.configure(SimpleNamespace(inference_interval_frame=3))
         items = [self.item() for _ in range(7)]
         calls = []
 
         def infer(
-            path, tensors, gpu_id, *, profile_index, ready_event, on_inference_complete
+            path, tensors, gpu_id, *, backend, profile_index, ready_event, on_inference_complete
         ):
+            self.assertEqual(backend, Backend.TENSORRT)
             self.assertEqual(profile_index, step.profile_index)
             ready_event.synchronize()
             calls.append(tensors)
@@ -490,7 +493,7 @@ class TensorRTInferenceTests(unittest.TestCase):
             return {"output": tensors + 1}
 
         with (
-            patch("pipeworks.local_tensor_rt.infer", side_effect=infer),
+            patch("pipeworks.local_yolo_inference.infer", side_effect=infer),
             report_scope(),
         ):
             stats = _stats()
@@ -505,7 +508,7 @@ class TensorRTInferenceTests(unittest.TestCase):
         for tensor, item in zip(calls, items[::3]):
             self.assertIs(tensor, item.model_input)
         with patch(
-            "pipeworks.local_tensor_rt.infer", side_effect=RuntimeError("batch failed")
+            "pipeworks.local_yolo_inference.infer", side_effect=RuntimeError("batch failed")
         ):
             with self.assertRaisesRegex(RuntimeError, "batch failed"):
                 list(step.process(iter([self.item()])))
@@ -530,7 +533,7 @@ class TensorRTInferenceTests(unittest.TestCase):
         pointer_patch = patch.object(torch.Tensor, "data_ptr", data_ptr)
         pointer_patch.start()
         self.addCleanup(pointer_patch.stop)
-        self.step = TensorRTInference(self.path)
+        self.step = YoloInference(self.path, backend=Backend.TENSORRT)
         self.addCleanup(self.stop_worker)
 
     def stop_worker(self):
@@ -621,7 +624,7 @@ class TensorRTInferenceTests(unittest.TestCase):
 
         wrapper = CudaAsync(self.step, timeout_ms=20)
         with patch(
-            "pipeworks.embedded.tensor_rt_inference._EngineSession", side_effect=load
+            "pipeworks.embedded.yolo_inference._EngineSession", side_effect=load
         ):
             items = [self.item(), self.item()]
             outputs = wrapper.process(iter(items))
@@ -707,7 +710,7 @@ class TensorRTInferenceTests(unittest.TestCase):
             with self.subTest(invalid=invalid):
                 self.stop_worker()
                 self.api.contexts.clear()
-                self.step = TensorRTInference(self.path)
+                self.step = YoloInference(self.path, backend=Backend.TENSORRT)
                 first, second = self.item(), self.item()
                 if invalid == "cpu":
                     first.model_input = torch.ones((2, 2))
@@ -821,12 +824,12 @@ class RealTensorRTTests(unittest.TestCase):
             path.with_suffix(".yml").write_text("plugins: []", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "프로파일 0"):
                 item = PipelineContext(model_input=torch.ones((1, 4), device="cuda"))
-                list(TensorRTInference(path).process(iter([item])))
+                list(YoloInference(path, backend=Backend.TENSORRT).process(iter([item])))
             for batch in (False, True):
                 with self.subTest(batch=batch):
                     source = torch.ones((1, 4), device="cuda")
                     item = PipelineContext(model_input=source)
-                    step = TensorRTInference(path, batch=batch)
+                    step = YoloInference(path, backend=Backend.TENSORRT, batch=batch)
                     step.configure(SimpleNamespace(profile_index=1))
                     list(step.process(iter([item])))
                     torch.testing.assert_close(item.model_output["result"], source * 2)
@@ -849,7 +852,7 @@ class RealTensorRTTests(unittest.TestCase):
             path = Path(directory) / "model.engine"
             path.write_bytes(bytes(serialized))
             path.with_suffix(".yml").write_text("timeout_ms: 10000", encoding="utf-8")
-            step = TensorRTInference(path)
+            step = YoloInference(path, backend=Backend.TENSORRT)
             item = PipelineContext(model_input=torch.ones((2, 2), device="cuda"))
             list(step.process(iter((item,))))
             self.assertIsNotNone(item.model_output)

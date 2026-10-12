@@ -6,6 +6,10 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
+from step.yolo_post_process import YoloPostProcess
+
+from pipeworks import Backend
 from pipeworks import Pipeline
 from pipeworks.embedded import (
     CudaAsync,
@@ -14,8 +18,7 @@ from pipeworks.embedded import (
     RTSPPublish,
     RTSPSource,
     TapSkipIfBusy,
-    TensorRTInference,
-    YoloDetect,
+    YoloInference,
 )
 from pipeworks.hotswap import Hotswap
 from pipeworks.models import Step
@@ -100,20 +103,9 @@ class StepConfigDefaultsTests(unittest.TestCase):
             (NvidiaDecode, (), {"gpu_id": 2}, {"gpu_id": 0}),
             (NvidiaEncode, (), {"gpu_id": 2, "fps": 15}, {"fps": 25}),
             (
-                YoloDetect,
-                (Path("model.pt"),),
-                {
-                    "gpu_id": 2,
-                    "classes": [1],
-                    "confidence": 0.7,
-                    "inference_interval_frame": 3,
-                },
-                {"classes": [], "confidence": 0.4},
-            ),
-            (
-                TensorRTInference,
+                YoloInference,
                 (Path("model.engine"),),
-                {"gpu_id": 2, "profile_index": 1, "inference_interval_frame": 3},
+                {"backend": Backend.TENSORRT, "gpu_id": 2, "profile_index": 1, "inference_interval_frame": 3},
                 {"profile_index": 0},
             ),
             (CudaAsync, (NvidiaDecode(),), {"timeout_ms": 25}, {"timeout_ms": 0}),
@@ -139,8 +131,8 @@ class StepConfigDefaultsTests(unittest.TestCase):
             (RTSPPublish("output"), {"packet_size": 1452}),
             (NvidiaDecode(), {"gpu_id": 0}),
             (NvidiaEncode(), {"gpu_id": 0, "fps": 30}),
-            (YoloDetect(Path("model.pt")), {"confidence": 0.25, "classes": None}),
-            (TensorRTInference(Path("model.engine")), {"profile_index": 0}),
+            (YoloPostProcess(), {"confidence": 0.25, "classes": None}),
+            (YoloInference(Path("model.engine"), backend=Backend.TENSORRT), {"profile_index": 0}),
             (CudaAsync(NvidiaDecode()), {"timeout_ms": 5}),
         ]:
             with self.subTest(step=type(step).__name__):
@@ -150,7 +142,7 @@ class StepConfigDefaultsTests(unittest.TestCase):
 
     def test_explicit_null_and_mutable_constructor_value(self):
         classes = [1]
-        step = YoloDetect(Path("model.pt"), classes=classes)
+        step = YoloPostProcess(classes=classes)
         classes.append(2)
         step.classes.append(3)
         step.configure(SimpleNamespace(classes=None))
@@ -162,11 +154,11 @@ class StepConfigDefaultsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "stream.yml"
             config.write_text(
-                "TensorRTInference:\n  profile_index: 0\nCudaAsync:\n  timeout_ms: 0\n",
+                "YoloInference:\n  profile_index: 0\nCudaAsync:\n  timeout_ms: 0\n",
                 encoding="utf-8",
             )
-            inference = TensorRTInference(
-                Path("model.engine"), gpu_id=2, profile_index=1
+            inference = YoloInference(
+                Path("model.engine"), backend=Backend.TENSORRT, gpu_id=2, profile_index=1
             )
             async_step = CudaAsync(inference, timeout_ms=25)
             Pipeline("test", config=config).step(async_step)
@@ -189,7 +181,7 @@ class StepConfigDefaultsTests(unittest.TestCase):
         self.assertEqual(decoder.gpu_id, 2)
 
     def test_invalid_reload_preserves_active_config_and_constructor_defaults(self):
-        inference = TensorRTInference(Path("model.engine"), gpu_id=2, profile_index=1)
+        inference = YoloInference(Path("model.engine"), backend=Backend.TENSORRT, gpu_id=2, profile_index=1)
         wrapper = Hotswap(inference, watch_code=False)
         wrapper.configure(SimpleNamespace(gpu_id=3))
         with self.assertLogs("pipeworks.hotswap", level="ERROR"):
@@ -202,8 +194,8 @@ class StepConfigDefaultsTests(unittest.TestCase):
 
     def test_invalid_constructor_values_use_existing_validation(self):
         for factory in [
-            lambda: TensorRTInference(Path("model.engine"), profile_index=-1),
-            lambda: YoloDetect(Path("model.pt"), confidence=0),
+            lambda: YoloInference(Path("model.engine"), backend=Backend.TENSORRT, profile_index=-1),
+            lambda: YoloPostProcess(confidence=-0.1),
             lambda: NvidiaEncode(fps=0),
             lambda: RTSPSource("input", timeout_ms=None),
             lambda: RTSPPublish("output", reconnect_interval_ms=-1),

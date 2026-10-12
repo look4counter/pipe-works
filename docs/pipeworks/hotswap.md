@@ -62,24 +62,32 @@ Context (Epoch 2)
 
 **초기 config.yaml:**
 ```yaml
-YoloDetect:
-  confidence: 0.25
+YoloInference:
+  backend: ultralytics
   gpu_id: 0
   inference_interval_frame: 1
+
+YoloPostProcess:
+  confidence: 0.25
+
 ```
 
 파이프라인 실행 중:
 
 ```yaml
-YoloDetect:
-  confidence: 0.5      # 변경
+YoloInference:
+  backend: ultralytics
   gpu_id: 0
   inference_interval_frame: 2  # 변경
+
+YoloPostProcess:
+  confidence: 0.5      # 변경
+
 ```
 
 파일을 저장하면:
 1. Pipeline이 변경 감지
-2. YoloDetect Step의 `configure()` 호출
+2. 변경된 섹션에 해당하는 YoloInference 또는 YoloPostProcess Step의 `configure()` 호출
 3. 새로운 설정이 적용됨
 
 ### 실제 코드 예제

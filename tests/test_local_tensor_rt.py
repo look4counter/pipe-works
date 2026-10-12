@@ -1,3 +1,4 @@
+from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -6,7 +7,8 @@ import unittest
 from unittest.mock import patch
 
 import torch
-from pipeworks import local_tensor_rt as batch
+from pipeworks import local_yolo_inference as batch
+infer = partial(batch.infer, backend="tensorrt")
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
@@ -49,7 +51,7 @@ class BatchTests(unittest.TestCase):
                 ThreadPoolExecutor(2) as executor,
             ):
                 futures = [
-                    executor.submit(batch.infer, path, value, ready_event=ready)
+                    executor.submit(infer, path, value, ready_event=ready)
                     for value, ready in requests
                 ]
                 outputs = [future.result(timeout=5)["output"] for future in futures]
@@ -79,7 +81,7 @@ class BatchTests(unittest.TestCase):
             path.write_bytes(b"engine")
             value = torch.ones((1, 3), device="cuda")
             with patch.object(batch, "_EngineSession", Session):
-                first = batch.infer(path, value)
+                first = infer(path, value)
                 path.unlink()
                 with (
                     patch.object(
@@ -89,18 +91,18 @@ class BatchTests(unittest.TestCase):
                         Path, "is_file", side_effect=AssertionError("is_file")
                     ),
                 ):
-                    second = batch.infer(path, value)
+                    second = infer(path, value)
                 torch.testing.assert_close(first["output"], second["output"])
                 self.assertEqual(loaded, [path])
                 broken[0] = True
                 with self.assertRaisesRegex(RuntimeError, "engine failed"):
-                    batch.infer(path, value)
+                    infer(path, value)
                 broken[0] = False
                 with self.assertRaisesRegex(RuntimeError, "FileNotFoundError"):
-                    batch.infer(path, value)
+                    infer(path, value)
                 path.write_bytes(b"restored")
                 torch.testing.assert_close(
-                    batch.infer(path, value)["output"], value + 1
+                    infer(path, value)["output"], value + 1
                 )
                 self.assertEqual(loaded, [path, path])
 
@@ -133,7 +135,7 @@ class BatchTests(unittest.TestCase):
             with patch.object(batch, "_EngineSession", Session):
                 with ThreadPoolExecutor(2) as executor:
                     futures = [
-                        executor.submit(batch.infer, path, value, profile_index=index)
+                        executor.submit(infer, path, value, profile_index=index)
                         for index in (0, 1)
                     ]
                     results = [future.result(timeout=5) for future in futures]
@@ -142,15 +144,15 @@ class BatchTests(unittest.TestCase):
                 self.assertEqual(sorted(calls), [(0, 1), (1, 1)])
                 broken[0] = True
                 with self.assertRaisesRegex(RuntimeError, "profile one failed"):
-                    batch.infer(path, value, profile_index=1)
-                batch.infer(path, value, profile_index=0)
+                    infer(path, value, profile_index=1)
+                infer(path, value, profile_index=0)
                 self.assertEqual(sorted(created), [0, 1])
                 broken[0] = False
-                batch.infer(path, value, profile_index=1)
+                infer(path, value, profile_index=1)
                 self.assertEqual(sorted(created), [0, 1, 1])
                 for invalid in (-1, True, 1.5, "1", None):
                     with self.assertRaisesRegex(ValueError, "profile_index"):
-                        batch.infer(path, value, profile_index=invalid)
+                        infer(path, value, profile_index=invalid)
 
     def test_collects_and_splits_gpu_requests(self):
         calls = []
@@ -184,7 +186,7 @@ class BatchTests(unittest.TestCase):
                 ThreadPoolExecutor(2) as executor,
             ):
                 futures = [
-                    executor.submit(batch.infer, path, value, profile_index=1)
+                    executor.submit(infer, path, value, profile_index=1)
                     for value in (a, b)
                 ]
                 outputs = [f.result(timeout=5) for f in futures]
@@ -215,9 +217,9 @@ class BatchTests(unittest.TestCase):
             value = torch.ones((1, 3), device="cuda")
             with patch.object(batch, "_EngineSession", Session):
                 with self.assertRaisesRegex(RuntimeError, "batch axis"):
-                    batch.infer(path, value)
+                    infer(path, value)
                 broken[0] = False
-                result = batch.infer(path, value)
+                result = infer(path, value)
             torch.testing.assert_close(result["output"], value + 1)
 
 

@@ -45,6 +45,10 @@ print(context.custom_field)
 #### 일반적인 필드들
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 # RTSPSource에서 생성
 context.video_stream  # av.VideoStream
 context.packet  # av.Packet
@@ -55,7 +59,7 @@ context.pixel_format  # 픽셀 형식 (예: NV12)
 context.cuda_stream  # 영상 처리 CUDA 스트림
 context.processing_started_at  # 후속 처리 시작 시각, perf_counter 기준
 
-# YoloDetect 또는 예제 TensorRT 후처리에서 추가
+# YoloInference 또는 예제 TensorRT 후처리에서 추가
 context.detections  # {모델 ID: 결과 또는 None}
 
 # TensorRT 전처리·추론의 임시 속성
@@ -280,7 +284,7 @@ class BatchStep(Step):
 - [Pipeline](pipeline.md): 파이프라인 조립 및 실행
 - [Hotswap](hotswap.md): 실행 중 코드/설정 재로드
 - [RTSPSource](embedded/rtsp_source.md): Source Step 예제
-- [YoloDetect](embedded/yolo_detect.md): Processing Step 예제
+- [YoloInference](embedded/yolo_inference.md): Processing Step 예제
 
 ---
 

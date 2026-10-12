@@ -1,21 +1,24 @@
-# TensorRTInference: GPU 추론 전용 단계
+# TensorRT 엔진 실행과 기존 API 호환
+
+TensorRT 추론은 `YoloInference(..., backend=Backend.TENSORRT)`로 통합되었습니다. 새 파이프라인은 [YoloInference 안내](yolo_inference.md)의 통합 API를 사용하세요. 아래 엔진·플러그인·배치 계약은 통합 API에도 동일하게 적용됩니다.
 
 세션 초기화 때 엔진의 입력 선언 형상과 선택 프로파일의 동적 입력 최소·최대 형상을 캐시합니다. 매 요청의 입력 형상·범위 검증은 이 캐시로 수행합니다. 실제 실행에 따라 달라지는 출력 형상과 입력·출력 stride는 계속 조회합니다. GPU·프로파일 변경이나 재로딩으로 세션을 재생성하면 캐시도 새로 만듭니다. 캐시 대상은 고정 메타데이터이며 GPU 텐서 데이터는 복사하지 않습니다.
 
 공유 배치 경로는 작업자 최초 준비 시 모델 경로를 정규화하고 존재를 검사합니다. 같은 입력 경로로 기존 작업자를 재사용하는 요청은 resolve/is_file을 호출하지 않습니다. 이미 로드된 GPU·프로파일 세션은 엔진 파일이 삭제되어도 계속 사용할 수 있지만, 새 세션 생성이나 오류 후 재로딩에는 실제 파일이 필요합니다. 파일 변경이나 캐시된 심볼릭 링크 변경으로 기존 작업자를 자동 교체하지 않습니다. 상대경로는 호출 작업 디렉터리로 구분합니다.
 
-`TensorRTInference`는 전처리 단계가 만든 `context.model_input`의 GPU 텐서를 TensorRT 엔진으로 추론하고 원시 출력을 `context.model_output`에 넣습니다. 리사이즈·색 변환·정규화·자료형 변환·NMS·좌표 복원은 수행하지 않습니다.
+`YoloInference`는 전처리 단계가 만든 `context.model_input`의 GPU 텐서를 TensorRT 엔진으로 추론하고 원시 출력을 `context.model_output`에 넣습니다. 리사이즈·색 변환·정규화·자료형 변환·NMS·좌표 복원은 수행하지 않습니다.
 
 이미지 입력은 예제 [TensorRTPreProcess](tensor_rt_preprocess.md)로 준비할 수 있습니다. 모델별 크기·정규화·색상 순서·자료형·배치를 지정하며 추론 단계는 해당 입력을 그대로 실행합니다.
 
 ## 파이프라인 연결
 
 ```python
+from pipeworks import Backend
 from pathlib import Path
-from pipeworks.embedded import TensorRTInference
+from pipeworks.embedded import YoloInference
 
 pipeline.step(preprocess_step)
-pipeline.step(TensorRTInference(Path("models/model.engine")))
+pipeline.step(YoloInference(Path("models/model.engine"), backend=Backend.TENSORRT))
 pipeline.step(postprocess_step)
 ```
 
@@ -35,8 +38,9 @@ if context.model_output is not None:
 생성자의 `id`는 결과를 구분하는 모델 실행 단계의 식별자입니다. 생략하거나 `None`이면 확장자를 포함한 모델 파일명(`model.engine`)을 사용합니다. 지정할 때는 공백뿐인 값이 아닌 문자열이어야 합니다. YAML의 `id`가 우선하며 `null`은 파일명으로, 키 제거는 최초 생성자 값으로 돌아갑니다. 같은 클래스의 여러 인스턴스에 다른 ID를 지정하려면 YAML의 공통 `id`를 생략하고 생성자에 각각 지정합니다. ID는 엔진 세션·배치 공유에 영향을 주지 않습니다.
 
 ```python
-TensorRTInference("models/yolo11n.plan", id="vehicle")
-TensorRTInference("models/yolo11n.plan", id="person")
+from pipeworks import Backend
+YoloInference("models/yolo11n.plan", backend=Backend.TENSORRT, id="vehicle")
+YoloInference("models/yolo11n.plan", backend=Backend.TENSORRT, id="person")
 ```
 
 추론은 건너뛴 입력도 `context.model_id`를 전달합니다. 예제 후처리는 `context.detections[model_id]`에 결과를 저장하며 같은 ID만 교체합니다. 출력 누락은 해당 키의 `None`, 탐지 없음은 빈 `boxes`를 가진 결과입니다. 후처리는 임시 모델 입출력·변환 정보·스트림과 `model_id`를 정리합니다.
@@ -54,6 +58,7 @@ if vehicle is not None:
 다음 예제는 `examples`가 모듈 탐색 경로에 있을 때 사용할 수 있습니다.
 
 ```python
+from pipeworks import Backend
 from pipeworks.embedded import CudaAsync
 from step.tensor_rt_pre_process import TensorRTPreProcess
 from step.tensor_rt_post_process import TensorRTPostProcess
@@ -63,7 +68,7 @@ for model_id in ("vehicle", "person"):
     pipeline.step(
         CudaAsync(
             TensorRTPreProcess(),
-            TensorRTInference("models/yolo11n.plan", id=model_id),
+            YoloInference("models/yolo11n.plan", backend=Backend.TENSORRT, id=model_id),
             TensorRTPostProcess(),
             timeout_ms=100,
         )
@@ -71,12 +76,13 @@ for model_id in ("vehicle", "person"):
 pipeline.step(BoxOverlay())
 ```
 
-`BoxOverlay`는 클래스 내부의 `id=None` 기본값으로 모든 모델을 표시합니다. 선택하려면 예제 클래스의 내부 기본값을 변경하거나 `configure(SimpleNamespace(id="vehicle"))`로 명시적으로 구성합니다. 제공 YAML에는 `BoxOverlay`와 `TensorRTPostProcess` 섹션이 없습니다. 후처리는 클래스 내부의 `classes=[2]`, `confidence=0.25`, `iou=0.7`, `max_det=300`, `output_name="output0"`을 기본값으로 사용합니다. `keep_previous`는 ID별로 적용하므로 한 모델이 건너뛰어도 다른 모델의 갱신이 이전 박스를 지우지 않습니다. 빈 탐지 결과는 해당 모델의 이전 박스를 지웁니다. 기존 YOLO 단일 결과 객체도 ID 선택 없이 표시할 수 있습니다. 성능 보고는 결과 사전과 독립적이며 결과를 읽는 사용자 단계는 ID로 값을 선택해야 합니다.
+`BoxOverlay`는 클래스 내부의 `id=None` 기본값으로 모든 모델을 표시합니다. 선택하려면 예제 클래스의 내부 기본값을 변경하거나 `configure(SimpleNamespace(id="vehicle"))`로 명시적으로 구성합니다. 제공 YAML에는 `BoxOverlay`와 `TensorRTPostProcess` 섹션이 없습니다. 후처리는 YoloPostProcess와 같은 공통 구현·옵션을 사용하고 `classes=None`, `confidence=0.25`, `iou=0.7`, `max_det=300`, `output_name="output0"`을 기본값으로 사용합니다. 차량만 선택하려면 `TensorRTPostProcess(classes=[2])`를 명시합니다. FP16·사용자 이름·end2end 옵션도 지원합니다. `keep_previous`는 ID별로 적용하므로 한 모델이 건너뛰어도 다른 모델의 갱신이 이전 박스를 지우지 않습니다. 빈 탐지 결과는 해당 모델의 이전 박스를 지웁니다. 기존 YOLO 단일 결과 객체도 ID 선택 없이 표시할 수 있습니다. 성능 보고는 결과 사전과 독립적이며 결과를 읽는 사용자 단계는 ID로 값을 선택해야 합니다.
 
 파이프라인 YAML의 클래스명 섹션에 GPU 번호와 추론 대상 선택 간격을 설정합니다.
 
 ```yaml
-TensorRTInference:
+YoloInference:
+  backend: tensorrt
   gpu_id: 0
   inference_interval_frame: 1
   profile_index: 0
@@ -84,7 +90,7 @@ TensorRTInference:
 
 `inference_interval_frame`은 1 이상의 정수이며 기본값은 1입니다. 개별·배치 모드 모두 첫 입력부터 지정 간격으로 추론합니다. 값이 3이면 1·4·7번째 입력을 추론하고 나머지는 `model_output=None`으로 원래 컨텍스트를 전달합니다. 기존 `inference_interval` 설정은 새 이름으로 변경해야 하며, 이전 inference_interval 키는 사용하지 않고 무시합니다.
 
-`profile_index`는 영상별 `TensorRTInference` 설정입니다. 같은 모델을 사용해도 각 인스턴스가 서로 다른 프로파일을 선택할 수 있으며, 실행 중 설정 변경은 다음 입력부터 적용합니다. 개별 모드는 GPU·프로파일 변경 시 세션을 재생성하고 공유 배치는 프로파일이 같은 요청만 수집하며 GPU·프로파일별 세션을 사용합니다.
+`profile_index`는 영상별 `YoloInference` 설정입니다. 같은 모델을 사용해도 각 인스턴스가 서로 다른 프로파일을 선택할 수 있으며, 실행 중 설정 변경은 다음 입력부터 적용합니다. 개별 모드는 GPU·프로파일 변경 시 세션을 재생성하고 공유 배치는 프로파일이 같은 요청만 수집하며 GPU·프로파일별 세션을 사용합니다.
 
 `models/model.engine`의 동명 `models/model.yml`에는 선택적인 외부 플러그인 라이브러리와 모델 공통 배치 수집 설정을 지정합니다.
 
@@ -100,7 +106,7 @@ timeout_ms: 20
 
 모델 YAML은 개별 모드에서 실행 시작 시, 공유 배치 모드에서 모델 작업자 생성 시 읽습니다. 이 파일의 변경은 실행 중 자동 반영되지 않습니다. 개별 모드는 파이프라인 실행을, 공유 배치 모드는 프로세스를 다시 시작해야 합니다. 개별 모드는 `timeout_ms`를 사용하지 않으며 자체 시간 제한이 없습니다. 개별 모드의 배치 차원은 입력 텐서가 결정하며 별도 요청을 모으지 않습니다. 클래스·신뢰도 필터는 후처리 단계의 책임입니다.
 
-이전 모델 YAML의 `timeout`은 값의 단위를 유지해 `timeout_ms`로 변경하고, `profile_index`는 `stream.yml`의 `TensorRTInference` 아래로 이동해야 합니다. 이전 이름이나 위치는 변경 안내 오류로 처리합니다.
+이전 모델 YAML의 `timeout`은 값의 단위를 유지해 `timeout_ms`로 변경하고, `profile_index`는 `stream.yml`의 `YoloInference` 아래로 이동해야 합니다. 이전 이름이나 위치는 변경 안내 오류로 처리합니다.
 
 ## 동기 실행과 자원 수명
 
@@ -123,7 +129,7 @@ GPU 위치의 LINEAR 바인딩만 지원합니다. CPU 형상 바인딩, 벡터�
 `tests/test_tensor_rt_inference.py`는 모의 TensorRT API와 실제 CUDA 텐서로 GPU 값·이름·자료형·동적 출력·플러그인 로딩·동기 실행·무복제 입력과 CudaAsync 조합을 확인합니다. 실제 TensorRT 엔진 생성·실행 및 예제 YOLO plan 검증도 통과했습니다.
 ## 선택적 공유 배치
 
-`TensorRTInference(model_path, batch=True)`는 local_tensor_rt에 요청한다. 기본 batch=False는 기존 동기 개별 경로다. 전처리는 프레임마다 배치 1 텐서를 만들면 된다. 공유 실행기가 여러 입력을 모아 추론하고 각 요청에 배치 1 GPU 출력 사전을 반환한다.
+`YoloInference(model_path, backend=Backend.TENSORRT, batch=True)`는 local_yolo_inference.infer에 요청한다. 기본 batch=False는 기존 동기 개별 경로다. 전처리는 프레임마다 배치 1 텐서를 만들면 된다. 공유 실행기가 여러 입력을 모아 추론하고 각 요청에 배치 1 GPU 출력 사전을 반환한다.
 
 모델 YAML의 max_batch_size와 timeout_ms는 배치 크기와 밀리초 단위 수집 기한이다. 선택한 프로파일은 수집 가능한 모든 배치 크기를 지원해야 하며 입력·출력의 첫 축이 배치여야 한다. 고정 배치 1 엔진에는 max_batch_size=1을 사용한다. 영상별 profile_index와 모델 공통 plugins 설정을 적용한다. 배치 모드도 자체 추론 제한은 없으며 오류는 호출자에 전파한다. 시간 제한·영상 통과는 CudaAsync가 담당한다.
 ## 원본 영상 사용 종료와 비동기 조합
@@ -132,4 +138,10 @@ GPU 위치의 LINEAR 바인딩만 지원합니다. CPU 형상 바인딩, 벡터�
 
 예제 TensorRTPreProcess는 독립 RGB 생성 직후 원본 읽기의 CUDA 완료 이벤트를 기록해 release_frame을 호출한다. 단일·복수 CudaAsync에서 신호를 적용한다. 이후 추론·후처리는 독립 model_input·model_output만 사용하고 원본을 다시 읽지 않는다. BoxOverlay는 CudaAsync 바깥에 둔다.
 
-CudaAsync는 보호 복사를 하지 않는다. 타임아웃 시 원본 사용 완료가 확인되면 원본을 전달하고, 아직 사용 중이거나 신호가 없으면 해당 프레임을 폐기한다. 사용자 전처리도 동일한 신호 계약을 사용해야 한다. TensorRTInference가 임의 입력 텐서의 원본 별칭 여부를 판단해 자동으로 해제하지는 않는다.
+CudaAsync는 보호 복사를 하지 않는다. 타임아웃 시 원본 사용 완료가 확인되면 원본을 전달하고, 아직 사용 중이거나 신호가 없으면 해당 프레임을 폐기한다. 사용자 전처리도 동일한 신호 계약을 사용해야 한다. YoloInference가 임의 입력 텐서의 원본 별칭 여부를 판단해 자동으로 해제하지는 않는다.
+
+## 백엔드 교체와 공통 좌표 정보
+
+두 전처리 예제는 image_transform을 제공하고 두 후처리 예제는 같은 필드로 좌표를 복원합니다. 전후처리를 유지하고 YoloInference의 backend만 교체할 수 있으며 실제 자료형·형상·출력 이름은 같은 모델 규칙에 맞춰야 합니다. 이전 변환 필드도 입력 호환으로 읽지만 새 전처리는 공통 필드만 생성합니다. [공통 계약과 교체 예제](yolo_inference.md)를 참고하세요.
+
+전후처리 클래스 이름과 관계없이 YoloInference를 연결하면 전체 전처리·추론·후처리가 YoloReport 표본 하나로 기록됩니다.

@@ -2,6 +2,8 @@
 
 `TensorRTPreProcess`는 `examples/step/tensor_rt_pre_process.py`에서 제공하는 사용자 단계 예제입니다. `examples`를 모듈 탐색 경로에 두고 가져옵니다. 모델의 검증·추론용 전처리 규칙에 맞춰 예제 코드와 생성자 설정을 조정해야 하며, 모든 모델과의 호환성을 보장하지 않습니다.
 
+YoloPreProcess와 같은 공통 GPU 구현·생성자 옵션·기본값을 사용하며 두 클래스 모두 Step을 직접 상속합니다. 두 추론 백엔드와 교차 연결할 수 있습니다. [공통 추론 계약과 교체 예제](yolo_inference.md)를 참고하세요.
+
 이 예제는 이미지 모델이 요구하는 크기·색상·정규화·자료형·텐서 배치를 구성합니다. Ultralytics를 호출하지 않고 PyTorch CUDA 연산으로 수행하며 TensorRT 엔진을 읽거나 전처리 규칙을 추측하지 않습니다.
 
 ```python
@@ -24,9 +26,9 @@ pipeline.step(preprocess)
 
 입력 생산 스트림은 `context.cuda_stream`이며 없으면 해당 GPU의 현재 스트림을 사용합니다. 원본 프레임과 기존 영상 스트림을 보존하고 이미지 데이터를 CPU로 복사하지 않습니다. CPU/NumPy 이미지를 자동으로 업로드하지 않습니다.
 
-출력은 `context.model_input`에 배치 크기 1의 연속 GPU 텐서로 저장합니다. 기본 형상은 `[1, 3, 640, 640]`입니다. `input_name="images"`를 지정하면 `{"images": tensor}` 사전을 만듭니다. 다중 입력 모델의 나머지 입력은 다른 단계가 추가해야 합니다. `TensorRTInference(batch=True)`는 각 요청의 동일 형상 텐서를 첫 번째 축으로 묶습니다.
+출력은 `context.model_input`에 배치 크기 1의 연속 GPU 텐서로 저장합니다. 기본 형상은 `[1, 3, 640, 640]`입니다. `input_name="images"`를 지정하면 `{"images": tensor}` 사전을 만듭니다. 다중 입력 모델의 나머지 입력은 다른 단계가 추가해야 합니다. `YoloInference(model_path, backend=Backend.TENSORRT, batch=True)`는 각 요청의 동일 형상 텐서를 첫 번째 축으로 묶습니다.
 
-전처리는 `context.cuda_stream`에서 실행하고 `context.tensor_rt_transform`에 좌표 변환 정보를 저장합니다. 스트림이 없으면 현재 GPU 스트림을 `context.cuda_stream`에 저장합니다. 기존 `detections`는 보존하므로 직렬 모델의 이전 결과가 유지됩니다. 원본 읽기가 끝난 시점에 CUDA 완료 이벤트와 함께 `release_frame()`을 호출해 CudaAsync의 프레임 수명 계약을 유지합니다.
+전처리는 `context.cuda_stream`에서 실행하고 `context.image_transform`에 좌표 변환 정보를 저장합니다. 스트림이 없으면 현재 GPU 스트림을 `context.cuda_stream`에 저장합니다. 기존 `detections`는 보존하므로 직렬 모델의 이전 결과가 유지됩니다. 원본 읽기가 끝난 시점에 CUDA 완료 이벤트와 함께 `release_frame()`을 호출해 CudaAsync의 프레임 수명 계약을 유지합니다.
 
 ## 옵션
 
@@ -103,12 +105,12 @@ TensorRTPreProcess(
 
 ## 좌표와 수치 계약
 
-`tensor_rt_transform.shape`는 원본 높이·너비, `ratio_xy`는 가로·세로 배율, `left/top`은 패딩 이동량입니다. 중앙 자르기에서는 이동량이 음수입니다. 원본 좌표는 `(변환된 좌표 − 이동량) / 해당 축의 배율`로 복원합니다. `output_shape`는 최종 높이·너비이고 `resize_mode`로 변환 종류를 구분합니다. 기존 `ratio`는 균일 배율이면 숫자, 비균일 배율이면 가로·세로 쌍입니다.
+`image_transform.shape`는 원본 높이·너비, `ratio_xy`는 가로·세로 배율, `left/top`은 패딩 이동량입니다. 중앙 자르기에서는 이동량이 음수입니다. 원본 좌표는 `(변환된 좌표 − 이동량) / 해당 축의 배율`로 복원합니다. `output_shape`는 최종 높이·너비이고 `resize_mode`로 변환 종류를 구분합니다. 기존 `ratio`는 균일 배율이면 숫자, 비균일 배율이면 가로·세로 쌍입니다.
 
-`tensor_rt_transform`은 `pipeworks.image_transform.ImageTransform` 객체이며 좌표 복원 기능을 제공합니다. 후처리는 배율·패딩·크롭을 직접 해석하지 않고 다음처럼 호출합니다.
+`image_transform`은 `step.yolo_pre_process.ImageTransform` 객체이며 좌표 복원 기능을 제공합니다. 후처리는 배율·패딩·크롭을 직접 해석하지 않고 다음처럼 호출합니다.
 
 ```python
-transform = context.tensor_rt_transform
+transform = context.image_transform
 transform.restore_boxes_(boxes)
 ```
 

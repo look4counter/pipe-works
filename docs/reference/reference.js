@@ -65,21 +65,21 @@
   },
   "model_input": {
     "origins": [],
-    "description": "TensorRTInference가 허용하는 입력은 GPU 텐서 하나 또는 {입력 이름: GPU 텐서} 사전입니다. 텐서의 형상·자료형·입력 이름과 입력 개수는 TensorRT 엔진의 요구사항에 맞아야 하며 텐서의 GPU는 설정한 gpu_id와 일치해야 합니다. 입력이 하나인 엔진에는 텐서 자체를 전달할 수 있고, 여러 입력은 이름별 사전으로 전달합니다."
+    "description": "YoloInference가 허용하는 입력은 GPU 텐서 하나 또는 {입력 이름: GPU 텐서} 사전입니다. 텐서의 형상·자료형·입력 이름과 입력 개수는 선택한 backend와 모델의 요구사항에 맞아야 하며 텐서의 GPU는 설정한 gpu_id와 일치해야 합니다. 입력이 하나인 엔진에는 텐서 자체를 전달할 수 있고, 여러 입력은 이름별 사전으로 전달합니다."
   },
   "model_output": {
     "origins": [
       {
-        "step": "TensorRTInference",
+        "step": "YoloInference",
         "variable": "model_output"
       }
     ],
-    "description": "TensorRTInference의 출력은 {출력 이름: GPU 텐서} 사전이며 추론을 건너뛴 프레임은 None입니다. 출력 이름·텐서 형상·자료형은 TensorRT 엔진에 따라 달라지므로 모든 모델에 공통된 텐서 형식은 없습니다."
+    "description": "YoloInference의 출력은 {출력 이름: GPU 텐서} 사전이며 추론을 건너뛴 프레임은 None입니다. 출력 이름·텐서 형상·자료형은 선택한 backend와 모델에 따라 달라지므로 모든 모델에 공통된 텐서 형식은 없습니다."
   },
   "model_id": {
     "origins": [
       {
-        "step": "TensorRTInference",
+        "step": "YoloInference",
         "variable": "model_id"
       }
     ],
@@ -178,42 +178,9 @@
     }
   },
   {
-    "name": "YoloDetect",
+    "name": "YoloInference",
     "group": "내장 Step",
-    "description": "NV12 영상을 전처리하고 YOLO 모델로 객체를 검출합니다.",
-    "inputs": {
-      "rows": [
-        {
-          "variable": "frame"
-        },
-        {
-          "variable": "pixel_format"
-        },
-        {
-          "variable": "video_stream.codec_context.width"
-        },
-        {
-          "variable": "video_stream.codec_context.height"
-        },
-        {
-          "variable": "cuda_stream"
-        }
-      ],
-      "text": ""
-    },
-    "outputs": {
-      "rows": [
-        {
-          "variable": "detections[id]"
-        }
-      ],
-      "text": ""
-    }
-  },
-  {
-    "name": "TensorRTInference",
-    "group": "내장 Step",
-    "description": "TensorRT 엔진을 실행하여 입력 텐서에 대한 추론 결과를 생성합니다.",
+    "description": "선택한 backend로 GPU 입력 텐서를 실행하고 원시 GPU 출력을 전달합니다.",
     "inputs": {
       "rows": [
         {

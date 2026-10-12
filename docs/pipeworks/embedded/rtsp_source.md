@@ -211,11 +211,15 @@ RTSPSource:
 ### 예제 3: RTSP → YOLO → 결과 전송
 
 ```python
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
+
 from pathlib import Path
 from pipeworks import Pipeline
 from pipeworks.embedded import (
     RTSPSource,
-    YoloDetect,
+    YoloInference,
     RTSPPublish,
     NvidiaDecode,
     NvidiaEncode,
@@ -224,7 +228,7 @@ from pipeworks.embedded import (
 pipeline = Pipeline("rtsp-yolo", config=Path("config.yaml"))
 pipeline.step(RTSPSource(url="rtsp://camera/main"))
 pipeline.step(NvidiaDecode())
-pipeline.step(YoloDetect(model_path=Path("models/yolo11n.pt")))
+pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
 pipeline.step(NvidiaEncode())
 pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 pipeline.run()
@@ -237,9 +241,12 @@ RTSPSource:
   reconnect_interval_ms: 3000
   timeout_ms: 5000
 
-YoloDetect:
-  confidence: 0.5
+YoloInference:
+  backend: ultralytics
   gpu_id: 0
+
+YoloPostProcess:
+  confidence: 0.5
 
 RTSPPublish:
   transport: tcp
@@ -292,7 +299,7 @@ RTSPSource:
 - [Pipeline](../pipeline.md): 파이프라인 조립
 - [Models](../models.md): PipelineContext 구조
 - [RTSPPublish](rtsp_publish.md): RTSP 발행
-- [YoloDetect](yolo_detect.md): 객체 감지
+- [YoloInference](yolo_inference.md): 객체 감지
 
 ---
 

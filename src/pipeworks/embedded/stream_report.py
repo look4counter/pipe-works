@@ -47,7 +47,6 @@ class _Snapshot:
 class _ReportStats:
     enabled: bool = True
     yolo_detection_stats: object | None = None
-    tensor_rt_detection_stats: object | None = None
     lock: Lock = field(default_factory=Lock)
     snapshot: _Snapshot = field(default_factory=_Snapshot)
     started_at: float | None = None

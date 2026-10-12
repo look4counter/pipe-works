@@ -3,10 +3,14 @@
 CudaAsync는 다른 Step을 별도 작업 스레드에서 실행한다. 기한 안에 완료하면 결과를 같은 원본 컨텍스트에 적용한다. 기본 제한 시간은 5ms이며 입력 보호 복사는 하지 않는다.
 
 ```python
-from pipeworks.embedded import CudaAsync, YoloDetect
+from pipeworks import Backend
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
 
-pipeline.step(CudaAsync(YoloDetect(model_path), timeout_ms=10))
-pipeline.step(CudaAsync(YoloDetect(model_path, batch=True), timeout_ms=10))
+from pipeworks.embedded import CudaAsync, YoloInference
+
+pipeline.step(CudaAsync(YoloPreProcess(), YoloInference(model_path, backend=Backend.ULTRALYTICS), YoloPostProcess(), timeout_ms=10))
+pipeline.step(CudaAsync(YoloPreProcess(), YoloInference(model_path, batch=True, backend=Backend.ULTRALYTICS), YoloPostProcess(), timeout_ms=10))
 ```
 
 직접 가져오기는 `from pipeworks.embedded.cuda_async import CudaAsync`를 사용한다. 일반 사용자 Step도 감쌀 수 있다.
@@ -45,9 +49,10 @@ YOLO 개별·배치 및 예제 TensorRTPreProcess는 RGB 생성 이후 release_f
 ## 여러 Step과 설정
 
 ```python
+from pipeworks import Backend
 CudaAsync(
     TensorRTPreProcess(),
-    TensorRTInference(model_path, batch=True),
+    YoloInference(model_path, backend=Backend.TENSORRT, batch=True),
     TensorRTPostProcess(),
     timeout_ms=20,
 )
@@ -58,10 +63,15 @@ CudaAsync(
 ```yaml
 CudaAsync:
   timeout_ms: 20
-YoloDetect:
-  classes: [2]
+YoloInference:
+  backend: ultralytics
   inference_interval_frame: 1
-TensorRTInference:
+
+YoloPostProcess:
+  classes: [2]
+
+YoloInference:
+  backend: tensorrt
   gpu_id: 0
 ```
 

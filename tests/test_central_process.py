@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 import os
 import signal
 from contextlib import redirect_stdout
@@ -173,10 +174,22 @@ class YoloSource(Step):
         pass
 
     def process(self, inputs):
-        from pipeworks.local_yolo import infer
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
+        from pipeworks import Backend
+        from pipeworks.embedded import YoloInference
+        from step.yolo_pre_process import YoloPreProcess
+        from step.yolo_post_process import YoloPostProcess
 
-        image = torch.full((96, 64), 128, dtype=torch.uint8, device="cuda")
-        result = infer(self.model_path, image, None, 0.25, 0)
+        stream = torch.cuda.Stream()
+        with torch.cuda.stream(stream):
+            image = torch.full((96, 64), 128, dtype=torch.uint8, device="cuda")
+        item = PipelineContext(
+            frame=image, cuda_stream=stream, pixel_format="NV12",
+            video_stream=SimpleNamespace(codec_context=SimpleNamespace(height=64, width=64)),
+        )
+        pre = YoloPreProcess().process(iter([item]))
+        infer = YoloInference(self.model_path, backend=Backend.TENSORRT).process(pre)
+        result = next(YoloPostProcess().process(infer)).detections[self.model_path.name]
         self.result_path.write_text(
             f"{os.getpid()}:{result.orig_shape}", encoding="utf-8"
         )
@@ -754,7 +767,34 @@ class CentralProcessTests(unittest.TestCase):
             pipeline = self._pipeline(
                 directory, "gpu", YoloSource(model_path, result_path)
             )
-            pipeline.run()
+            import uuid
+            from pipeworks import main
+
+            group = f"processing-test-{uuid.uuid4().hex}"
+            original_connect, original_start = main._connect, main._start_server
+            servers = {}
+
+            def start(_group):
+                original_start(group)
+                for process in main._launched_servers:
+                    if group in process.args:
+                        servers[process.pid] = process
+
+            try:
+                with (
+                    patch.object(main, "_connect", side_effect=lambda _group="production": original_connect(group)),
+                    patch.object(main, "_start_server", side_effect=start),
+                ):
+                    pipeline.run()
+            finally:
+                for process in servers.values():
+                    try:
+                        process.wait(timeout=5)
+                    except Exception:
+                        process.terminate()
+                        process.wait(timeout=5)
+                    if process.stderr is not None:
+                        process.stderr.close()
             pid, shape = result_path.read_text(encoding="utf-8").split(":", 1)
             self.assertNotEqual(int(pid), os.getpid())
             self.assertEqual(shape, "(64, 64)")

@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from step.tensor_rt_pre_process import TensorRTPreProcess
 from step.tensor_rt_post_process import TensorRTPostProcess
+from pipeworks import Backend
 from pipeworks.models import PipelineContext
 
 
@@ -105,7 +106,7 @@ class ProcessingTests(unittest.TestCase):
             prediction[0, 6, 1] = 0.8
             prediction[0, 4, 2] = 0.95
         item.model_output = {"output0": prediction}
-        step = TensorRTPostProcess()
+        step = TensorRTPostProcess(classes=[2])
         with (
             patch.object(torch.Tensor, "cpu", side_effect=AssertionError("CPU copy")),
             patch.object(
@@ -138,7 +139,7 @@ class ProcessingTests(unittest.TestCase):
                 for name in (
                     "model_input",
                     "model_output",
-                    "tensor_rt_transform",
+                    "image_transform",
                 )
             )
         )
@@ -175,7 +176,7 @@ class ProcessingTests(unittest.TestCase):
                 for name in (
                     "model_input",
                     "model_output",
-                    "tensor_rt_transform",
+                    "image_transform",
                 )
             )
         )
@@ -192,7 +193,7 @@ class ProcessingTests(unittest.TestCase):
                 boxes[:, :4] = boxes.new_tensor([1.0, 1.0, 3.0, 3.0])
                 return boxes
 
-        item.tensor_rt_transform = OtherTransform()
+        item.image_transform = OtherTransform()
         with torch.cuda.stream(item.cuda_stream):
             prediction = torch.zeros((1, 84, 10), device="cuda")
             prediction[0, :4, 0] = 10
@@ -206,17 +207,17 @@ class ProcessingTests(unittest.TestCase):
             prediction.new_tensor([[1.0, 1.0, 3.0, 3.0]]),
         )
         self.assertEqual(item.detections["test"].orig_shape, (4, 8))
-        self.assertFalse(hasattr(item, "tensor_rt_transform"))
+        self.assertFalse(hasattr(item, "image_transform"))
 
     def test_actual_plan_processing(self):
-        from pipeworks.embedded import TensorRTInference
+        from pipeworks.embedded import YoloInference
 
         plan = Path(__file__).resolve().parents[1] / "examples/model/yolo11n.plan"
         if not plan.is_file():
             self.skipTest("예제 엔진이 없습니다.")
         item = self.frame()
         next(TensorRTPreProcess().process(iter([item])))
-        inference = TensorRTInference(plan)
+        inference = YoloInference(plan, backend=Backend.TENSORRT)
         inference.configure(SimpleNamespace())
         list(inference.process(iter([item])))
         self.assertIsNotNone(item.model_output)
@@ -238,16 +239,17 @@ class ConfigurationTests(unittest.TestCase):
         other = TensorRTPostProcess()
         self.assertEqual(
             (step.classes, step.confidence, step.iou, step.max_det, step.output_name),
-            ([2], 0.25, 0.7, 300, "output0"),
+            (None, 0.25, 0.7, 300, "output0"),
         )
+        step.configure(SimpleNamespace(classes=[2]))
         step.classes.append(5)
-        self.assertEqual(other.classes, [2])
+        self.assertIsNone(other.classes)
         step.configure(SimpleNamespace(classes=None, confidence=0.5))
         self.assertIsNone(step.classes)
         Pipeline("postprocess", config=config).step(step)
         self.assertEqual(
             (step.classes, step.confidence, step.iou, step.max_det, step.output_name),
-            ([2], 0.25, 0.7, 300, "output0"),
+            (None, 0.25, 0.7, 300, "output0"),
         )
 
     def test_invalid_postprocess_configuration(self):
