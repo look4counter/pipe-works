@@ -11,7 +11,7 @@
 Pipeline 클래스는:
 - Step들을 순차 연결하는 **빌더 패턴** 제공
 - YAML 설정 파일 로드 및 적용
-- 선택한 운영·개발 중앙 프로세스에서 파이프라인 실행
+- Batch 추론 여부에 따라 호출자 또는 운영·개발 중앙 프로세스에서 실행
 - 실행 중 설정 변경 감지 (Hotswap)
 
 ---
@@ -32,7 +32,7 @@ pipeline = Pipeline(name="my-pipeline", config=Path("config.yaml"))
 
 - **name** (str): 파이프라인 이름 (로그, 식별용)
 - **config** (Path): YAML 설정 파일 경로
-- **development** (bool, 기본 `False`): `False`는 운영용, `True`는 개발용 중앙 프로세스를 사용합니다. bool 이외의 값은 거부합니다.
+- **development** (bool, 기본 `False`): Batch 실행에서 `False`는 운영용, `True`는 개발용 중앙 프로세스를 사용합니다. 일반 실행은 호출자 프로세스에서 처리합니다. bool 이외의 값은 거부합니다.
 
 ### Step 등록
 
@@ -99,14 +99,14 @@ pipeline.step(RTSPSource(...))  # X: Source가 먼저 와야 함
 # 파이프라인 실행 (블로킹)
 pipeline.run()
 
-# 개발용 중앙 프로세스에서 실행
+# Batch 추론을 등록한 경우 개발용 중앙 프로세스에서 실행
 development_pipeline = Pipeline(
     "development", config=Path("config.yaml"), development=True
 )
 development_pipeline.run()
 ```
 
-`run()`은 생성자에서 선택한 모드의 중앙 프로세스에서 실행합니다. `Pipeline(..., development=False)`와 옵션 생략은 운영용이며, `development=True`는 개발용입니다. 같은 모드는 프로세스와 모델 작업자를 공유하고 다른 모드는 별도 프로세스를 사용합니다. 각 프로세스에서 모델을 별도로 로드하며 같은 GPU의 자원과 장치 전체 장애는 공유합니다. 자세한 동작은 [중앙 프로세스](main.md)를 참고하세요.
+`run()`은 `YoloInference(batch=True)`가 하나라도 있으면 생성자에서 선택한 모드의 중앙 프로세스에서 전체 파이프라인을 실행합니다. `Hotswap`, `CudaAsync`, `EveryNFrames`, `TapSkipIfBusy` 내부도 검사합니다. Batch 추론이 없으면 호출자 프로세스에서 실행하며 직렬화와 중앙 연결을 생략합니다. 두 경로는 동일한 단계 실행·설정 감시 로직을 사용합니다. `Pipeline(..., development=False)`와 옵션 생략은 운영용이며, `development=True`는 개발용입니다. 같은 모드는 프로세스와 모델 작업자를 공유하고 다른 모드는 별도 프로세스를 사용합니다. 각 프로세스에서 모델을 별도로 로드하며 같은 GPU의 자원과 장치 전체 장애는 공유합니다. 자세한 동작은 [중앙 프로세스](main.md)를 참고하세요.
 
 **동작:**
 - 모든 Step을 순차 연결

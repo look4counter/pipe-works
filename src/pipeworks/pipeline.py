@@ -16,8 +16,7 @@ from pipeworks.file_watch import FileSubscription
 logger = logging.getLogger(__name__)
 
 
-def _has_stream_report(steps):
-    from pipeworks.embedded.stream_report import StreamReport
+def _iter_steps(steps):
     from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
     from pipeworks.embedded.cuda_async import CudaAsync
     from pipeworks.embedded.every_n_frames import EveryNFrames
@@ -28,15 +27,28 @@ def _has_stream_report(steps):
         if id(step) in visited:
             continue
         visited.add(id(step))
-        if isinstance(step, StreamReport):
-            return True
+        yield step
         if isinstance(step, Hotswap):
             pending.append(step.wrapped_step)
         elif isinstance(step, TapSkipIfBusy):
             pending.append(step.step)
         elif isinstance(step, (CudaAsync, EveryNFrames)):
             pending.extend(step._hot_steps)
-    return False
+
+
+def _has_stream_report(steps):
+    from pipeworks.embedded.stream_report import StreamReport
+
+    return any(isinstance(step, StreamReport) for step in _iter_steps(steps))
+
+
+def _has_batch_inference(steps):
+    from pipeworks.embedded.yolo_inference import YoloInference
+
+    return any(
+        isinstance(step, YoloInference) and step.batch
+        for step in _iter_steps(steps)
+    )
 
 
 def _configure_async_children(step, sections):
@@ -152,6 +164,9 @@ class Pipeline:
         return self
 
     def run(self):
+        if not _has_batch_inference(self.steps):
+            return self._run_local()
+
         from pipeworks.main import run_remote
 
         return run_remote(self)

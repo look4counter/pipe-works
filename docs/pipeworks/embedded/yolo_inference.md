@@ -2,6 +2,8 @@
 
 `YoloInference`는 전처리가 만든 GPU `context.model_input`을 선택한 GPU 실행부로 실행하고 모든 원시 출력을 이름별 `context.model_output` 사전에 넣습니다. 특정 YOLO 라이브러리를 요구하지 않는 TorchScript 실행부와 사용자 실행부를 지원합니다. 색 변환·리사이즈·정규화·NMS·좌표 복원은 전후처리 단계에서 수행합니다. 원본 `frame`과 기존 `detections`를 읽거나 변경하지 않습니다. 전처리·후처리는 examples/step의 YOLO 예제 파일이 구현합니다.
 
+`Pipeline.run()`은 이 단계를 포함한 모든 등록 단계에서 Batch 여부를 확인합니다. `batch=True`가 하나라도 있으면 전체 파이프라인을 중앙 프로세스에서 실행하고, 없으면 호출자 프로세스에서 실행합니다. `CudaAsync`, `EveryNFrames`, `TapSkipIfBusy`, `Hotswap` 내부도 같은 기준을 적용합니다. 두 실행 경로는 기존 추론 엔진과 단계 실행기를 재사용합니다.
+
 ## 연결
 
 ```python

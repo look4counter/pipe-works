@@ -10,13 +10,13 @@ from pipeworks.embedded import (
     TapSkipIfBusy,
     CudaAsync,
     EveryNFrames,
+    YoloReport,
+    YoloInference,
 )
 from step.tensor_rt_pre_process import TensorRTPreProcess
 from step.tensor_rt_post_process import TensorRTPostProcess
 from step.yolo_pre_process import YoloPreProcess
 from step.yolo_post_process import YoloPostProcess
-from pipeworks.embedded.yolo_report import YoloReport
-from pipeworks.embedded.yolo_inference import YoloInference
 from step.box_overlay import BoxOverlay
 
 

@@ -31,6 +31,15 @@ from pipeworks.main import _server_endpoint, _LOCK_PATH, _launched_servers
 from pipeworks.models import PipelineContext, Step
 
 
+class CentralTestPipeline(Pipeline):
+    """Exercise the central protocol independently of automatic routing."""
+
+    def run(self):
+        from pipeworks.main import run_remote
+
+        return run_remote(self)
+
+
 class RecordingSource(Step):
     def __init__(self, path: Path, *, continuous: bool = False):
         self.path = path
@@ -200,7 +209,7 @@ def _run_forever(directory_name: str) -> None:
     directory = Path(directory_name)
     config = directory / "child.yml"
     config.write_text("{}", encoding="utf-8")
-    Pipeline("child", config=config).step(
+    CentralTestPipeline("child", config=config).step(
         RecordingSource(directory / "child.pid", continuous=True)
     ).run()
 
@@ -211,7 +220,7 @@ def _run_print(directory_name: str, message: str, result) -> None:
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
     with redirect_stdout(output):
-        Pipeline(message, config=config).step(PrintingSource(message)).run()
+        CentralTestPipeline(message, config=config).step(PrintingSource(message)).run()
     result.put(output.getvalue())
 
 
@@ -221,7 +230,7 @@ def _run_tap_print(directory_name: str, message: str, result) -> None:
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
     with redirect_stdout(output):
-        Pipeline(message, config=config).step(PrintingSource("report output")).step(
+        CentralTestPipeline(message, config=config).step(PrintingSource("report output")).step(
             TapSkipIfBusy(PrintingStep(message))
         ).run()
     result.put(output.getvalue())
@@ -232,7 +241,7 @@ def _run_status_report(directory_name: str, healthy: bool, result) -> None:
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
     with redirect_stdout(output):
-        Pipeline(f"status-{healthy}", config=config).step(StatusSource(healthy)).step(
+        CentralTestPipeline(f"status-{healthy}", config=config).step(StatusSource(healthy)).step(
             StreamReport()
         ).run()
     result.put((healthy, output.getvalue()))
@@ -259,6 +268,9 @@ class CentralProcessTests(unittest.TestCase):
                 pipeline = Pipeline("mode", config=config, development=development)
                 restored = cloudpickle.loads(cloudpickle.dumps(pipeline))
                 self.assertIs(restored.development, development)
+                from pipeworks.embedded import YoloInference
+
+                pipeline.step(YoloInference(Path("model.pt"), backend="torchscript", batch=True))
                 with patch("pipeworks.main.run_remote") as remote:
                     pipeline.run()
                     remote.assert_called_once_with(pipeline)
@@ -448,7 +460,7 @@ class CentralProcessTests(unittest.TestCase):
             config = Path(temporary) / "report.yml"
             config.write_text("{}", encoding="utf-8")
             pipeline = (
-                Pipeline("terminal-report", config=config)
+                CentralTestPipeline("terminal-report", config=config)
                 .step(PrintingSource("source active", delay=1.3))
                 .step(StreamReport())
             )
@@ -470,7 +482,7 @@ class CentralProcessTests(unittest.TestCase):
             result_path = root / "result.txt"
             release_path = root / "release"
             pipeline = (
-                Pipeline("central-config", config=config_path)
+                CentralTestPipeline("central-config", config=config_path)
                 .step(PausedSource(release_path))
                 .step(ConfigurableOffset())
                 .step(ValueRecorder(result_path))
@@ -550,7 +562,7 @@ class CentralProcessTests(unittest.TestCase):
                 sys.modules.pop(helper_name, None)
 
             pipeline = (
-                Pipeline("central-hotswap", config=config_path)
+                CentralTestPipeline("central-hotswap", config=config_path)
                 .step(PausedSource(release_path))
                 .step(user_step)
                 .step(ValueRecorder(result_path))
@@ -606,7 +618,7 @@ class CentralProcessTests(unittest.TestCase):
             config = Path(temporary) / "sink.yml"
             config.write_text("{}", encoding="utf-8")
             pipeline = (
-                Pipeline("sink", config=config)
+                CentralTestPipeline("sink", config=config)
                 .step(PrintingSource("report output"))
                 .step(TapSkipIfBusy(PrintingStep("post output")))
             )
@@ -724,7 +736,7 @@ class CentralProcessTests(unittest.TestCase):
     ) -> Pipeline:
         config = directory / f"{name}.yml"
         config.write_text("{}", encoding="utf-8")
-        return Pipeline(name, config=config, development=development).step(source)
+        return CentralTestPipeline(name, config=config, development=development).step(source)
 
     def test_run_executes_in_shared_process(self):
         with TemporaryDirectory() as temporary:
