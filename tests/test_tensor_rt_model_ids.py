@@ -133,11 +133,11 @@ class ModelIdGpuTests(unittest.TestCase):
             next(TensorRTPostProcess().process(iter([item])))
         self.assertFalse(hasattr(item, "model_output"))
 
-    def test_batch_and_interval_forward_ids(self):
+    def test_batch_and_single_forward_ids_for_all_inputs(self):
         for batch in (False, True):
             with self.subTest(batch=batch):
                 step = YoloInference(
-                    "unused.plan", backend=Backend.TENSORRT, batch=batch, id="person", inference_interval_frame=2
+                    "unused.plan", backend=Backend.TENSORRT, batch=batch, id="person"
                 )
                 items = [self.frame() for _ in range(3)]
                 for item in items:
@@ -166,7 +166,7 @@ class ModelIdGpuTests(unittest.TestCase):
                     list(step.process(iter(items)))
                 self.assertEqual([item.model_id for item in items], ["person"] * 3)
                 self.assertEqual(
-                    [item.model_output is None for item in items], [False, True, False]
+                    [item.model_output is None for item in items], [False] * 3
                 )
 
     def test_same_engine_serial_results_and_original_input(self):

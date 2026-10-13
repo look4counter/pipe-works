@@ -86,7 +86,6 @@ YoloInference(
     backend=Backend.ULTRALYTICS,
     batch=False,
     gpu_id=0,
-    inference_interval_frame=1,
     id=None,
     profile_index=0,
 )
@@ -98,20 +97,18 @@ YoloInference(
 | `profile_index` | `0` | TensorRT 최적화 프로파일 번호. 다른 실행부는 0만 허용 |
 | `batch` | `False` | 생성자에서만 지정하는 공유 배치 모드 |
 | `gpu_id` | `0` | 음수가 아닌 GPU 번호 |
-| `inference_interval_frame` | `1` | 첫 입력부터 적용하는 1 이상의 추론 간격 |
 | `id` | `None` | 실행 식별자. 생략/null이면 확장자를 포함한 모델 파일명 |
 
 ```yaml
 YoloInference:
   backend: ultralytics
   gpu_id: 0
-  inference_interval_frame: 1
   id: vehicle
 ```
 
 YAML이 생성자 기본값보다 우선하며 키를 제거하면 생성자 값으로 돌아갑니다. `id`는 공백뿐인 값이 아닌 문자열이어야 합니다. `classes`와 `confidence`는 후처리에 설정합니다.
 
-간격이 3이면 1·4·7번째 입력을 추론합니다. 건너뛴 입력에도 `model_id`를 기록하고 `model_output=None`으로 초기화하며 입력 검증과 모델 로딩을 하지 않습니다.
+추론 단계는 전달받은 모든 입력을 실행합니다. 실행 간격은 [EveryNFrames](every_n_frames.md)의 `interval_frames`로 지정하며 전처리·추론·후처리를 함께 감싸면 생략 프레임의 전처리 비용도 줄일 수 있습니다. 삭제된 `inference_interval_frame` 생성자 인자와 YAML 키는 오류로 거부합니다.
 
 ## 공유 배치와 보고
 

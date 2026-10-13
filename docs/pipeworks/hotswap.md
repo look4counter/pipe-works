@@ -65,7 +65,6 @@ Context (Epoch 2)
 YoloInference:
   backend: ultralytics
   gpu_id: 0
-  inference_interval_frame: 1
 
 YoloPostProcess:
   confidence: 0.25
@@ -78,7 +77,6 @@ YoloPostProcess:
 YoloInference:
   backend: ultralytics
   gpu_id: 0
-  inference_interval_frame: 2  # 변경
 
 YoloPostProcess:
   confidence: 0.5      # 변경
@@ -341,3 +339,5 @@ step = Hotswap(
 2. **프로덕션 안정성**: 필요 시 Hotswap 기능 비활성화 가능
 3. **상태 주의**: 중요한 상태는 Step 내부보다 context에 저장
 4. **로깅**: 언제 재로드되는지 파악하기 위해 로깅 추가 권장
+
+프레임 실행 간격은 [EveryNFrames](embedded/every_n_frames.md)로 묶고 해당 YAML 섹션의 `interval_frames`를 변경합니다. 내부 사용자 Step도 코드와 클래스명 YAML 변경을 감시합니다.

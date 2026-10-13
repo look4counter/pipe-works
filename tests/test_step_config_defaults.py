@@ -13,6 +13,7 @@ from pipeworks import Backend
 from pipeworks import Pipeline
 from pipeworks.embedded import (
     CudaAsync,
+    EveryNFrames,
     NvidiaDecode,
     NvidiaEncode,
     RTSPPublish,
@@ -105,9 +106,10 @@ class StepConfigDefaultsTests(unittest.TestCase):
             (
                 YoloInference,
                 (Path("model.engine"),),
-                {"backend": Backend.TENSORRT, "gpu_id": 2, "profile_index": 1, "inference_interval_frame": 3},
+                {"backend": Backend.TENSORRT, "gpu_id": 2, "profile_index": 1},
                 {"profile_index": 0},
             ),
+            (EveryNFrames, (NvidiaDecode(),), {"interval_frames": 3}, {"interval_frames": 2}),
             (CudaAsync, (NvidiaDecode(),), {"timeout_ms": 25}, {"timeout_ms": 0}),
         ]
 

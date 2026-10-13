@@ -43,7 +43,7 @@ YoloInference("models/yolo11n.plan", backend=Backend.TENSORRT, id="vehicle")
 YoloInference("models/yolo11n.plan", backend=Backend.TENSORRT, id="person")
 ```
 
-추론은 건너뛴 입력도 `context.model_id`를 전달합니다. 예제 후처리는 `context.detections[model_id]`에 결과를 저장하며 같은 ID만 교체합니다. 출력 누락은 해당 키의 `None`, 탐지 없음은 빈 `boxes`를 가진 결과입니다. 후처리는 임시 모델 입출력·변환 정보·스트림과 `model_id`를 정리합니다.
+추론은 받은 모든 입력에 `context.model_id`를 전달합니다. 예제 후처리는 `context.detections[model_id]`에 결과를 저장하며 같은 ID만 교체합니다. 출력 누락은 해당 키의 `None`, 탐지 없음은 빈 `boxes`를 가진 결과입니다. 후처리는 임시 모델 입출력·변환 정보·스트림과 `model_id`를 정리합니다.
 
 ```python
 vehicle = context.detections.get("vehicle")
@@ -78,17 +78,16 @@ pipeline.step(BoxOverlay())
 
 `BoxOverlay`는 클래스 내부의 `id=None` 기본값으로 모든 모델을 표시합니다. 선택하려면 예제 클래스의 내부 기본값을 변경하거나 `configure(SimpleNamespace(id="vehicle"))`로 명시적으로 구성합니다. 제공 YAML에는 `BoxOverlay`와 `TensorRTPostProcess` 섹션이 없습니다. 후처리는 YoloPostProcess와 같은 공통 구현·옵션을 사용하고 `classes=None`, `confidence=0.25`, `iou=0.7`, `max_det=300`, `output_name="output0"`을 기본값으로 사용합니다. 차량만 선택하려면 `TensorRTPostProcess(classes=[2])`를 명시합니다. FP16·사용자 이름·end2end 옵션도 지원합니다. `keep_previous`는 ID별로 적용하므로 한 모델이 건너뛰어도 다른 모델의 갱신이 이전 박스를 지우지 않습니다. 빈 탐지 결과는 해당 모델의 이전 박스를 지웁니다. 기존 YOLO 단일 결과 객체도 ID 선택 없이 표시할 수 있습니다. 성능 보고는 결과 사전과 독립적이며 결과를 읽는 사용자 단계는 ID로 값을 선택해야 합니다.
 
-파이프라인 YAML의 클래스명 섹션에 GPU 번호와 추론 대상 선택 간격을 설정합니다.
+파이프라인 YAML의 클래스명 섹션에 GPU 번호와 프로파일을 설정합니다.
 
 ```yaml
 YoloInference:
   backend: tensorrt
   gpu_id: 0
-  inference_interval_frame: 1
   profile_index: 0
 ```
 
-`inference_interval_frame`은 1 이상의 정수이며 기본값은 1입니다. 개별·배치 모드 모두 첫 입력부터 지정 간격으로 추론합니다. 값이 3이면 1·4·7번째 입력을 추론하고 나머지는 `model_output=None`으로 원래 컨텍스트를 전달합니다. 기존 `inference_interval` 설정은 새 이름으로 변경해야 하며, 이전 inference_interval 키는 사용하지 않고 무시합니다.
+실행 간격은 [EveryNFrames](every_n_frames.md)의 `interval_frames`로 지정합니다. 전처리·추론·후처리를 함께 감싸고 첫 입력부터 지정 간격으로 실행합니다. 생략 프레임은 필드를 변경하지 않고 통과하며 추론 단계 자체는 받은 모든 입력을 실행합니다.
 
 `profile_index`는 영상별 `YoloInference` 설정입니다. 같은 모델을 사용해도 각 인스턴스가 서로 다른 프로파일을 선택할 수 있으며, 실행 중 설정 변경은 다음 입력부터 적용합니다. 개별 모드는 GPU·프로파일 변경 시 세션을 재생성하고 공유 배치는 프로파일이 같은 요청만 수집하며 GPU·프로파일별 세션을 사용합니다.
 
@@ -114,7 +113,7 @@ timeout_ms: 20
 
 입력 참조는 소비 스트림의 완료 확인까지 유지합니다. 반환 시 결과 완료를 보장하는 기존 동기화와 오류 정리는 유지합니다. `input_wait` 통계는 이제 CPU 입력 완료 대기 대신 GPU 의존성 등록 시간을 나타내며, 전체 지연에는 준비 완료를 기다리는 GPU 시간이 여전히 포함됩니다.
 
-GPU 완료 후 결과를 전달하며 간격으로 건너뛴 입력은 `model_output=None`입니다. 입력과 영상은 보존하고 오류는 호출자에 전파합니다. 시간 제한·오류 통과가 필요하면 전처리·추론·후처리를 공통 `CudaAsync(..., timeout_ms=20)`로 감쌉니다. 이미 실행 중인 GPU 작업은 강제 취소하지 않습니다.
+GPU 완료 후 결과를 전달합니다. 입력과 영상은 보존하고 오류는 호출자에 전파합니다. 시간 제한·오류 통과가 필요하면 전처리·추론·후처리를 공통 `CudaAsync(..., timeout_ms=20)`로 감쌉니다. 이미 실행 중인 GPU 작업은 강제 취소하지 않습니다.
 
 ## 엔진과 플러그인
 

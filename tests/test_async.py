@@ -146,7 +146,7 @@ class AsyncTests(unittest.TestCase):
 
             def save(a, b):
                 path.write_text(
-                    f"FunctionStep:\n  offset: {a}\nOther:\n  offset: {b}\nYoloInference:\n  inference_interval_frame: 4\n",
+                    f"FunctionStep:\n  offset: {a}\nOther:\n  offset: {b}\nEveryNFrames:\n  interval_frames: 4\n",
                     encoding="utf-8",
                 )
 
@@ -185,15 +185,17 @@ class AsyncTests(unittest.TestCase):
                 wrapper._session_lock.release()
 
             yolo = YoloInference(Path("model.pt"), backend=Backend.ULTRALYTICS)
-            embedded = CudaAsync(yolo)
+            from pipeworks.embedded import EveryNFrames
+            selection = EveryNFrames(yolo)
+            embedded = CudaAsync(selection)
             Pipeline("embedded", config=path).step(embedded)
-            self.assertEqual(yolo.inference_interval_frame, 4)
+            self.assertEqual(selection.interval_frames, 4)
             _watch_async_children(embedded, watcher, vars(pipeline.config))
             embedded._hot_steps[0].check_interval = 0
-            path.write_text("YoloInference:\n  inference_interval_frame: 6\n", encoding="utf-8")
+            path.write_text("EveryNFrames:\n  interval_frames: 6\n", encoding="utf-8")
             notify_config_change()
             embedded._hot_steps[0]._check_for_update(force=True)
-            self.assertEqual(yolo.inference_interval_frame, 6)
+            self.assertEqual(selection.interval_frames, 6)
 
     def test_internal_hotswap_reloads_code_and_preserves_settings(self):
         import sys

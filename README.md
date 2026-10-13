@@ -60,7 +60,6 @@ RTSPSource:
 YoloInference:
   backend: ultralytics
   gpu_id: 0
-  inference_interval_frame: 1
 
 YoloPostProcess:
   classes: null  # null = 모든 클래스
@@ -162,6 +161,13 @@ RTSP 카메라에서 영상을 읽습니다.
 
 ### Processing Step (데이터 처리)
 
+#### **EveryNFrames**
+
+- **역할**: 첫 입력부터 N프레임마다 내부 Step 묶음을 실행하고 나머지 입력은 그대로 전달합니다.
+- **사용**: `pipeline.step(EveryNFrames(preprocess, inference, postprocess, interval_frames=3))`
+- **설정**: `EveryNFrames` YAML 섹션의 `interval_frames`(기본 1). 내부 Step은 각 클래스명 섹션을 사용합니다.
+- **상세**: [EveryNFrames 안내](docs/pipeworks/embedded/every_n_frames.md)
+
 #### **CudaAsync**
 다른 처리 단계를 비동기로 실행하고 원본 사용 종료가 확인된 타임아웃·정리된 오류·작업자 사용 중에는 원본을 전달합니다. 타임아웃에 아직 사용 중인 프레임은 폐기합니다.
 
@@ -186,7 +192,7 @@ YOLO와 TensorRT 전후처리 예제는 같은 옵션과 `image_transform` 계�
 
 - **입출력**: 단일 텐서 또는 입력 이름별 GPU 텐서 사전 → 출력 이름별 GPU 텐서 사전. 바인딩 이름은 엔진에서 읽습니다.
 - **사용**: `pipeline.step(YoloInference(Path("models/model.engine"), backend=Backend.TENSORRT))`
-- **설정**: 클래스명 YAML의 `gpu_id`, `inference_interval_frame`, `profile_index`(기본 0); 모델 동명 `.yml`의 `plugins`(기본 빈 목록), 배치 수집용 `max_batch_size`·`timeout_ms`
+- **설정**: 클래스명 YAML의 `gpu_id`, `profile_index`(기본 0); 모델 동명 `.yml`의 `plugins`(기본 빈 목록), 배치 수집용 `max_batch_size`·`timeout_ms`
 - **동작**: 전처리·후처리 없이 동기 추론하며 GPU 완료 후 결과를 전달합니다. 연속 입력은 복제하지 않고 오류는 전파합니다. 시간 제한·오류 통과는 공통 Async로 적용합니다.
 - **상세**: [TensorRT 엔진 안내](docs/pipeworks/embedded/tensor_rt_inference.md)
 
@@ -329,6 +335,7 @@ pipeline.run()
 
 | Step | 문서 |
 |------|------|
+| EveryNFrames | [EveryNFrames 안내](docs/pipeworks/embedded/every_n_frames.md) |
 | CudaAsync | [CudaAsync 안내](docs/pipeworks/embedded/async.md) |
 | RTSPSource | [docs/pipeworks/embedded/rtsp_source.md](docs/pipeworks/embedded/rtsp_source.md) |
 | YoloInference | [docs/pipeworks/embedded/yolo_inference.md](docs/pipeworks/embedded/yolo_inference.md) |

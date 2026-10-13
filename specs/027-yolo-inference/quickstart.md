@@ -199,3 +199,19 @@ examples/step/yolo_pre_process.py가 NV12 변환·ImageTransform·설정·프레
 TensorRT 예제가 YOLO 예제의 메서드를 재사용하면서 클래스 모듈만 값으로 등록되어 step.yolo_pre_process 참조가 중앙 복원에 남았다. main.run_remote가 Step의 MRO 메서드 정의 모듈도 값으로 등록하도록 수정했다.
 
 새 회귀는 실제 run_remote 전달 payload를 받아 step 패키지를 차단한 독립 Python 프로세스에서 TensorRT 전후처리를 복원하고 리사이즈·좌표 정보·NMS 메서드를 실행한다. 수정 전 같은 ModuleNotFoundError를 재현했고 수정 후 통과했다. 기존 중첩 사용자 Step 등록·패키지 없는 복원 회귀와 함께 총 3개가 통과했다(2.387초). 실제 RTSP 접속은 이 검증에 포함하지 않는다.
+
+## 범용 간격 검증
+
+가상환경 Python으로 unittest discover -s tests -p test_every_n_frames.py를 실행한다. 간격 3에서 1·4·7번째만 처리하며 생략 입력이 동일 객체이고 처리 생성기를 재사용·정리하는지 확인한다. test_yolo_inference.py·test_tensor_rt_inference.py·test_async.py·test_step_config_defaults.py·test_remote_example_dependencies.py와 GPU 전후처리 관련 회귀를 실행한다. 결과는 구현 검증 후 이 절에 기록한다.
+
+### 범용 간격 검증 결과: 2026-10-13
+
+관련 11개 테스트 파일의 199개 검증이 60.534초에 모두 통과했다. 새 EveryNFrames 계약 11개, 실제 CUDA YOLO 전후처리·추론 및 TensorRT 개별·배치 실행, 설정 기본값·실시간 변경, 비동기, 보고, 원격 예제 복원을 포함한다. 추가한 내부 코드 핫스왑·중첩 TensorRT timeout 분류 2개와 기존 래퍼 11개를 함께 실행하여 13개가 모두 통과했다. 검증된 서로 다른 테스트는 총 201개이며 생략은 없었다. 예제 Python 두 파일과 레퍼런스 JavaScript 구문 및 git diff --check도 통과했다. 실제 운영 카메라 연결과 FPS 측정은 이번 계약 검증에 포함하지 않았다.
+
+비동기 예제는 CudaAsync(EveryNFrames(...))를 사용한다. 내부 카운터는 작업자가 받은 입력 기준이고 busy·timeout으로 전달되지 않은 프레임은 포함하지 않는다. 내부 CudaAsync가 프레임을 폐기하는 경우 외부 EveryNFrames의 1입력1출력 계약을 위반할 수 있어 기본 예제는 이 배치를 피한다.
+
+### 비동기 폐기 수정 검증: 2026-10-13
+
+EveryNFrames(CudaAsync(...))의 안전하지 않은 timeout 폐기를 네 회귀에서 기존 구현의 중복 입력 요청 오류로 재현했다. 수정 후 범용 래퍼 18개를 포함하여 async·nvidia_decode·step_config_defaults·yolo_processing·remote_example_dependencies의 총 112개가 10.261초에 모두 통과했다. 폐기 후 생략/다음 선택 입력·busy·마지막 입력·후속 단계 미실행·같은 워커 복구·안전한 timeout 반환·실제 Pipeline._run_local의 YAML 감시 및 Hotswap 전달을 검증했다. 기존 실제 CUDA 디코더와 전후처리·비동기 원본 보호 회귀도 포함되며 생략된 검증은 없다. 네 변경/예제 Python 파일의 구문 검사와 git diff --check가 통과했다.
+
+기본 조합은 외부 EveryNFrames(CudaAsync(...))이다. 앞선 내부 간격 예제 제약은 이번 폐기 표시 지원으로 대체한다. 안전하지 않은 timeout 입력만 출력에서 제외하고 전체 입력 기준 간격을 유지한다. 사용자 변경인 단일 예제 외부 배치와 삭제한 다중 예제는 보존했다. 실제 운영 카메라 연결은 실행하지 않았다.

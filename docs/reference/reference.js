@@ -74,7 +74,7 @@
         "variable": "model_output"
       }
     ],
-    "description": "YoloInference의 출력은 {출력 이름: GPU 텐서} 사전이며 추론을 건너뛴 프레임은 None입니다. 출력 이름·텐서 형상·자료형은 선택한 backend와 모델에 따라 달라지므로 모든 모델에 공통된 텐서 형식은 없습니다."
+    "description": "YoloInference의 출력은 {출력 이름: GPU 텐서} 사전이며 받은 모든 입력을 실행합니다. 실행 간격은 EveryNFrames로 지정합니다. 출력 이름·텐서 형상·자료형은 선택한 backend와 모델에 따라 달라지므로 모든 모델에 공통된 텐서 형식은 없습니다."
   },
   "model_id": {
     "origins": [
@@ -203,6 +203,13 @@
       ],
       "text": ""
     }
+  },
+  {
+    "name": "EveryNFrames",
+    "group": "내장 Step",
+    "description": "첫 입력부터 N프레임마다 내부 Step 묶음을 실행하고 생략 입력은 그대로 전달합니다. 각 내부 단계는 입력 하나당 출력 하나를 반환해야 합니다.",
+    "inputs": {"rows": [], "text": "내부 Step의 입력을 사용합니다."},
+    "outputs": {"rows": [], "text": "선택 프레임은 내부 Step의 출력, 생략 프레임은 원본을 전달합니다."}
   },
   {
     "name": "CudaAsync",

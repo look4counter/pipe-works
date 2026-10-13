@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import torch
 
 from pipeworks.embedded.stream_report import record_inference
-from pipeworks.embedded.yolo_report import begin, span, status, use, backend_kind, _current
+from pipeworks.embedded.yolo_report import begin, span, use, backend_kind, _current
 from pipeworks.inference_contract import bind_profile, inherited_profile
 from pipeworks.backend import Backend
 from pipeworks.models import PipelineContext, Step
@@ -63,7 +63,6 @@ class YoloInference(Step):
         *,
         batch: bool = False,
         gpu_id: int = 0,
-        inference_interval_frame: int = 1,
         id: str | None = None,
         backend: Backend | str,
         profile_index: int = 0,
@@ -74,13 +73,14 @@ class YoloInference(Step):
         self.batch = batch
         self._set_config_defaults(
             gpu_id=gpu_id,
-            inference_interval_frame=inference_interval_frame,
             id=id,
             backend=backend,
             profile_index=profile_index,
         )
 
     def configure(self, config: SimpleNamespace) -> None:
+        if hasattr(config, "inference_interval_frame"):
+            raise ValueError("inference_interval_frame은 삭제되었습니다. EveryNFrames의 interval_frames를 사용하세요.")
         config = self._resolve_config(config)
         model_id = self.model_path.name if config.id is None else config.id
         if not isinstance(model_id, str) or not model_id.strip():
@@ -91,9 +91,6 @@ class YoloInference(Step):
             or config.gpu_id < 0
         ):
             raise ValueError("gpu_id는 음수가 아닌 정수여야 합니다.")
-        interval = config.inference_interval_frame
-        if isinstance(interval, bool) or not isinstance(interval, int) or interval < 1:
-            raise ValueError("inference_interval_frame은 1 이상의 정수여야 합니다.")
         validate_backend(config.backend)
         _validate_profile_index(config.profile_index)
         if config.backend != Backend.TENSORRT and config.profile_index != 0:
@@ -105,7 +102,6 @@ class YoloInference(Step):
             else config.backend
         )
         self.gpu_id = config.gpu_id
-        self.inference_interval_frame = interval
         self.id = model_id
 
     @property
@@ -137,15 +133,10 @@ class YoloInference(Step):
     def _process_yolo(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         session = settings = stream = None
         try:
-            for index, item in enumerate(inputs):
+            for item in inputs:
                 item.model_id = self.id
                 item.model_output = None
                 inherited = bind_profile(inherited_profile(item), self.report_kind)
-                if index % self.inference_interval_frame:
-                    if inherited is None:
-                        status(self.report_kind, "skipped")
-                    yield item
-                    continue
                 profile = inherited or begin(self.report_kind)
                 try:
                     tensor, ready = self._prepare_inputs(item)
@@ -243,69 +234,67 @@ class YoloInference(Step):
         if self.batch:
             from pipeworks.local_yolo_inference import infer
 
-            for index, item in enumerate(inputs):
+            for item in inputs:
                 item.model_output = None
-                if index % self.inference_interval_frame == 0:
-                    tensors, ready_event = self._prepare_inputs(item)
-                    profile = _current.get()
-                    options = (
-                        {"on_profile_complete": profile.merge}
-                        if profile is not None
-                        else {}
-                    )
-                    item.model_output = infer(
-                        self.model_path,
-                        tensors,
-                        self.gpu_id,
-                        backend=self.backend,
-                        profile_index=self.profile_index,
-                        ready_event=ready_event,
-                        on_inference_complete=record_inference,
-                        **options,
-                    )
+                tensors, ready_event = self._prepare_inputs(item)
+                profile = _current.get()
+                options = (
+                    {"on_profile_complete": profile.merge}
+                    if profile is not None
+                    else {}
+                )
+                item.model_output = infer(
+                    self.model_path,
+                    tensors,
+                    self.gpu_id,
+                    backend=self.backend,
+                    profile_index=self.profile_index,
+                    ready_event=ready_event,
+                    on_inference_complete=record_inference,
+                    **options,
+                )
                 yield item
             return
         plugins = self._model_settings()
         session = stream = None
         session_settings = None
         try:
-            for index, item in enumerate(inputs):
+            for item in inputs:
                 item.model_output = None
-                if index % self.inference_interval_frame == 0:
-                    tensors, ready_event = self._prepare_inputs(item)
-                    settings = self.gpu_id, self.profile_index
-                    if session_settings != settings:
-                        if stream is not None:
+                tensors, ready_event = self._prepare_inputs(item)
+                settings = self.gpu_id, self.profile_index
+                if session_settings != settings:
+                    if stream is not None:
+                        stream.synchronize()
+                    if session is not None:
+                        session.close()
+                    session = None
+                    session_settings = settings
+                stream = item.cuda_stream
+                with torch.cuda.stream(stream):
+                    try:
+                        # Keep input ordering on the GPU, including caller-owned streams.
+                        with span("input_wait"):
+                            stream.wait_event(ready_event)
+                        tensors = (
+                            {
+                                name: tensor.contiguous()
+                                for name, tensor in tensors.items()
+                            }
+                            if isinstance(tensors, dict)
+                            else tensors.contiguous()
+                        )
+                        if session is None:
+                            with span("prepare"):
+                                session = _EngineSession(
+                                    self.model_path, plugins, self.profile_index
+                                )
+                        item.model_output = session.infer(
+                            tensors, stream, copy_context()
+                        )
+                    finally:
+                        with span("completion_wait"):
                             stream.synchronize()
-                        if session is not None:
-                            session.close()
-                        session = None
-                        session_settings = settings
-                    stream = item.cuda_stream
-                    with torch.cuda.stream(stream):
-                        try:
-                            # Keep input ordering on the GPU, including caller-owned streams.
-                            with span("input_wait"):
-                                stream.wait_event(ready_event)
-                            tensors = (
-                                {
-                                    name: tensor.contiguous()
-                                    for name, tensor in tensors.items()
-                                }
-                                if isinstance(tensors, dict)
-                                else tensors.contiguous()
-                            )
-                            if session is None:
-                                with span("prepare"):
-                                    session = _EngineSession(
-                                        self.model_path, plugins, self.profile_index
-                                    )
-                            item.model_output = session.infer(
-                                tensors, stream, copy_context()
-                            )
-                        finally:
-                            with span("completion_wait"):
-                                stream.synchronize()
                 yield item
         finally:
             if stream is not None:

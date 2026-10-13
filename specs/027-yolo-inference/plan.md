@@ -178,3 +178,21 @@ YoloDetect 모듈과 embedded export, CudaAsync의 legacy 분류를 삭제한다
 ## 예제 메서드 직렬화 수정
 
 main.run_remote의 register_step에서 타입의 MRO에 정의된 메서드 모듈을 함께 pickle-by-value로 등록한다. TensorRT 래퍼가 재사용한 YoloPreProcess/YoloPostProcess 메서드의 모듈도 포함한다. 파이프라인 연결부와 프로토콜 및 서버 경로는 변경하지 않는다. 새 subprocess에서 step 패키지를 차단하고 실제 전달 payload를 복원해 CPU 좌표·NMS 도우미를 호출하여 참조 누락을 재현한다.
+
+## 범용 프레임 간격 설계: 2026-10-13
+
+EveryNFrames(*steps, interval_frames=1)를 embedded/every_n_frames.py에 추가한다. 사용자 단계는 Hotswap(recover_errors=False)로 감싸고 steps/_hot_steps로 기존 중첩 구조를 유지한다. 실행마다 입력 카운터와 단계별 재사용 가능한 입력 슬롯·처리 생성기를 만든다. 선택 프레임만 슬롯에 전달하고 하나의 출력을 요구한다. 슬롯은 같은 요청의 재소비를 거부하며 종료 시 끝을 전달하여 추가 출력·미소비 출력도 검증한다. 오류·조기 종료 시 내부 생성기와 상류를 닫고 슬롯 참조를 해제한다. GPU 복사와 스레드는 추가하지 않는다.
+
+YoloInference의 옵션·속성·간격 검증·세 경로 분기를 제거하고 삭제 YAML 키는 명확한 오류로 거부한다. 기존 backend·세션·공유 워커·프로파일 계약은 유지한다. 생략 프레임은 범용 래퍼가 손대지 않으며 이전 결과 재사용은 제공하지 않는다.
+
+pipeline.py의 설정·감시·StreamReport 탐지와 main.py의 사용자 모듈 등록을 CudaAsync/EveryNFrames 양쪽에 재귀 적용한다. CudaAsync 보고 분류도 중첩 래퍼의 실제 추론 backend를 찾는다. 단일 예제는 CudaAsync(EveryNFrames(...))로, 다중 예제는 EveryNFrames(전처리, 추론, 후처리)로 감싸며 YAML에서 interval_frames를 지정한다. 기존 기본 간격 1을 유지한다. CudaAsync는 타임아웃 시 출력 프레임을 폐기할 수 있으므로 기본 비동기 예제는 간격 래퍼를 내부에 두어 계약 위반 오류가 외부 파이프라인을 종료하지 않도록 한다. 카운터는 비동기 작업자가 받은 입력을 기준으로 한다.
+
+수정 범위는 embedded/every_n_frames.py·yolo_inference.py·cuda_async.py·__init__.py, pipeline.py, main.py, examples/01_single_stream_rtsp_style.py·02_multiple_stream_rtsp_style.py·config/stream.yml, 관련 tests 및 README.md·docs의 현행 API 안내다. tests/test_every_n_frames.py에 일반 단계·묶음·카운터·검증·생성기 수명·중첩 설정/직렬화 계약을 추가하고 기존 간격 테스트를 새 래퍼 또는 모든 입력 실행 계약으로 이관한다.
+
+기술 맥락은 기존 Python 3.11.9와 unittest/CUDA이며 새 의존성은 없다. 헌장은 미작성 템플릿으로 검사를 생략한다. 한글 문서와 전 단계 절차를 준수하며 설계 전후 위반이 없다.
+
+## 비동기 폐기 수정 설계
+
+execution.py에 호출 범위의 비공개 폐기 표시 계약을 추가한다. EveryNFrames가 내부 반복자를 진행하는 동안만 표시 수신을 허용하고 CudaAsync는 실제 안전 판단으로 폐기할 때만 표시를 출력한다. 표시 타입은 Hotswap의 컨텍스트·epoch 전달과 호환되며 프레임·텐서 참조를 보관하지 않는다. 단독 CudaAsync는 기존처럼 폐기 후 다음 입력을 요청한다. EveryNFrames는 표시를 소비하여 후속 단계와 외부 출력에서 제거하고 다음 전체 입력으로 진행한다. 일반 단계는 기존 1입력1출력 계약을 계속 검증한다.
+
+테스트는 tests/test_every_n_frames.py에서 차단된 원본·폐기 후 복구·busy·안전한 timeout·마지막 폐기·후속 단계 미실행과 실제 Pipeline._run_local 감시 경로를 재현한다. 기존 test_async.py·test_nvidia_decode.py의 GPU 원본 보호 회귀를 실행한다. docs의 기본 비동기 조합을 EveryNFrames(CudaAsync(...))로 갱신한다. 사용자가 바꾼 예제의 외부 간격 배치는 그대로 지원하고 삭제한 다중 예제 파일은 복원하지 않는다. 기술 의존성과 새 스레드는 추가하지 않는다. 헌장은 미작성 템플릿이며 한글 문서와 전체 speckit 절차를 유지한다.

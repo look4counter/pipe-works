@@ -9,6 +9,7 @@ from pipeworks.embedded import (
     StreamReport,
     TapSkipIfBusy,
     CudaAsync,
+    EveryNFrames,
 )
 from step.tensor_rt_pre_process import TensorRTPreProcess
 from step.tensor_rt_post_process import TensorRTPostProcess
@@ -29,15 +30,17 @@ def build_pipeline() -> Pipeline:
         .step(RTSPSource("rtsp://210.99.70.120:1935/live/cctv001.stream"))
         .step(NvidiaDecode())
         .step(
-            CudaAsync(
-                TensorRTPreProcess(),
-                YoloInference(
-                    Path(__file__).with_name("model") / "yolo11n.plan",
-                    backend=Backend.TENSORRT,
-                    batch=False,
+            EveryNFrames(
+                CudaAsync(
+                    TensorRTPreProcess(),
+                    YoloInference(
+                        Path(__file__).with_name("model") / "yolo11n.plan",
+                        backend=Backend.TENSORRT,
+                        batch=False,
+                    ),
+                    TensorRTPostProcess(),
+                    timeout_ms=20,
                 ),
-                TensorRTPostProcess(),
-                timeout_ms=20,
             ),
         )
         .step(YoloReport())

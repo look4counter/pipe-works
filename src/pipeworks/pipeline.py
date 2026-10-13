@@ -20,6 +20,7 @@ def _has_stream_report(steps):
     from pipeworks.embedded.stream_report import StreamReport
     from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
     from pipeworks.embedded.cuda_async import CudaAsync
+    from pipeworks.embedded.every_n_frames import EveryNFrames
 
     pending, visited = list(steps), set()
     while pending:
@@ -33,16 +34,17 @@ def _has_stream_report(steps):
             pending.append(step.wrapped_step)
         elif isinstance(step, TapSkipIfBusy):
             pending.append(step.step)
-        elif isinstance(step, CudaAsync):
+        elif isinstance(step, (CudaAsync, EveryNFrames)):
             pending.extend(step._hot_steps)
     return False
 
 
 def _configure_async_children(step, sections):
     from pipeworks.embedded.cuda_async import CudaAsync
+    from pipeworks.embedded.every_n_frames import EveryNFrames
 
     original = step.wrapped_step if isinstance(step, Hotswap) else step
-    if isinstance(original, CudaAsync):
+    if isinstance(original, (CudaAsync, EveryNFrames)):
         for inner in original._hot_steps:
             child = inner.wrapped_step if isinstance(inner, Hotswap) else inner
             inner.configure(SimpleNamespace(**sections.get(type(child).__name__, {})))
@@ -51,9 +53,10 @@ def _configure_async_children(step, sections):
 
 def _watch_async_children(step, watcher, sections):
     from pipeworks.embedded.cuda_async import CudaAsync
+    from pipeworks.embedded.every_n_frames import EveryNFrames
 
     original = step.wrapped_step if isinstance(step, Hotswap) else step
-    if isinstance(original, CudaAsync):
+    if isinstance(original, (CudaAsync, EveryNFrames)):
         running = []
         for inner in original._hot_steps:
             child = inner.wrapped_step if isinstance(inner, Hotswap) else inner

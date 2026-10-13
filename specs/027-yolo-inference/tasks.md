@@ -258,3 +258,40 @@ T082 → T083 → T084 → T085 → T086 → T087 → T088 순서로 진행한�
 - [x] T092 테스트와 기존 원격 직렬화 회귀를 실행하고 specs/027-yolo-inference/quickstart.md에 기록한다. (SC-018)
 
 T089 → T090 → T091 → T092 순서이며 수정은 직렬화 등록 범위에 한정한다.
+
+## 단계 41: 범용 간격 준비
+
+- [x] T093 specs/027-yolo-inference/spec.md·plan.md·research.md·data-model.md·contracts/yolo-inference.md에 US15의 명세·명확화·설계를 기록하고 품질 체크리스트를 검토한다. (FR-058~063)
+
+## 단계 42: 사용자 이야기 15 - 범용 프레임 간격
+
+독립 검증: 일반 단계 두 개와 입력 7개에서 간격 3의 호출 수·입출력 순서·원본 통과·세션 수명을 확인한다.
+
+- [x] T094 [US15] tests/test_every_n_frames.py에 범용 선택·묶음·검증·지속 생성기·종료·중첩 YAML·핫스왑·원격 등록 계약을 먼저 작성한다. (FR-058~060, FR-062, SC-019~020)
+- [x] T095 [US15] src/pipeworks/embedded/every_n_frames.py와 __init__.py에 래퍼와 공개 export를 구현한다. (FR-058~060)
+- [x] T096 [US15] src/pipeworks/embedded/yolo_inference.py에서 간격 옵션과 모든 분기를 제거하고 tests/test_yolo_inference.py·test_tensor_rt_inference.py·test_tensor_rt_model_ids.py·test_yolo_processing.py의 검증을 이관한다. (FR-061, SC-021)
+- [x] T097 [US15] src/pipeworks/pipeline.py·main.py·embedded/cuda_async.py에서 중첩 설정·감시·보고 탐색·원격 등록을 확장하고 tests/test_async.py·test_step_config_defaults.py를 이관한다. (FR-062)
+- [x] T098 [US15] examples/01_single_stream_rtsp_style.py·02_multiple_stream_rtsp_style.py·config/stream.yml에서 EveryNFrames로 묶고 삭제한 옵션을 이관한다. (FR-063)
+
+## 단계 43: 안내와 검증
+
+- [x] T099 README.md·docs/pipeworks/embedded/every_n_frames.md·yolo_inference.md·tensor_rt_inference.md·async.md·docs/pipeworks/pipeline.md·hotswap.md·docs/reference의 현행 API 안내를 갱신한다. (FR-063)
+- [x] T100 tests의 범용 래퍼·추론·TensorRT·설정·비동기·직렬화·보고·GPU 전후처리 회귀를 실행하고 specs/027-yolo-inference/quickstart.md에 결과를 기록한다. (SC-019~021)
+
+T093 → T094 → T095 → T096 → T097 → T098 → T099 → T100 순서다. 문서와 서로 다른 테스트 파일 검토는 독립적이나 변경과 GPU 실행은 순차 수행한다. 최소 범위는 일반 단계 묶음과 추론 옵션 제거이며 사용자 요구대로 전체 연결·안내·검증까지 완료한다.
+
+## 단계 44: 폐기 처리 준비
+
+- [x] T101 specs/027-yolo-inference/spec.md·plan.md·research.md·data-model.md·contracts/yolo-inference.md에 오류 재현과 폐기 예외·기존 안전성 유지 요구를 기록한다. (FR-064~066)
+
+## 단계 45: 사용자 이야기 16 - 폐기 후 실행 지속
+
+- [x] T102 [US16] tests/test_every_n_frames.py에 원본 사용 중 timeout 폐기·busy·폐기 후 세션 복구·끝 입력·후속 단계 미실행·실제 Pipeline 감시 경로 회귀를 작성하고 기존 구현에서 실패를 확인한다. (SC-022)
+- [x] T103 [US16] src/pipeworks/execution.py·embedded/cuda_async.py·every_n_frames.py에 실행 범위의 폐기 전달과 다음 입력 진행을 구현하며 기존 출력 계약과 원본 보호를 유지한다. (FR-064~065)
+
+## 단계 46: 안내와 회귀 검증
+
+- [x] T104 docs/pipeworks/embedded/every_n_frames.md·async.md·specs/027-yolo-inference/quickstart.md의 비동기 기본 조합·폐기 예외를 갱신한다. (FR-066)
+- [x] T105 tests/test_every_n_frames.py·test_async.py·test_nvidia_decode.py·test_step_config_defaults.py·test_yolo_processing.py·test_remote_example_dependencies.py의 회귀와 예제 구문을 검증하고 specs/027-yolo-inference/quickstart.md에 기록한다. (SC-022)
+
+T101 → T102 → T103 → T104 → T105 순서다. 간격 생략과 timeout 폐기의 차이를 실제 반복자에서 재현하고 기존 원본 보호를 유지한 뒤 수렴을 확인한다.

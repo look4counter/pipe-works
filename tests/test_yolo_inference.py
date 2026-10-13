@@ -55,18 +55,18 @@ class ConfigurationTests(unittest.TestCase):
         self.assertFalse(step.batch)
         self.assertEqual(step.id, "yolo.pt")
         self.assertEqual(step.gpu_id, 0)
-        self.assertEqual(step.inference_interval_frame, 1)
+        self.assertFalse(hasattr(step, "inference_interval_frame"))
         self.assertFalse(hasattr(step, "confidence"))
 
     def test_config_overrides_and_reset(self):
         step = YoloInference(
-            "model.pt", backend=Backend.TORCHSCRIPT, gpu_id=2, id="vehicle", inference_interval_frame=3
+            "model.pt", backend=Backend.TORCHSCRIPT, gpu_id=2, id="vehicle"
         )
         step.configure(SimpleNamespace(gpu_id=1, id=None))
         self.assertEqual((step.gpu_id, step.id), (1, "model.pt"))
         step.configure(SimpleNamespace())
         self.assertEqual(
-            (step.gpu_id, step.id, step.inference_interval_frame), (2, "vehicle", 3)
+            (step.gpu_id, step.id), (2, "vehicle")
         )
 
     def test_invalid_config(self):
@@ -74,8 +74,6 @@ class ConfigurationTests(unittest.TestCase):
             {"batch": 1},
             {"gpu_id": True},
             {"gpu_id": -1},
-            {"inference_interval_frame": 0},
-            {"inference_interval_frame": True},
             {"id": ""},
             {"id": "  "},
             {"id": 5},
@@ -173,10 +171,10 @@ class ProcessTests(unittest.TestCase):
             self.assertIs(item.detections, detections)
         self.assertGreaterEqual(stream.synchronize.call_count, 2)
 
-    def test_interval_resets_output_without_reading_skipped_input(self):
+    def test_every_input_is_inferred_in_both_modes(self):
         for batch in (False, True):
             step, stream = (
-                YoloInference("model.pt", backend=Backend.TORCHSCRIPT, batch=batch, inference_interval_frame=2),
+                YoloInference("model.pt", backend=Backend.TORCHSCRIPT, batch=batch),
                 self.stream(),
             )
             items = [
@@ -194,8 +192,8 @@ class ProcessTests(unittest.TestCase):
             ):
                 session.return_value.infer.return_value = output
                 self.assertEqual(list(step.process(iter(items))), items)
-            self.assertEqual(prepare.call_count, 2)
-            self.assertIsNone(items[1].model_output)
+            self.assertEqual(prepare.call_count, 3)
+            self.assertIs(items[1].model_output, output)
             self.assertEqual(items[1].model_id, "model.pt")
 
     def test_failure_propagates_and_clears_stale_output(self):

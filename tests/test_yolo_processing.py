@@ -351,11 +351,13 @@ class ProcessingTests(unittest.TestCase):
                 stats = store()
                 stats.activate("TORCHSCRIPT")
                 frames = [self.frame(), self.frame()]
-                pre = YoloPreProcess(size=(32, 32)).process(iter(frames))
-                inference = YoloInference(
-                    "model.pt", backend=Backend.TORCHSCRIPT, batch=batch, inference_interval_frame=2
-                ).process(pre)
-                post = YoloPostProcess(names=["car", "person"]).process(inference)
+                from pipeworks.embedded import EveryNFrames
+                post = EveryNFrames(
+                    YoloPreProcess(size=(32, 32)),
+                    YoloInference("model.pt", backend=Backend.TORCHSCRIPT, batch=batch),
+                    YoloPostProcess(names=["car", "person"]),
+                    interval_frames=2,
+                ).process(iter(frames))
 
                 def shared(path, tensor, gpu, **kwargs):
                     kwargs["on_inference_complete"](0.01)
@@ -369,9 +371,9 @@ class ProcessingTests(unittest.TestCase):
                     self.assertEqual(list(post), frames)
                 states = stats.snapshot("TORCHSCRIPT", 0)
                 self.assertEqual(states["states"]["completed"], 1)
-                self.assertEqual(states["states"]["skipped"], 1)
+                self.assertEqual(states["states"].get("skipped", 0), 0)
                 for stage in ("preprocess", "inference", "postprocess"):
-                    self.assertIn(stage, states["recent"])
+                    self.assertEqual(states["recent"][stage][1], 1)
                 self.assertEqual(states["recent"]["inference"][1], 1)
                 for item in frames:
                     self.assert_clean(item)

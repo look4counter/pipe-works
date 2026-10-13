@@ -13,7 +13,9 @@ from typing import Iterator
 import torch
 
 from pipeworks.models import PipelineContext, Step
-from pipeworks.execution import _input_scope, _frame_scope
+from pipeworks.execution import (
+    _input_scope, _frame_scope, _DroppedFrame, _can_signal_frame_drop,
+)
 from pipeworks.hotswap import Hotswap, is_embedded_step
 from pipeworks.embedded.yolo_report import status as yolo_status
 
@@ -414,8 +416,17 @@ class CudaAsync(Step):
         output_writer = _current_output_writer()
         kinds = set()
         inference_kinds = set()
-        for step in self.steps:
+        from pipeworks.embedded.every_n_frames import EveryNFrames
+
+        pending, visited = list(self.steps), set()
+        while pending:
+            step = pending.pop()
+            if id(step) in visited:
+                continue
+            visited.add(id(step))
             original = step.wrapped_step if isinstance(step, Hotswap) else step
+            if isinstance(original, (CudaAsync, EveryNFrames)):
+                pending.extend(original.steps)
             names = {cls.__name__ for cls in type(original).__mro__}
             if "YoloInference" in names:
                 inference_kinds.add(
@@ -501,6 +512,8 @@ class CudaAsync(Step):
                     if drop_frame:
                         del item
                         request = None
+                        if _can_signal_frame_drop():
+                            yield _DroppedFrame()
                         continue
                 else:
                     for kind in kinds:

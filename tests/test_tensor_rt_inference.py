@@ -190,17 +190,15 @@ class SettingsTests(unittest.TestCase):
                         step.configure(
                             SimpleNamespace(
                                 gpu_id=2,
-                                inference_interval_frame=3,
                                 profile_index=value,
                             )
                         )
                     self.assertEqual(
                         (
                             step.gpu_id,
-                            step.inference_interval_frame,
                             step.profile_index,
                         ),
-                        (0, 1, 1),
+                        (0, 1),
                     )
             path.with_suffix(".yml").write_text(
                 "plugins: [custom.dll]", encoding="utf-8"
@@ -217,38 +215,18 @@ class SettingsTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         step._model_settings()
 
-    def test_interval_default_and_configuration_update(self):
-        step = YoloInference(Path("model.engine"), backend=Backend.TENSORRT)
-        self.assertEqual(step.inference_interval_frame, 1)
-        self.assertFalse(hasattr(step, "inference_interval"))
-        step.configure(SimpleNamespace(inference_interval_frame=3))
-        self.assertEqual(step.inference_interval_frame, 3)
-        step.configure(SimpleNamespace())
-        self.assertEqual(step.inference_interval_frame, 1)
-
-    def test_invalid_interval_preserves_settings(self):
-        step = YoloInference(Path("model.engine"), backend=Backend.TENSORRT)
-        step.configure(SimpleNamespace(gpu_id=1, inference_interval_frame=3))
-        for value in (0, -1, True, 1.5, "3", None):
-            with self.subTest(value=value):
-                with self.assertRaisesRegex(ValueError, "inference_interval_frame"):
-                    step.configure(
-                        SimpleNamespace(gpu_id=0, inference_interval_frame=value)
-                    )
-                self.assertEqual((step.gpu_id, step.inference_interval_frame), (1, 3))
-
-    def test_legacy_interval_is_ignored_in_both_modes(self):
+    def test_removed_interval_is_rejected_in_both_modes(self):
         for batch in (False, True):
-            for config, interval in [
-                ({"inference_interval": 99}, 1),
-                ({"inference_interval": 99, "inference_interval_frame": 4}, 4),
-            ]:
-                with self.subTest(batch=batch, config=config):
-                    step = YoloInference(Path("model.engine"), backend=Backend.TENSORRT, batch=batch)
-                    step.configure(SimpleNamespace(**config))
-                    self.assertEqual(step.inference_interval_frame, interval)
-                    self.assertFalse(hasattr(step, "inference_interval"))
-
+            step = YoloInference(Path("model.engine"), backend=Backend.TENSORRT, batch=batch)
+            self.assertFalse(hasattr(step, "inference_interval_frame"))
+            with self.assertRaises(TypeError):
+                YoloInference(Path("model.engine"), backend=Backend.TENSORRT, inference_interval_frame=3)
+            step.configure(SimpleNamespace(gpu_id=1))
+            for value in (0, 3, True, None):
+                with self.subTest(batch=batch, value=value):
+                    with self.assertRaisesRegex(ValueError, "EveryNFrames"):
+                        step.configure(SimpleNamespace(gpu_id=0, inference_interval_frame=value))
+                    self.assertEqual(step.gpu_id, 1)
 
     def test_batch_flag_validation(self):
         self.assertFalse(YoloInference(Path("model.plan"), backend=Backend.TENSORRT).batch)
@@ -271,8 +249,8 @@ class SettingsTests(unittest.TestCase):
             )
             plugins = step._model_settings()
             self.assertEqual(plugins, (Path(directory) / "custom.dll",))
-            step.configure(SimpleNamespace(gpu_id=1, inference_interval_frame=3))
-            self.assertEqual((step.gpu_id, step.inference_interval_frame), (1, 3))
+            step.configure(SimpleNamespace(gpu_id=1))
+            self.assertEqual(step.gpu_id, 1)
 
     def test_invalid_settings_are_rejected(self):
         with TemporaryDirectory() as directory:
@@ -476,9 +454,8 @@ class YoloInferenceTests(unittest.TestCase):
                         copy_context(),
                     )
 
-    def test_batch_submits_inputs_events_interval_and_statistics(self):
+    def test_batch_submits_all_inputs_events_and_statistics(self):
         step = YoloInference(self.path, backend=Backend.TENSORRT, batch=True)
-        step.configure(SimpleNamespace(inference_interval_frame=3))
         items = [self.item() for _ in range(7)]
         calls = []
 
@@ -501,11 +478,11 @@ class YoloInferenceTests(unittest.TestCase):
         self.assertEqual(outputs, items)
         self.assertEqual(
             [i.model_output is not None for i in items],
-            [True, False, False, True, False, False, True],
+            [True] * 7,
         )
-        self.assertEqual(stats.completed_inferences, 3)
-        self.assertEqual(len(calls), 3)
-        for tensor, item in zip(calls, items[::3]):
+        self.assertEqual(stats.completed_inferences, 7)
+        self.assertEqual(len(calls), 7)
+        for tensor, item in zip(calls, items):
             self.assertIs(tensor, item.model_input)
         with patch(
             "pipeworks.local_yolo_inference.infer", side_effect=RuntimeError("batch failed")
@@ -780,17 +757,16 @@ class YoloInferenceTests(unittest.TestCase):
             self.assertFalse(hasattr(item, "model_cuda_stream"))
         self.assertEqual(len(self.api.contexts), 1)
 
-    def test_interval_and_request_scope_statistics(self):
-        self.step.inference_interval_frame = 3
+    def test_all_inputs_and_request_scope_statistics(self):
         items = [self.item() for _ in range(7)]
         with report_scope():
             stats = _stats()
             outputs = list(self.step.process(iter(items)))
         self.assertEqual(outputs, items)
-        self.assertEqual(stats.completed_inferences, 3)
+        self.assertEqual(stats.completed_inferences, 7)
         self.assertEqual(
             [item.model_output is not None for item in items],
-            [True, False, False, True, False, False, True],
+            [True] * 7,
         )
 
 

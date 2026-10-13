@@ -138,7 +138,6 @@ inference = YoloInference(
     backend=Backend.TENSORRT,
     gpu_id=2,
     profile_index=1,
-    inference_interval_frame=3,
 )
 pipeline.step(inference)
 ```
@@ -149,7 +148,7 @@ YoloInference:
   profile_index: 0
 ```
 
-위 설정에서는 `gpu_id=2`, `profile_index=0`, `inference_interval_frame=3`이 적용됩니다. YAML에서 `profile_index`를 삭제하면 생성자 값인 `1`로 돌아갑니다. URL·모델 경로와 `batch`는 기존처럼 생성자에서 지정합니다.
+위 설정에서는 `gpu_id=2`, `profile_index=0`이 적용됩니다. YAML에서 `profile_index`를 삭제하면 생성자 값인 `1`로 돌아갑니다. URL·모델 경로와 `batch`는 기존처럼 생성자에서 지정합니다.
 
 적용 대상은 `RTSPSource`, `RTSPPublish`, `NvidiaDecode`, `NvidiaEncode`, `YoloInference`, `CudaAsync`입니다. `TapSkipIfBusy`은 내부 Step에 설정을 전달하고, `CudaAsync` 내부 Step은 기존처럼 최상위 클래스명 섹션으로 설정합니다.
 
@@ -313,7 +312,6 @@ RTSPSource:
 YoloInference:
   backend: ultralytics
   gpu_id: 0
-  inference_interval_frame: 1
 
 YoloPostProcess:
   classes: null
@@ -544,3 +542,5 @@ except Exception as e:
 2. **Step 이름**: 클래스명과 YAML 섹션명이 정확히 같아야 함
 3. **Hotswap**: 파이프라인이 실행 중일 때도 config.yaml 수정 가능
 4. **로깅**: `logging.basicConfig()` 로 수준 조정 가능
+
+실행 간격은 [EveryNFrames](embedded/every_n_frames.md)의 `interval_frames`로 지정합니다. 래퍼 내부 단계도 각 클래스명 YAML 섹션을 사용하며 생성자 기본값과 실시간 변경을 유지합니다.

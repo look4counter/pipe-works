@@ -67,3 +67,13 @@ YoloPreProcess와 YoloPostProcess는 examples/step에서 직접 구현한다. Im
 ## 재사용 메서드 원격 전달
 
 원격 Step의 사용자 메서드 정의 모듈도 직렬화에 포함한다. 중앙은 예제 패키지를 설치하거나 경로를 추가하지 않아도 전달받은 Step을 복원한다.
+
+## 범용 간격 계약
+
+공개 API는 EveryNFrames(*steps: Step, interval_frames: int = 1)이다. 한 개 이상의 단계를 감싸고 첫 입력부터 N프레임마다 실행한다. 각 단계는 입력 하나당 PipelineContext 하나를 반환한다. 생략 입력은 그대로 전달한다. bool·0·음수·실수·빈 묶음·Step 외 인자는 오류다.
+
+EveryNFrames YAML 섹션은 interval_frames만 받으며 내부 단계는 각 클래스명 섹션을 사용한다. YoloInference의 inference_interval_frame은 삭제되며 생성자는 TypeError, YAML은 안내를 포함한 ValueError로 거부한다. 선택 프레임 사이 생성기를 유지하여 모델 세션을 재사용한다. 실행 종료·오류·조기 종료 시 내부 생성기와 상류를 정리한다.
+
+## 비동기 폐기 예외
+
+EveryNFrames(CudaAsync(...))는 내부 CudaAsync가 안전 판단으로 폐기한 입력을 출력하지 않고 다음 전체 입력으로 진행한다. 간격에 해당하지 않는 입력은 비동기 준비 없이 그대로 통과한다. 일반 단계의 출력 누락과 입력 재소비는 오류로 유지된다. 내부 폐기 표시를 사용자 출력에 노출하지 않으며 단독 CudaAsync의 동작은 바뀌지 않는다.

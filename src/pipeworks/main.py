@@ -188,14 +188,14 @@ def run_remote(pipeline) -> None:
     try:
         from pipeworks.hotswap import Hotswap
         from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
-        from pipeworks.embedded import CudaAsync
+        from pipeworks.embedded import CudaAsync, EveryNFrames
 
         def register_step(step) -> None:
             if isinstance(step, Hotswap):
                 register_step(step.wrapped_step)
             if isinstance(step, TapSkipIfBusy):
                 register_step(step.step)
-            if isinstance(step, CudaAsync):
+            if isinstance(step, (CudaAsync, EveryNFrames)):
                 for inner in step.steps:
                     register_step(inner)
             module_names = {type(step).__module__}

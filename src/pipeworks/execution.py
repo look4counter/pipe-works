@@ -3,10 +3,30 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
 
+from pipeworks.models import PipelineContext
+
 
 _input_release = ContextVar("pipeworks_input_release", default=None)
 _frame_release = ContextVar("pipeworks_frame_release", default=None)
 _source_cancel = ContextVar("pipeworks_source_cancel", default=None)
+_frame_drop_enabled = ContextVar("pipeworks_frame_drop_enabled", default=False)
+
+
+class _DroppedFrame(PipelineContext):
+    """Internal acknowledgement of an input dropped while still in use."""
+
+
+def _can_signal_frame_drop():
+    return _frame_drop_enabled.get()
+
+
+@contextmanager
+def _frame_drop_scope():
+    token = _frame_drop_enabled.set(True)
+    try:
+        yield
+    finally:
+        _frame_drop_enabled.reset(token)
 
 
 def current_source_cancel():

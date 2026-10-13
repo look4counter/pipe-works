@@ -65,7 +65,6 @@ CudaAsync:
   timeout_ms: 20
 YoloInference:
   backend: ultralytics
-  inference_interval_frame: 1
 
 YoloPostProcess:
   classes: [2]
@@ -86,3 +85,7 @@ NvidiaDecode의 잠금 프레임은 GPU 작업 완료 후 내부 작업 컨텍�
 CudaAsync는 장치별 모델 스트림을 생성·재사용하며 원본 input.cuda_stream은 영상·인코딩용으로 유지한다. 내부 작업용 컨텍스트의 cuda_stream을 모델 스트림으로 교체한다. 내부 Step은 cuda_stream을 사용하며 결과 반영 전에 GPU 완료를 확인하고 원본 스트림 속성을 복원한다. 원본에 스트림 속성이 없었으면 결과에도 추가하지 않는다. YOLO·TensorRT의 공유 배치 작업자는 자체 스트림을 유지한다.
 
 CudaAsync의 보호 복사 제거는 RGB 변환·리사이즈·모델 입출력·배치 stack에 필요한 GPU 메모리 할당까지 제거하는 것은 아니다. 시간 초과는 외부 부작용을 취소하지 않는다. CUDA 런타임 호출 자체의 지연에는 절대 시간 상한을 보장하지 않는다.
+
+## 프레임 간격 조합
+
+`EveryNFrames(CudaAsync(preprocess, inference, postprocess, timeout_ms=20), interval_frames=3)`로 전처리와 비동기 준비부터 함께 생략할 수 있습니다. 내부 Step의 클래스명 YAML과 보고 backend 탐색은 중첩 래퍼에서도 적용됩니다. 간격은 전체 입력 프레임 기준이며 내부 비동기 처리의 안전한 폐기는 간격 래퍼가 소비하여 해당 프레임만 출력에서 제외합니다. [EveryNFrames 안내](every_n_frames.md)를 참고하세요.
