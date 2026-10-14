@@ -81,3 +81,11 @@ CudaAsync는 GPU 작업 완료 후 내부 작업 컨텍스트의 원본 프레�
 - [NvidiaEncode](nvidia_encode.md): 인코딩
 - [RTSPSource](rtsp_source.md): RTSP 입력
 - [Pipeline](../pipeline.md): 파이프라인 조립
+
+## 공개 생성자와 입출력 계약
+
+`NvidiaDecode(*, gpu_id=0)`를 사용합니다. gpu_id는 생성자와 NvidiaDecode YAML 섹션에서 지정하며 YAML 삭제 시 최초 생성자 값으로 돌아갑니다. configure 자체에는 GPU 번호의 별도 범위 검증이 없으며 GPU 생성·디코더 초기화 과정의 오류가 전달됩니다.
+
+필수 입력은 packet과 video_stream입니다. 현재 코덱 매핑은 h264와 hevc/h265입니다. 첫 입력에서 디코더와 스트림을 만들며 입력 스트림 변경에 따른 디코더 재생성은 구현되어 있지 않습니다.
+
+출력은 새 PipelineContext이며 frame·video_stream·cuda_stream·pixel_format·decoded_at·processing_started_at·decode_dropped_frames를 제공합니다. 입력 packet이나 사용자 속성을 그대로 복사하지 않습니다. 패킷 하나에서 출력 프레임이 없거나 여러 개일 수 있습니다. pixel_format은 디코더의 실제 NATIVE 출력 형식이며 NV12로 고정하지 않습니다. 잠금 API 경로의 _decode_buffer는 내부 수명 관리용입니다.

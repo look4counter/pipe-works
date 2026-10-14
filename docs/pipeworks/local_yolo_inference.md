@@ -1,35 +1,56 @@
-# 공유 GPU 모델 배치 추론
+# local_yolo_inference: 프로세스 안의 공유 GPU 배치
 
-**파일 위치:** src/pipeworks/local_yolo_inference.py
+구현: src/pipeworks/local_yolo_inference.py. 일반 Pipeline 사용자는 YoloInference(batch=True)를 선택합니다. 이 모듈의 infer는 현재 프로세스의 모델 작업자에 직접 요청하며 자체적으로 중앙 프로세스를 시작하지 않습니다. 이름의 local이 CPU 추론을 뜻하지는 않습니다.
 
-이 모듈은 준비된 배치 1 GPU 입력을 같은 중앙 프로세스의 모델별 작업자에 제출합니다. 영상의 색 변환·리사이즈·NMS는 examples/step/yolo_pre_process.py와 yolo_post_process.py에서 처리합니다.
+## 직접 호출 API
 
-## 파이프라인 조합
+```text
+infer(
+    model_path, inputs, gpu_id=0, *, backend="torchscript",
+    profile_index=0, ready_event=None,
+    on_inference_complete=None, on_profile_complete=None,
+)
+```
 
-examples가 모듈 탐색 경로에 있을 때 다음처럼 연결합니다.
+| 인자 | 계약 |
+| --- | --- |
+| model_path | 실제 모델 파일 경로. 앱 기준 절대경로 권장 |
+| inputs | 지정 GPU의 텐서 또는 이름별 사전. 모든 입력 첫 축은 1 |
+| gpu_id | bool을 제외한 음수가 아닌 정수 |
+| backend | torchscript·ultralytics·tensorrt 또는 모듈:클래스. 직접 호출 기본은 torchscript |
+| profile_index | TensorRT 최적화 프로파일. 다른 실행부는 0만 허용 |
+| ready_event | 입력 생산 완료 CUDA 이벤트. 생략하면 호출자의 현재 GPU 스트림에서 기록 |
+| on_inference_complete | 성공 시 소요 시간(초)을 인자로 호출 |
+| on_profile_complete | 요청별 Profile을 인자로 호출. 요청 오류 검사 전에 호출될 수 있음 |
+
+요청 완료까지 동기 대기하고 이름별 GPU 출력 사전을 반환합니다. 자체 시간 제한·취소 인자는 없습니다. 작업자 오류는 문자열을 포함한 RuntimeError로 전달하며 입력·설정 검증은 ValueError 등으로 직접 실패할 수 있습니다. 입력 텐서는 대기 중 수정하거나 재사용하지 않습니다.
 
 ```python
 from pathlib import Path
+import torch
 from pipeworks import Backend
-from pipeworks.embedded import YoloInference
-from step.yolo_pre_process import YoloPreProcess
-from step.yolo_post_process import YoloPostProcess
+from pipeworks.local_yolo_inference import infer
 
-pipeline.step(YoloPreProcess())
-pipeline.step(YoloInference(Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS, batch=True))
-pipeline.step(YoloPostProcess())
+
+def run_prepared_model(model_path, prepared_input, producer_stream):
+    ready = torch.cuda.Event()
+    ready.record(producer_stream)
+    return infer(
+        Path(model_path).resolve(), prepared_input,
+        gpu_id=producer_stream.device.index,
+        backend=Backend.TORCHSCRIPT,
+        ready_event=ready,
+    )
 ```
 
-## 직접 호출
+prepared_input의 형상·자료형은 모델에 맞춰 사용자가 준비합니다. [설정 파일](configuration.md)의 모델 YAML 규칙을 따릅니다.
 
-infer(model_path, inputs, gpu_id=0, *, backend="torchscript", profile_index=0, ready_event=None, on_inference_complete=None, on_profile_complete=None)는 GPU 텐서 또는 이름별 GPU 텐서 사전을 받아 이름별 원시 GPU 출력 사전을 반환합니다. 입력의 첫 축은 1이어야 합니다. 영상 입력이나 최종 감지 결과를 직접 받거나 반환하지 않습니다.
+## 공유 조건과 수명
 
-실행부·GPU·profile·입력 이름/자료형/비배치 형상이 다른 요청은 섞이지 않습니다. 각 결과는 요청별 GPU 복사본입니다. 오류가 나면 해당 세션을 제거하고 네이티브 자원을 닫아 다음 요청에서 재로드합니다.
+모델 경로와 backend별로 작업자를 캐시합니다. 한 작업자는 GPU·프로파일·입력 이름·자료형·비배치 형상이 같은 요청만 묶으며 세션은 GPU·프로파일별, 스트림은 GPU별로 유지합니다. ID는 공유 조건에 포함되지 않습니다. 입력을 첫 축으로 결합하고 출력의 첫 축이 요청 수와 같은지 검증한 뒤 요청별 배치 1 GPU 사본을 반환합니다.
 
-## 배치 설정
+배치 수집 기한은 가장 오래된 요청 도착 시점부터 계산하므로 이미 큐에서 오래 기다렸다면 추가 대기 시간이 줄어듭니다. 모델 YAML은 작업자 최초 생성 때 읽고 파일 변경으로 자동 재생성하지 않습니다. 모델·경로 별칭 캐시와 작업자에는 공개 종료·삭제 API가 없습니다. 교체가 필요하면 해당 실행 프로세스를 재시작합니다.
 
-모델 동명 .yml에서 max_batch_size와 timeout_ms를 지정합니다. 파일이 없으면 크기 1과 대기 0을 사용합니다. TensorRT는 plugins를 지원하며 생략한 배치 값도 기본값을 사용합니다. 다른 실행부는 설정 파일이 있으면 두 배치 값을 모두 요구합니다. profile_index는 TensorRT에서만 0 이외의 값을 지정할 수 있습니다.
+실행 실패 시 해당 GPU·프로파일 세션을 제거하고 배치의 모든 요청을 깨워 오류를 전달합니다. 다음 요청에서 모델을 다시 준비합니다. 실행이 끝나면 요청의 입력·이벤트 참조와 임시 배치 텐서를 정리합니다. 콜백은 호출자 문맥에서 호출합니다.
 
-캐시된 작업자는 이미 로드한 모델을 재사용합니다. 최초 준비에는 파일이 필요하며 이미 로드된 모델은 파일 삭제 후에도 계속 사용할 수 있습니다. 설정 변경 반영에는 공유 작업자가 있는 프로세스를 다시 시작합니다.
-
-관련 안내: [GPU 원시 추론](embedded/yolo_inference.md)
+[배치 수집기](batch_collector.md), [경로 캐시](model_worker.md), [중앙 실행](main.md)을 참고하세요.

@@ -14,7 +14,7 @@ pipeline.step(YoloInference('models/yolo11n.pt', backend=Backend.ULTRALYTICS, id
 pipeline.step(postprocess_step)
 ```
 
-입력은 `gpu_id`와 같은 GPU의 텐서 또는 이름별 다중 GPU 입력 사전입니다. 이름은 비어 있지 않은 문자열이며 텐서는 1차원 이상이고 각 축이 양수여야 합니다. 채널 수·형상·자료형·색 순서는 공통 추론 단계에 고정하지 않고 모델 실행부의 규약을 따릅니다. 전처리가 크기와 정규화를 맞추고 비연속 입력은 GPU에서 연속화합니다. CPU·다른 GPU 입력은 거부합니다.
+입력은 `gpu_id`와 같은 GPU의 텐서 또는 이름별 GPU 텐서 입력 사전입니다. 이름은 비어 있지 않은 문자열이며 텐서는 1차원 이상이고 각 축이 양수여야 합니다. 채널 수·형상·자료형·색 순서는 공통 추론 단계에 고정하지 않고 모델 실행부의 규약을 따릅니다. 전처리가 크기와 정규화를 맞추고 비연속 입력은 GPU에서 연속화합니다. CPU·다른 GPU 입력은 거부합니다.
 
 `cuda_stream`은 입력을 생산한 스트림이어야 합니다. 없으면 지정 GPU의 현재 스트림을 설정합니다. 추론은 준비 이벤트를 기다리고 GPU 작업 완료 후 결과를 전달합니다. 모델 실행 실패나 잘못된 입출력은 오류로 호출자에게 전달합니다.
 
@@ -53,7 +53,7 @@ YoloPreProcess(size=(640, 640), dtype="float16")
 YoloPostProcess(names=["vehicle", "person"], classes=[0], confidence=0.4)
 ```
 
-두 전처리의 `size`, `resize_mode`, `auto`, `stride`, `scaleup`, `center`, `padding_value`, `crop_size`, `color_order`, `scale`, `mean`, `std`, `dtype`, `layout`, `input_name`은 생성자와 `YoloPreProcess` YAML 섹션에서 지정합니다. 크기 변경·정규화의 의미는 [기존 GPU 전처리 안내](tensor_rt_preprocess.md)와 같습니다. 기본은 RGB NCHW 텐서이며 `input_name='images'`를 지정하면 이름별 입력 사전을 만듭니다. 색 순서와 배치는 모델 요구에 맞게 선택합니다. Ultralytics 호환 실행부에는 RGB NCHW FP32/FP16 입력을 사용합니다. 다른 실행부는 해당 모델 규약을 따릅니다.
+두 전처리의 `size`, `resize_mode`, `auto`, `stride`, `scaleup`, `center`, `padding_value`, `crop_size`, `color_order`, `scale`, `mean`, `std`, `dtype`, `layout`, `input_name`은 생성자와 `YoloPreProcess` YAML 섹션에서 지정합니다. 크기 변경·정규화의 의미는 앱에 포함한 전처리 예제의 생성자·configure 구현와 같습니다. 기본은 RGB NCHW 텐서이며 `input_name='images'`를 지정하면 이름별 입력 사전을 만듭니다. 색 순서와 배치는 모델 요구에 맞게 선택합니다. Ultralytics 호환 실행부에는 RGB NCHW FP32/FP16 입력을 사용합니다. 다른 실행부는 해당 모델 규약을 따릅니다.
 
 후처리는 FP32/FP16 `(1, 4+클래스수, N)` 원시 감지 예측을 신뢰도·클래스로 필터링하고 GPU NMS와 좌표 복원을 수행합니다. `detections[model_id]`에 `boxes`, `names`, `orig_shape`를 기록합니다. 실행하지 않은 입력은 해당 ID의 `None`, 감지 없음은 빈 `boxes` 결과이며 다른 모델 결과는 보존합니다. 후처리 종료 시 `model_input`, `model_output`, `image_transform`, `model_id`, `_inference_profile`을 정리합니다.
 
@@ -190,7 +190,7 @@ pipeline.step(YoloInference(
 
 TorchScript는 단일 텐서를 위치 인자로, 입력 사전을 이름 있는 인자로 전달합니다. 추론 단계는 리사이즈·정규화·출력 형식 변환·NMS를 추가하지 않습니다. 분할·포즈·특수 출력 해석은 해당 모델의 후처리가 담당합니다. 모든 출력의 첫 축이 결합 배치 수와 같을 때만 공유 배치를 사용합니다.
 
-`Backend`는 `pipeworks`와 `pipeworks.embedded`에서 가져올 수 있는 문자열 enum입니다. 생성자에서 `backend`는 반드시 지정해야 하며 생략하면 `TypeError`가 발생합니다. YAML에서는 `torchscript` 또는 `ultralytics` 문자열을 사용하며 설정을 제거하면 생성자 선택으로 복원됩니다.
+`Backend`는 `pipeworks`와 `pipeworks.embedded`에서 가져올 수 있는 문자열 enum입니다. 생성자에서 `backend`는 반드시 지정해야 하며 생략하면 `TypeError`가 발생합니다. YAML에서는 `torchscript`, `ultralytics`, `tensorrt` 또는 사용자 실행부 경로 문자열을 사용하며 설정을 제거하면 생성자 선택으로 복원됩니다.
 
 ## TensorRT 실행 통합
 
@@ -212,3 +212,9 @@ TensorRT 실행도 동일한 model_input·model_output·model_id 계약을 사�
 ## 전후처리 구현 위치
 
 영상 처리 구현은 examples/step/yolo_pre_process.py와 yolo_post_process.py가 소유합니다. 전처리 파일에 NV12 변환과 ImageTransform이 포함되고 후처리 파일에 필터·NMS·좌표 복원과 감지 결과 생성이 포함됩니다. 코어는 준비된 GPU 텐서의 추론과 컨텍스트 연결만 담당하며 예제 전후처리를 가져오지 않습니다. TensorRT 이름의 전후처리 예제도 같은 구현을 재사용하므로 모델 입력/출력 규약이 맞으면 backend에 관계없이 연결할 수 있습니다.
+
+## 구현 위치와 설정 경계
+
+구현: `src/pipeworks/embedded/yolo_inference.py`. 생성자는 `YoloInference(model_path, *, batch=False, gpu_id=0, id=None, backend, profile_index=0)`입니다. model_path와 batch는 생성자 전용이고 backend는 필수입니다. YAML 섹션은 YoloInference이며 backend·gpu_id·id·profile_index를 적용합니다. batch는 bool, gpu_id와 profile_index는 bool을 제외한 음수가 아닌 정수여야 합니다.
+
+필수 입력은 model_input이며 cuda_stream은 선택 입력입니다. 같은 컨텍스트에 model_id와 model_output을 기록하고 cuda_stream이 없으면 지정 GPU의 현재 스트림을 추가합니다. 원본 frame·detections는 추론 단계가 생성하거나 정리하지 않습니다. 정상 입력마다 결과 하나를 출력하며 오류는 전파합니다. 공유 배치의 TensorRT 입력은 엔진과 배치 작업자의 검증 규칙을 함께 따릅니다.

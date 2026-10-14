@@ -60,3 +60,9 @@ EveryNFrames를 바깥에 두면 간격은 전체 입력 프레임 기준이며 
 래퍼는 이전 추론 결과를 재사용하거나 생략 입력의 모델 필드를 지우지 않습니다. 새 디코더 컨텍스트에서 묶음 전체를 생략하면 새 detections나 model_id가 생성되지 않습니다. YoloReport는 실제 실행한 전후처리·추론을 기록하며 이 래퍼의 생략 프레임을 추론 건너뜀 표본으로 기록하지 않습니다.
 
 YoloInference는 받은 모든 입력을 실행합니다. 이전 inference_interval_frame 옵션은 제거되었으며 생성자와 YAML에서 오류로 거부합니다. 간격 설정은 EveryNFrames.interval_frames로 옮기세요.
+
+## 구현 위치와 설정 검증
+
+구현: `src/pipeworks/embedded/every_n_frames.py`. 생성자는 `EveryNFrames(*steps, interval_frames=1)`입니다. 하나 이상의 Step이 필요하고 잘못된 내부 객체는 TypeError입니다. YAML 섹션은 EveryNFrames이며 interval_frames 이외의 키도 ValueError로 거부합니다.
+
+입출력 필드 계약은 감싼 단계에 따릅니다. 래퍼 자체가 추가하는 공개 컨텍스트 필드는 없습니다. 생략 입력은 같은 객체로 전달합니다. 선택 입력은 내부 단계가 반환한 컨텍스트를 전달하므로 내부 단계가 새 객체를 만들 수도 있습니다.

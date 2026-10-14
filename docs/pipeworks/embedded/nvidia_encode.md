@@ -38,3 +38,11 @@ YAML 값이 생성자보다 우선하며 삭제하면 최초 생성자 값으로
 새 컨텍스트에 감지 결과 등 임의 입력 속성을 자동으로 복사하지 않습니다. 결과를 소비하는 단계는 인코딩 앞에 둡니다. 실제 인코딩 패킷과 원본 스트림 템플릿의 RTSP 송출 호환성은 실행 환경에서 확인해야 합니다.
 
 관련 문서: [디코딩](nvidia_decode.md), [패킷 송출](rtsp_publish.md), [파이프라인](../pipeline.md)
+
+## 공개 API와 컨텍스트 계약
+
+구현: `src/pipeworks/embedded/nvidia_encode.py`. 가져오기는 `from pipeworks.embedded import NvidiaEncode`이며 생성자는 `NvidiaEncode(*, gpu_id=0, fps=30)`입니다. 두 옵션은 NvidiaEncode YAML 섹션으로 덮어쓰고 삭제 시 최초 생성자 값으로 돌아갑니다. fps가 0 이하이면 ValueError입니다. 패킷 시간 기준은 Fraction(1, fps)로 계산하므로 현재 구현에서는 양의 정수 fps를 사용합니다.
+
+필수 입력은 frame·pixel_format·video_stream·cuda_stream입니다. processing_started_at은 프레임 처리 시간 기록에 사용하는 선택 필드입니다. 첫 입력의 스트림 코덱·너비·높이와 픽셀 형식으로 인코더를 만들고 B프레임을 끕니다. codec·bitrate·framerate는 공개 설정 키가 아닙니다.
+
+출력은 packet과 video_stream만 가진 새 PipelineContext입니다. 원본 frame이나 사용자 속성을 복사하지 않습니다. 패킷 PTS/DTS는 0부터 증가하며 duration=1, time_base=1/fps입니다. 입력 하나에서 패킷이 없거나 여러 개일 수 있고 정상 입력 종료 시 EndEncode의 잔여 패킷도 출력합니다. 인코더 오류는 호출자에게 전달됩니다.

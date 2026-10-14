@@ -59,10 +59,10 @@ context.pixel_format  # 픽셀 형식 (예: NV12)
 context.cuda_stream  # 영상 처리 CUDA 스트림
 context.processing_started_at  # 후속 처리 시작 시각, perf_counter 기준
 
-# YoloInference 또는 예제 TensorRT 후처리에서 추가
+# examples의 YOLO 또는 TensorRT 후처리에서 추가
 context.detections  # {모델 ID: 결과 또는 None}
 
-# TensorRT 전처리·추론의 임시 속성
+# 전처리 예제와 YoloInference의 임시 속성
 context.model_input  # GPU 텐서 또는 이름별 GPU 텐서 사전
 context.model_output  # 이름별 GPU 출력 사전 또는 None
 context.model_id  # 모델 실행 ID, 후처리에서 정리

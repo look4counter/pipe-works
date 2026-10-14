@@ -63,9 +63,6 @@ CudaAsync(
 ```yaml
 CudaAsync:
   timeout_ms: 20
-YoloInference:
-  backend: ultralytics
-
 YoloPostProcess:
   classes: [2]
 
@@ -89,3 +86,9 @@ CudaAsync의 보호 복사 제거는 RGB 변환·리사이즈·모델 입출력�
 ## 프레임 간격 조합
 
 `EveryNFrames(CudaAsync(preprocess, inference, postprocess, timeout_ms=20), interval_frames=3)`로 전처리와 비동기 준비부터 함께 생략할 수 있습니다. 내부 Step의 클래스명 YAML과 보고 backend 탐색은 중첩 래퍼에서도 적용됩니다. 간격은 전체 입력 프레임 기준이며 내부 비동기 처리의 안전한 폐기는 간격 래퍼가 소비하여 해당 프레임만 출력에서 제외합니다. [EveryNFrames 안내](every_n_frames.md)를 참고하세요.
+
+## 공개 API와 입출력
+
+구현: `src/pipeworks/embedded/cuda_async.py`. 생성자는 `CudaAsync(*steps, timeout_ms=5)`입니다. 하나 이상의 Step이 필요하며 잘못된 객체는 TypeError입니다. timeout_ms는 bool을 제외한 0 이상의 유한한 숫자이고 다른 YAML 키는 ValueError입니다.
+
+입력은 내부 Step들이 요구하는 PipelineContext이며 cuda_stream은 있을 때 사용합니다. 정상 완료 시 내부 결과의 속성을 원본 컨텍스트에 반영하고 원본을 출력합니다. busy·안전한 timeout·정리된 오류는 원본을 전달하고 안전을 확인할 수 없는 timeout은 프레임을 폐기합니다. 따라서 출력 수가 입력 수보다 적을 수 있습니다. 내부 Step은 입력 하나당 PipelineContext 하나를 출력해야 하며 출력 없는 RTSPPublish 같은 Sink는 감쌀 수 없습니다. 원본과 공유 객체의 제자리 수정은 결과 폐기로 되돌릴 수 없습니다.

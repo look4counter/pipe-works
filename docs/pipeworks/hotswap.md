@@ -341,3 +341,21 @@ step = Hotswap(
 4. **로깅**: 언제 재로드되는지 파악하기 위해 로깅 추가 권장
 
 프레임 실행 간격은 [EveryNFrames](embedded/every_n_frames.md)로 묶고 해당 YAML 섹션의 `interval_frames`를 변경합니다. 내부 사용자 Step도 코드와 클래스명 YAML 변경을 감시합니다.
+
+## 공개 생성자와 입출력 계약
+
+`Hotswap(step, *, check_interval=0.5, source=False, watch_code=True, recover_errors=True)`
+
+| 옵션 | 기본값 | 의미 |
+| --- | --- | --- |
+| step | 필수 | 감쌀 Step |
+| check_interval | 0.5 | 처리 경계에서 코드·설정 확인을 제한하는 초 단위 간격. 음수는 ValueError |
+| source | False | True이면 상류 입력 대신 빈 반복자로 소스를 실행 |
+| watch_code | True | 감쌀 Step 파일의 코드 변경 감시 여부 |
+| recover_errors | True | 내부 실행 오류의 복구 여부 |
+
+옵션은 생성자에서 지정합니다. configure의 설정은 Hotswap 자체 옵션이 아니라 감싼 Step에 전달합니다. Pipeline에 명시적으로 등록한 Hotswap은 감싼 클래스명의 YAML 섹션을 사용하며 첫 Step이면 source=True로 설정합니다. 내장 Step은 자동 코드 교체 대상에서 제외하고 설정 감시를 적용합니다.
+
+입출력 필드는 감싼 Step의 계약을 따릅니다. 출력에 내부 epoch 표식을 붙여 하류가 실행 구간의 변화를 인식하게 합니다. 일반 모드의 복구 시 아직 출력되지 않은 입력의 속성 사전을 원래 값으로 복원해 전달하지만, 얕은 사본이므로 텐서·중첩 객체의 제자리 수정까지 되돌리지는 않습니다. 상류에서 발생한 예외는 복구하지 않고 전달합니다. source=True의 복구는 원본 전달 대신 Step을 다시 만들고 0.1초 후 재시도합니다.
+
+종료·재시작 시 내부 출력 반복자를 닫고 감시 구독을 해제합니다. 일반 모드에서는 상류 반복자도 닫습니다.

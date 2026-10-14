@@ -1,153 +1,39 @@
-# RTSPPublish: RTSP 스트림 발행
+# RTSPPublish: 압축 패킷 RTSP 송출
 
-`packet`과 `video_stream`을 받은 뒤 압축 비디오 패킷을 RTSP 서버로 송출합니다. 원본 패킷 전달은 `RTSPSource → RTSPPublish`, GPU 처리 후 송출은 `RTSPSource → NvidiaDecode → 처리 단계 → NvidiaEncode → RTSPPublish`로 연결합니다.
+구현: `src/pipeworks/embedded/rtsp_publish.py`. 가져오기: `from pipeworks.embedded import RTSPPublish`.
 
-**파일 위치:** `src/pipeworks/embedded/rtsp_publish.py`  
-**역할**: Sink Step (최종 출력)
+## 생성자와 설정
 
----
+`RTSPPublish(url, *, reconnect=True, reconnect_interval_ms=3000, transport="tcp", timeout_ms=5000, packet_size=1452)`
 
-## 📚 개요
+| 옵션 | 기본값 | 설정 위치와 의미 |
+| --- | --- | --- |
+| url | 필수 | 생성자 전용 송출 주소. 자리표시자 치환 없이 그대로 사용합니다. |
+| reconnect | True | 생성자 / YAML. 출력 연결·송신 오류 후 재시도 여부 |
+| reconnect_interval_ms | 3000 | 생성자 / YAML. 실패 후 다음 연결까지의 대기 밀리초 |
+| transport | tcp | 생성자 / YAML. tcp 또는 udp |
+| timeout_ms | 5000 | 생성자 / YAML. FFmpeg timeout 옵션으로 전달할 밀리초 |
+| packet_size | 1452 | 생성자 / YAML. FFmpeg pkt_size 옵션 |
 
-- 입력 스트림을 템플릿으로 연결을 열고 PyAV 패킷 송출
-- MediaMTX와 호환
-- 생성자에서 지정한 URL로 송출
+YAML 섹션은 RTSPPublish이며 YAML 값이 우선합니다. 옵션 삭제 시 최초 생성자 값으로 돌아갑니다. 시간 옵션은 bool을 제외한 0 이상의 유한한 숫자여야 하며 위반 시 ValueError입니다. 잘못된 reconnect·transport와 0 이하 packet_size는 현재 구현에서 오류 로그를 남깁니다.
 
----
+## 입력과 출력
 
-## 🔑 사용법
+필수 입력은 `packet`과 `video_stream`입니다. 누락하면 ValueError입니다. 압축 패킷을 송출하는 Sink이며 입력을 소비하고 **출력 컨텍스트를 만들지 않습니다**. 인코딩은 [NvidiaEncode](nvidia_encode.md)가 수행합니다. bitrate·framerate·codec은 이 Step의 설정이 아닙니다.
 
-```python
-from pipeworks import Backend
-from step.yolo_pre_process import YoloPreProcess
-from step.yolo_post_process import YoloPostProcess
+입력 스트림의 인덱스·코덱·해상도·extradata·time_base가 바뀌면 출력 연결을 다시 만듭니다. 패킷의 time_base가 없으면 입력 스트림, 출력 스트림 순으로 보완하며 유효한 양수 시간 기준이 없으면 ValueError입니다. DTS 누락은 PTS 또는 이전 송신 DTS와 duration으로 보완하고, 이전 DTS 이하이면 시간 기준을 환산해 증가하도록 보정합니다. 이때 기존 PTS도 같은 차이만큼 이동합니다. 입력 패킷의 DTS·PTS·stream을 직접 수정할 수 있습니다.
 
-from pathlib import Path
-from pipeworks import Pipeline
-from pipeworks.embedded import (
-    RTSPSource,
-    YoloInference,
-    RTSPPublish,
-    NvidiaDecode,
-    NvidiaEncode,
-)
+## 오류와 종료
 
-pipeline = Pipeline("rtsp-pipeline", config=Path("config.yaml"))
-pipeline.step(RTSPSource(url="rtsp://camera"))
-pipeline.step(NvidiaDecode())
-pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolov8n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
-pipeline.step(NvidiaEncode())
-pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
-pipeline.run()
-```
+연결 또는 mux 실패 시 reconnect=False이면 예외를 전달합니다. True이면 연결을 닫고 재시도 시각을 예약합니다. 대기 중에도 상류 입력을 소비하며 해당 패킷은 버리고 출력하지 않습니다. 실패 패킷을 보관하거나 재송신하지 않습니다. 입력 계약·시간 기준 오류는 재연결로 숨기지 않습니다. 정상 종료·오류·조기 종료 시 출력 연결을 닫습니다.
 
----
-
-## ⚙️ 설정 (config.yaml)
-
-```yaml
-RTSPPublish:
-  reconnect: true
-  reconnect_interval_ms: 3000  # 밀리초
-  transport: tcp
-  timeout_ms: 5000       # 밀리초
-  packet_size: 1452
-```
-
-### 옵션 설명
-
-| 옵션 | 설명 | 예제 |
-|------|------|------|
-| reconnect | 재연결 여부 | true |
-| reconnect_interval_ms | 재연결 간격(밀리초) | 3000 |
-| transport | 전송 방식 | tcp, udp |
-| timeout_ms | 제한 시간(밀리초, 기본값 5000) | 250, 5000, 10000 |
-| packet_size | 패킷 크기 | 1452 |
-
-기존 `reconnect_interval: 3`은 `reconnect_interval_ms: 3000`으로 변경해야 합니다. 0 이상의 유한한 숫자를 허용하며 불리언·문자열·음수·비유한 값은 오류로 처리합니다. 이전 키는 사용하지 않으며 무시합니다.
-
-기존 `timeout: 5`는 `timeout_ms: 5000`으로 변경해야 합니다. 0 이상의 유한한 숫자를 허용하며 이전 키는 사용하지 않고 무시합니다. 내부 FFmpeg 옵션에는 마이크로초로 변환하여 전달합니다.
-
----
-
-## 📝 송출 URL
-
-송출 URL은 생성자에서 완성해 지정합니다. 컨텍스트의 속성으로 URL을 자동 치환하지 않습니다.
+## 사용 예
 
 ```python
-cam_id = "cam01"
-url = f"rtsp://mediamtx:8554/output/{cam_id}/high"
+from pipeworks.embedded import NvidiaEncode, RTSPPublish
+
+pipeline.step(NvidiaEncode(fps=30))
+pipeline.step(RTSPPublish("rtsp://mediamtx:8554/camera"))
 ```
 
----
-
-## 🎯 실제 예제
-
-### 다중 카메라 발행
-
-```python
-from pipeworks import Backend
-from step.yolo_pre_process import YoloPreProcess
-from step.yolo_post_process import YoloPostProcess
-
-from pathlib import Path
-import threading
-from pipeworks import Pipeline
-from pipeworks.embedded import (
-    RTSPSource,
-    YoloInference,
-    RTSPPublish,
-    NvidiaDecode,
-    NvidiaEncode,
-)
-
-cameras = [
-    ("cam01", "rtsp://192.168.1.10/main"),
-    ("cam02", "rtsp://192.168.1.11/main"),
-]
-
-for cam_id, cam_url in cameras:
-    pipeline = Pipeline(f"pipeline-{cam_id}", config=Path("config.yaml"))
-    pipeline.step(RTSPSource(url=cam_url))
-    pipeline.step(NvidiaDecode())
-    pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolov8n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
-    # 각 카메라별 경로로 발행
-    pipeline.step(NvidiaEncode())
-    pipeline.step(RTSPPublish(url=f"rtsp://mediamtx:8554/{cam_id}"))
-
-    thread = threading.Thread(target=pipeline.run, daemon=True)
-    thread.start()
-```
-
-**config.yaml:**
-```yaml
-RTSPSource:
-  reconnect: true
-
-YoloInference:
-  backend: ultralytics
-  gpu_id: 0
-
-YoloPostProcess:
-  confidence: 0.5
-
-RTSPPublish:
-  transport: tcp
-  timeout_ms: 5000
-  packet_size: 1452
-```
-
----
-
-## 💡 TIP
-
-1. **MediaMTX 설정**: RTSP 서버가 실행 중이어야 함
-2. **인코딩 위치**: 프레임을 처리했으면 `NvidiaEncode`에서 패킷을 만든 뒤 송출
-3. **스트림 형식**: 입력 스트림의 코덱·크기·시간 정보를 사용
-
----
-
-## 🔗 관련 문서
-
-- [RTSPSource](rtsp_source.md): RTSP 입력
-- [Pipeline](../pipeline.md): 파이프라인 조립
+전체 실행 통계는 [StreamReport](stream_report.md)를 함께 사용합니다. 이 Sink 뒤의 보고자는 입력을 전달받지 않지만 상류 소비 동안 주기 출력을 수행할 수 있습니다.

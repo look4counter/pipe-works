@@ -150,7 +150,7 @@ YoloInference:
 
 위 설정에서는 `gpu_id=2`, `profile_index=0`이 적용됩니다. YAML에서 `profile_index`를 삭제하면 생성자 값인 `1`로 돌아갑니다. URL·모델 경로와 `batch`는 기존처럼 생성자에서 지정합니다.
 
-적용 대상은 `RTSPSource`, `RTSPPublish`, `NvidiaDecode`, `NvidiaEncode`, `YoloInference`, `CudaAsync`입니다. `TapSkipIfBusy`은 내부 Step에 설정을 전달하고, `CudaAsync` 내부 Step은 기존처럼 최상위 클래스명 섹션으로 설정합니다.
+적용 대상은 `RTSPSource`, `RTSPPublish`, `NvidiaDecode`, `NvidiaEncode`, `YoloInference`, `CudaAsync`, `EveryNFrames`입니다. `TapSkipIfBusy`은 내부 Step에 설정을 전달하고, `CudaAsync` 내부 Step은 기존처럼 최상위 클래스명 섹션으로 설정합니다.
 
 사용자 정의 Step은 `configure()`와 `process()`를 반드시 구현하거나 구체 구현을 상속해야 합니다. 누락하면 생성 시 `TypeError`가 발생합니다. 설정이 필요 없으면 빈 `configure()`를 구현합니다. 같은 우선순위를 사용하려면 공통 지원을 다음처럼 적용할 수 있습니다. `_set_config_defaults()`는 생성자 값을 보관한 뒤 빈 설정으로 `configure()`를 호출하므로 필요한 상태를 먼저 초기화합니다.
 
@@ -544,3 +544,11 @@ except Exception as e:
 4. **로깅**: `logging.basicConfig()` 로 수준 조정 가능
 
 실행 간격은 [EveryNFrames](embedded/every_n_frames.md)의 `interval_frames`로 지정합니다. 래퍼 내부 단계도 각 클래스명 YAML 섹션을 사용하며 생성자 기본값과 실시간 변경을 유지합니다.
+
+## 반환값과 배포 앱 사용
+
+step(step)는 같은 Pipeline을 반환해 연결 등록을 이어갈 수 있습니다. run()은 블로킹 실행이며 프레임 목록이나 추론 결과를 반환하지 않고 정상 종료 시 None입니다. 결과는 사용자 Step에서 소비·저장합니다. 앱 진입점은 if __name__ == "__main__"으로 보호하고 설정·모델 경로는 앱 파일 기준 절대경로로 만듭니다.
+
+생성자는 설정 파일을 즉시 읽으므로 파일을 먼저 준비해야 합니다. 일반 사용자 Step은 자동 Hotswap, 내장 Step은 코드 교체 없이 설정 감시를 적용합니다. config의 development 키로 실행 그룹을 바꾸지 않으며 생성자 development만 사용합니다. 로컬 실행의 오류는 원래 예외로, 중앙 실행의 오류는 전달된 메시지를 포함한 RuntimeError 등으로 보일 수 있습니다. 사용자 Step의 기본 오류 복구 범위는 [Hotswap](hotswap.md)을 참고하세요.
+
+[별도 앱 만들기](getting_started.md), [설정 파일](configuration.md), [전체 모듈](README.md)을 함께 참고하세요.

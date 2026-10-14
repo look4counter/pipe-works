@@ -1,4 +1,4 @@
-# TensorRT 엔진 실행과 기존 API 호환
+# YoloInference의 TensorRT 실행부
 
 TensorRT 추론은 `YoloInference(..., backend=Backend.TENSORRT)`로 통합되었습니다. 새 파이프라인은 [YoloInference 안내](yolo_inference.md)의 통합 API를 사용하세요. 아래 엔진·플러그인·배치 계약은 통합 API에도 동일하게 적용됩니다.
 
@@ -8,7 +8,7 @@ TensorRT 추론은 `YoloInference(..., backend=Backend.TENSORRT)`로 통합되�
 
 `YoloInference`는 전처리 단계가 만든 `context.model_input`의 GPU 텐서를 TensorRT 엔진으로 추론하고 원시 출력을 `context.model_output`에 넣습니다. 리사이즈·색 변환·정규화·자료형 변환·NMS·좌표 복원은 수행하지 않습니다.
 
-이미지 입력은 예제 [TensorRTPreProcess](tensor_rt_preprocess.md)로 준비할 수 있습니다. 모델별 크기·정규화·색상 순서·자료형·배치를 지정하며 추론 단계는 해당 입력을 그대로 실행합니다.
+이미지 입력은 예제 TensorRTPreProcess 예제로 준비할 수 있습니다. 모델별 크기·정규화·색상 순서·자료형·배치를 지정하며 추론 단계는 해당 입력을 그대로 실행합니다.
 
 ## 파이프라인 연결
 
@@ -123,9 +123,6 @@ TensorRT 표준 플러그인을 초기화하고 엔진에 직렬화된 플러그
 
 GPU 위치의 LINEAR 바인딩만 지원합니다. CPU 형상 바인딩, 벡터화 저장 포맷, 4비트 자료형 등 지원하지 않는 형식은 예외로 알립니다. TensorRT와 엔진·플러그인 버전 및 GPU 호환성은 실행 환경에서 맞춰야 합니다.
 
-## 검증
-
-`tests/test_tensor_rt_inference.py`는 모의 TensorRT API와 실제 CUDA 텐서로 GPU 값·이름·자료형·동적 출력·플러그인 로딩·동기 실행·무복제 입력과 CudaAsync 조합을 확인합니다. 실제 TensorRT 엔진 생성·실행 및 예제 YOLO plan 검증도 통과했습니다.
 ## 선택적 공유 배치
 
 `YoloInference(model_path, backend=Backend.TENSORRT, batch=True)`는 local_yolo_inference.infer에 요청한다. 기본 batch=False는 기존 동기 개별 경로다. 전처리는 프레임마다 배치 1 텐서를 만들면 된다. 공유 실행기가 여러 입력을 모아 추론하고 각 요청에 배치 1 GPU 출력 사전을 반환한다.

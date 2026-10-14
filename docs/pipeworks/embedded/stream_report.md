@@ -78,3 +78,9 @@ StreamReport: {}  # 이 섹션은 생략해도 됩니다.
 
 - [Pipeline](../pipeline.md): 파이프라인 조립
 - [Models](../models.md): PipelineContext 구조
+
+## 공개 API와 입출력 계약
+
+`StreamReport()`는 생성자 옵션이 없고 configure는 전달된 설정을 사용하지 않습니다. 특정 컨텍스트 필드를 요구하거나 추가하지 않으며 같은 입력 객체를 그대로 출력합니다. 약 1초마다 수신·송신 상태, FPS, 프레임 처리·추론의 1초/최근 10초 평균을 표시하고 기록된 입력 대기·배치 대기·인코딩·송출 구간도 표시합니다.
+
+프레임 처리 시간은 NvidiaDecode가 큐에서 꺼낸 processing_started_at부터 NvidiaEncode의 Encode 호출 완료까지이며 카메라 촬영부터의 시간이 아닙니다. 통계 수집 여부는 Pipeline의 실행 범위에서 결정합니다. 보고 Step만으로 모든 사용자 단계가 자동 측정되는 것은 아닙니다. 종료 시 출력 스레드를 멈추고 기다리며 YoloReport와 달리 마지막 결과를 별도로 출력하지 않습니다.

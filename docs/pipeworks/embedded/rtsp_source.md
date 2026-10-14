@@ -1,313 +1,43 @@
-# RTSPSource: RTSP 스트림 입력
+# RTSPSource: RTSP 압축 패킷 입력
 
-RTSP 카메라에서 영상을 받아 파이프라인에 공급합니다.
+구현: `src/pipeworks/embedded/rtsp_source.py`. 가져오기: `from pipeworks.embedded import RTSPSource`.
 
-**파일 위치:** `src/pipeworks/embedded/rtsp_source.py`
+## 생성자와 설정
 
----
+`RTSPSource(url, *, reconnect=True, reconnect_interval_ms=3000, transport="tcp", timeout_ms=5000)`
 
-## 📚 개요
+| 옵션 | 기본값 | 설정 위치와 의미 |
+| --- | --- | --- |
+| url | 필수 | 생성자 전용 RTSP 주소. 문자열을 그대로 사용하며 자리표시자를 치환하지 않습니다. |
+| reconnect | True | 생성자 / YAML. 연결·수신 실패와 정상 입력 종료 후 재연결 여부 |
+| reconnect_interval_ms | 3000 | 생성자 / YAML. 재연결 대기 밀리초 |
+| transport | tcp | 생성자 / YAML. tcp 또는 udp |
+| timeout_ms | 5000 | 생성자 / YAML. 연결과 읽기에 각각 적용하는 제한 시간(밀리초) |
 
-- **역할**: Source Step (파이프라인의 입력)
-- **기능**: RTSP 스트림 수신, 패킷 추출, 자동 재연결
-- **의존성**: `av` (PyAV)
-- **처리**: 압축 비디오 패킷 수신. GPU 디코딩은 `NvidiaDecode`에서 수행
+YAML 섹션은 `RTSPSource`입니다. YAML 값이 생성자 값보다 우선하며 삭제한 옵션은 최초 생성자 값으로 복원됩니다. 시간 옵션은 bool을 제외한 0 이상의 유한한 숫자여야 하며 잘못된 값은 ValueError입니다. reconnect와 transport의 잘못된 값은 현재 구현에서 오류 로그를 남깁니다.
 
----
+## 입력과 출력
 
-## 🔑 사용법
+상류 입력 반복자는 사용하지 않습니다. PyAV로 첫 번째 비디오 스트림을 선택하고 크기가 양수인 압축 패킷마다 새 PipelineContext를 출력합니다.
 
-### 기본 사용
+| 출력 필드 | 의미 |
+| --- | --- |
+| packet | PyAV 압축 패킷. 영상 프레임이 아닙니다. |
+| video_stream | 선택한 입력 비디오 스트림 |
 
-```python
-from pathlib import Path
-from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource
+프레임이 필요하면 [NvidiaDecode](nvidia_decode.md)를 연결합니다. 재인코딩 없이 [RTSPPublish](rtsp_publish.md)로 패킷을 전달할 수도 있습니다.
 
-pipeline = Pipeline("rtsp-pipeline", config=Path("config.yaml"))
-pipeline.step(RTSPSource(url="rtsp://192.168.1.100:554/stream1"))
-pipeline.step(...)  # 다음 Step들
-pipeline.run()
-```
+## 오류와 종료
 
-### 여러 카메라 처리
+비디오 스트림이 없으면 RuntimeError입니다. FFmpeg 연결·수신 오류는 reconnect=True이면 기록 후 재시도하고 False이면 RuntimeError로 전달합니다. 정상 입력 종료도 False이면 RuntimeError입니다. 다른 예외를 모두 재시도하는 것은 아닙니다.
 
-```python
-import threading
+연결은 매 시도 후 닫습니다. 중단 신호와 디코더의 취소 신호를 확인하며 재연결 대기는 취소할 수 있습니다. 이미 진행 중인 연결·읽기 호출은 기존 제한 시간이나 다음 패킷까지 기다릴 수 있습니다.
 
-cameras = [
-    ("cam01", "rtsp://cam01/main"),
-    ("cam02", "rtsp://cam02/main"),
-]
-
-for cam_id, cam_url in cameras:
-    pipeline = Pipeline(f"pipeline-{cam_id}", config=Path("config.yaml"))
-    pipeline.step(RTSPSource(url=cam_url))
-    # ... 더 많은 Step
-    
-    thread = threading.Thread(target=pipeline.run, daemon=True)
-    thread.start()
-```
-
----
-
-## ⚙️ 설정 (config.yaml)
-
-```yaml
-RTSPSource:
-  # 재연결 설정
-  reconnect: true                  # 연결 실패 시 재연결 (기본: true)
-  reconnect_interval_ms: 3000            # 재연결 대기 시간 (밀리초, 기본: 3000)
-  
-  # 연결 설정
-  transport: tcp                   # tcp 또는 udp (기본: tcp)
-  timeout_ms: 5000                       # 연결/패킷 수신 타임아웃 (밀리초, 기본: 5000)
-```
-
-### 각 옵션 설명
-
-#### reconnect (bool)
-- `true`: 연결 실패/종료 시 자동 재연결
-- `false`: 실패 시 파이프라인 중단
-
-```yaml
-# 항상 재연결 시도
-RTSPSource:
-  reconnect: true
-  reconnect_interval_ms: 10000  # 10초 기다린 후 재연결
-
-# 실패 시 즉시 종료
-RTSPSource:
-  reconnect: false
-```
-
-#### transport (str)
-- `tcp`: TCP 프로토콜 (안정적, 느림)
-- `udp`: UDP 프로토콜 (빠름, 불안정할 수 있음)
-
-```yaml
-# 안정적인 연결 (기본)
-RTSPSource:
-  transport: tcp
-
-# 빠른 연결 (불안정 가능)
-RTSPSource:
-  transport: udp
-```
-
-#### timeout_ms (float)
-연결 및 패킷 수신 타임아웃 (밀리초, 기본값 5000)
-
-```yaml
-# 빠른 타임아웃 (긴 지연 환경에서 안 됨)
-RTSPSource:
-  timeout_ms: 3000
-
-# 넉넉한 타임아웃 (느린 네트워크)
-RTSPSource:
-  timeout_ms: 15000
-```
-
----
-
-## 📤 생성되는 PipelineContext
-
-각 유효한 RTSP 패킷마다 `packet`과 `video_stream`을 담은 컨텍스트를 생성합니다. `frame`·`pixel_format`·`cuda_stream`은 후속 `NvidiaDecode`에서 제공하며 소스 단계는 디코딩하지 않습니다.
+## 사용 예
 
 ```python
-context = PipelineContext(
-    video_stream=av.VideoStream,  # 비디오 스트림 객체
-    packet=av.Packet,  # H.264/H.265 패킷
-)
+from pipeworks.embedded import RTSPSource, NvidiaDecode
+
+pipeline.step(RTSPSource("rtsp://camera/main", timeout_ms=5000))
+pipeline.step(NvidiaDecode(gpu_id=0))
 ```
-
-### 필드 사용 예
-
-```python
-class MyProcessingStep(Step):
-    def configure(self, config):
-        pass
-
-    def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
-        for context in inputs:
-            # RTSPSource에서 제공
-            video_stream = context.video_stream
-            packet = context.packet
-            
-            # 비디오 정보 접근
-            width = video_stream.codec_context.width
-            height = video_stream.codec_context.height
-            fps = video_stream.average_rate
-            
-            logger.info(f"해상도: {width}x{height}, FPS: {fps}")
-            yield context
-```
-
----
-
-## 🔄 재연결 메커니즘
-
-### 정상 재연결
-
-```
-RTSP 연결 시도
-    ↓
-[성공] → 패킷 수신 시작
-    ↓
-패킷 끝 (EOS 도달)
-    ↓
-reconnect=true → 대기 후 다시 시도
-reconnect=false → 스트림 종료 오류 전달
-```
-
-### 에러 재연결
-
-```
-RTSP 연결 시도
-    ↓
-[실패] → FFmpegError 발생
-    ↓
-reconnect=true → 대기 후 다시 시도
-reconnect=false → 원래 FFmpeg 오류 전달
-```
-
----
-
-## 🛠️ 실제 예제
-
-### 예제 1: 기본 RTSP 입력
-
-```python
-from pathlib import Path
-from pipeworks import Pipeline
-from pipeworks.embedded import RTSPSource, StreamReport, TapSkipIfBusy
-
-# RTSP 소스에서 받아 로그에 기록만 함
-pipeline = Pipeline("rtsp-basic", config=Path("config.yaml"))
-pipeline.step(RTSPSource(url="rtsp://192.168.1.100:554/stream1"))
-pipeline.step(StreamReport())
-pipeline.step(TapSkipIfBusy(step=MyLogStep()))
-pipeline.run()
-```
-
-**config.yaml:**
-```yaml
-RTSPSource:
-  reconnect: true
-  reconnect_interval_ms: 3000
-  timeout_ms: 5000
-```
-
-### 예제 2: 느린 네트워크 설정
-
-```yaml
-RTSPSource:
-  reconnect: true
-  reconnect_interval_ms: 10000        # 10초 대기
-  transport: tcp                # TCP 안정성
-  timeout_ms: 15000                   # 15초 타임아웃
-```
-
-### 예제 3: RTSP → YOLO → 결과 전송
-
-```python
-from pipeworks import Backend
-from step.yolo_pre_process import YoloPreProcess
-from step.yolo_post_process import YoloPostProcess
-
-from pathlib import Path
-from pipeworks import Pipeline
-from pipeworks.embedded import (
-    RTSPSource,
-    YoloInference,
-    RTSPPublish,
-    NvidiaDecode,
-    NvidiaEncode,
-)
-
-pipeline = Pipeline("rtsp-yolo", config=Path("config.yaml"))
-pipeline.step(RTSPSource(url="rtsp://camera/main"))
-pipeline.step(NvidiaDecode())
-pipeline.step(YoloPreProcess()).step(YoloInference(model_path=Path("models/yolo11n.pt"), backend=Backend.ULTRALYTICS)).step(YoloPostProcess())
-pipeline.step(NvidiaEncode())
-pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
-pipeline.run()
-```
-
-**config.yaml:**
-```yaml
-RTSPSource:
-  reconnect: true
-  reconnect_interval_ms: 3000
-  timeout_ms: 5000
-
-YoloInference:
-  backend: ultralytics
-  gpu_id: 0
-
-YoloPostProcess:
-  confidence: 0.5
-
-RTSPPublish:
-  transport: tcp
-  timeout_ms: 5000
-  packet_size: 1452
-```
-
----
-
-## 🐛 트러블슈팅
-
-### "RTSP 입력에 비디오 스트림이 없습니다"
-
-카메라가 비디오 스트림을 제공하지 않습니다.
-
-**해결:**
-- 카메라 설정 확인
-- URL이 정확한지 확인
-- 다른 RTSP 경로 시도 (e.g., `/stream1`, `/main`)
-
-### "타임아웃" 또는 "연결 거부"
-
-네트워크 연결 문제
-
-**해결:**
-```yaml
-RTSPSource:
-  timeout_ms: 15000           # 타임아웃 증가
-  reconnect_interval_ms: 5000 # 재연결 간격 증가
-```
-
-### "계속 재연결 시도"
-
-네트워크 불안정 또는 카메라 오프라인
-
-**해결:**
-- 카메라 상태 확인
-- 네트워크 안정성 확인
-- 재연결 비활성화하고 에러 처리:
-
-```yaml
-RTSPSource:
-  reconnect: false  # 실패 시 즉시 종료
-```
-
----
-
-## 🔗 관련 문서
-
-- [Pipeline](../pipeline.md): 파이프라인 조립
-- [Models](../models.md): PipelineContext 구조
-- [RTSPPublish](rtsp_publish.md): RTSP 발행
-- [YoloInference](yolo_inference.md): 객체 감지
-
----
-
-## 💡 TIP
-
-1. **URL 형식**: `rtsp://IP:PORT/path` (기본 포트: 554)
-2. **실시간 지연 최소화**: `transport: tcp` + 짧은 `timeout_ms`
-3. **안정성 우선**: `reconnect: true` + 긴 `reconnect_interval_ms`
-4. **다중 카메라**: 각 카메라마다 별도의 `RTSPSource` Step 사용
-
-제한 시간은 `timeout_ms`로 지정하며 기본값은 5000밀리초입니다. 기존 `timeout: 5`는 `timeout_ms: 5000`으로 변경해야 합니다. 재연결 간격은 `reconnect_interval_ms`로 지정하며 기본값은 3000밀리초입니다. 기존 `reconnect_interval: 3`은 `reconnect_interval_ms: 3000`으로 변경해야 합니다. 두 옵션 모두 0 이상의 유한한 숫자를 허용합니다. 이전 reconnect_interval과 timeout 키는 사용하지 않으며 무시합니다.

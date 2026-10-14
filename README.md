@@ -1,6 +1,8 @@
 # Pipe Works: 실시간 영상 처리 SDK
 
-영상 스트림을 처리하는 실시간 파이프라인을 **선언형 API**로 만드는 Python SDK입니다.  
+영상 스트림을 처리하는 실시간 파이프라인을 **선언형 API**로 만드는 Python SDK입니다.
+
+배포본에서 별도 앱을 만드는 절차와 전체 모듈 계약은 [사용 설명서](docs/pipeworks/README.md)를 참고하세요. [설치와 앱 실행](docs/pipeworks/getting_started.md)부터 시작하며 specs는 사용에 필요하지 않습니다.  
 사람도 이해하고, **AI Agent도 이를 기반으로 실제 애플리케이션을 구현**할 수 있습니다.
 
 ---
@@ -76,7 +78,7 @@ RTSPPublish:
 
 ## 📚 핵심 개념
 
-예제 `examples/step/tensor_rt_pre_process.py`의 `TensorRTPreProcess`는 GPU NV12·RGB·BGR 이미지를 모델별 입력으로 변환합니다. 모델의 전처리 규칙에 맞춰 예제 코드와 생성자에서 크기 변경 방식, 채널 순서, 정규화, FP16/FP32와 NCHW/NHWC를 지정합니다. 제공 YAML에는 전처리 설정이 없으며 기본 예제는 생성자 기본값을 사용합니다. 아래 가져오기는 `examples`가 모듈 탐색 경로에 있을 때 사용할 수 있습니다. 전체 옵션과 탐지·분류 설정은 [GPU 이미지 전처리 안내](docs/pipeworks/embedded/tensor_rt_preprocess.md)를 참고하세요.
+예제 `examples/step/tensor_rt_pre_process.py`의 `TensorRTPreProcess`는 GPU NV12·RGB·BGR 이미지를 모델별 입력으로 변환합니다. 모델의 전처리 규칙에 맞춰 예제 코드와 생성자에서 크기 변경 방식, 채널 순서, 정규화, FP16/FP32와 NCHW/NHWC를 지정합니다. 제공 YAML에는 전처리 설정이 없으며 기본 예제는 생성자 기본값을 사용합니다. 아래 가져오기는 `examples`가 모듈 탐색 경로에 있을 때 사용할 수 있습니다. 전체 옵션과 탐지·분류 설정은 [사용자 Step 작성 안내](docs/pipeworks/custom_steps.md)를 참고하세요.
 
 ```python
 from step.tensor_rt_pre_process import TensorRTPreProcess
@@ -149,12 +151,14 @@ result = pipeline.run()
 
 ## 🧩 내장 Step 레퍼런스
 
+전체 Step의 구현 파일과 최신 명세는 [Step 명세 목록](docs/pipeworks/README.md)에서 확인합니다.
+
 ### Source Step (스트림 입력)
 
 #### **RTSPSource**
 RTSP 카메라에서 영상을 읽습니다.
 
-- **역할**: RTSP 스트림 수신 및 디코딩
+- **역할**: RTSP 압축 패킷 수신. 디코딩은 NvidiaDecode에서 수행
 - **사용**: `pipeline.step(RTSPSource(url="rtsp://camera/main"))`
 - **설정**: `reconnect`, `reconnect_interval_ms`, `transport`, `timeout_ms`
 - **상세**: [docs/pipeworks/embedded/rtsp_source.md](docs/pipeworks/embedded/rtsp_source.md)
@@ -176,7 +180,7 @@ RTSP 카메라에서 영상을 읽습니다.
 - **사용**: `pipeline.step(CudaAsync(processor, timeout_ms=5))`
 - **설정**: `timeout_ms`. 내부 단계는 각 클래스명 최상위 YAML 섹션을 사용합니다.
 - **지원**: 입력 하나당 출력 하나인 단계. 공유 입력은 읽기 전용이며 보호 복사는 하지 않습니다. YOLO와 예제 TensorRT 전처리는 RGB 생성 후 원본 사용 종료를 알립니다. 늦은 결과는 폐기합니다.
-- **상세**: [CudaAsync 안내](docs/pipeworks/embedded/async.md)
+- **상세**: [CudaAsync 안내](docs/pipeworks/embedded/cuda_async.md)
 
 #### **YoloInference**
 
@@ -222,7 +226,7 @@ NVIDIA GPU를 이용해 RTSP 패킷을 디코딩합니다.
 - **사용**: 감지 단계 뒤에 `pipeline.step(YoloReport())`. CudaAsync 사용 시 래퍼 바깥에 둡니다.
 - **출력**: 구간별 CPU/GPU 시간, 1초·최근 10초 평균과 표본 수, 완료·건너뜀·바쁨·타임아웃·오류 건수.
 - **측정**: 모델 실행은 NMS를 제외합니다. 측정 때문에 추가 GPU 동기화를 넣지 않습니다.
-- **상세**: [감지 성능 리포트 안내](docs/pipeworks/embedded/detection_report.md)
+- **상세**: [감지 성능 리포트 안내](docs/pipeworks/embedded/yolo_report.md)
 
 ---
 
@@ -231,9 +235,9 @@ NVIDIA GPU를 이용해 RTSP 패킷을 디코딩합니다.
 #### **RTSPPublish**
 처리된 영상을 RTSP로 발행합니다.
 
-- **역할**: RTSP 스트림 발행 (인코딩 및 전송)
-- **사용**: `pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/{stream_id}"))`
-- **설정**: `bitrate`, `framerate`, `codec`
+- **역할**: 압축 패킷 RTSP 송출. 인코딩은 NvidiaEncode에서 수행
+- **사용**: `pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/camera"))`
+- **설정**: `reconnect`, `reconnect_interval_ms`, `transport`, `timeout_ms`, `packet_size`
 - **상세**: [docs/pipeworks/embedded/rtsp_publish.md](docs/pipeworks/embedded/rtsp_publish.md)
 
 #### **NvidiaEncode**
@@ -241,7 +245,7 @@ NVIDIA GPU를 이용해 영상을 인코딩합니다.
 
 - **역할**: 하드웨어 가속 비디오 인코딩
 - **사용**: `pipeline.step(NvidiaEncode())`
-- **설정**: `bitrate`, `framerate`, `codec`
+- **설정**: `gpu_id`, `fps`
 - **상세**: [docs/pipeworks/embedded/nvidia_encode.md](docs/pipeworks/embedded/nvidia_encode.md)
 
 #### **TapSkipIfBusy**
@@ -338,7 +342,7 @@ pipeline.run()
 | Step | 문서 |
 |------|------|
 | EveryNFrames | [EveryNFrames 안내](docs/pipeworks/embedded/every_n_frames.md) |
-| CudaAsync | [CudaAsync 안내](docs/pipeworks/embedded/async.md) |
+| CudaAsync | [CudaAsync 안내](docs/pipeworks/embedded/cuda_async.md) |
 | RTSPSource | [docs/pipeworks/embedded/rtsp_source.md](docs/pipeworks/embedded/rtsp_source.md) |
 | YoloInference | [docs/pipeworks/embedded/yolo_inference.md](docs/pipeworks/embedded/yolo_inference.md) |
 | RTSPPublish | [docs/pipeworks/embedded/rtsp_publish.md](docs/pipeworks/embedded/rtsp_publish.md) |
@@ -383,8 +387,8 @@ YoloPostProcess:
   confidence: 0.5
 
 RTSPPublish:
-  bitrate: "5000k"
-  framerate: 30
+  transport: tcp
+  timeout_ms: 5000
 ```
 
 ---
@@ -492,35 +496,14 @@ pipeline.run()
 
 ## 🔌 의존성 설치
 
-### 최소 필수
+현재 프로젝트 배포 이름은 pipe-works, import 이름은 pipeworks입니다. Python 3.11.9와 pyproject.toml의 고정 GPU 의존성을 사용합니다. 선택적 av·yolo·nvidia·all extras는 정의되어 있지 않습니다.
 
-```bash
-pip install pipeworks
+```powershell
+Set-Location D:\SDK\pipe-works
+uv sync --locked
 ```
 
-### RTSP/영상 처리 포함
-
-```bash
-pip install pipeworks[av]
-```
-
-### YOLO 객체 감지 포함
-
-```bash
-pip install pipeworks[yolo,av]
-```
-
-### NVIDIA GPU 지원 포함
-
-```bash
-pip install pipeworks[yolo,av,nvidia]
-```
-
-### 전체 설치
-
-```bash
-pip install pipeworks[all]
-```
+CUDA 패키지 공급 경로와 별도 앱에서 SDK 환경의 Python을 사용하는 방법은 [설치·실행 안내](docs/pipeworks/getting_started.md)에 설명되어 있습니다. 문서는 wheel에 자동 포함되지 않으므로 배포 시 docs도 함께 제공합니다.
 
 ---
 

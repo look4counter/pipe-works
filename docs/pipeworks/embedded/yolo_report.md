@@ -32,3 +32,9 @@ pipeline.step(YoloReport())
 추론 단계가 있는 `CudaAsync`의 busy/timeout은 그 backend로 분류합니다. 추론 없이 전후처리만 감싸면 해당 예제 계열을 기준으로 분류합니다. Report는 대기 중에도 주기적으로 출력하며 종료 시 마지막 결과를 출력하고 수집 활성 상태를 정리합니다.
 
 `전체`는 감지 처리 구간을 뜻하며 인코딩·송출 시간은 포함하지 않습니다. 전체 영상 파이프라인 시간은 `StreamReport`와 함께 확인합니다.
+
+## 공개 API와 입출력 계약
+
+구현: `src/pipeworks/embedded/yolo_report.py`. 가져오기는 `from pipeworks.embedded import YoloReport`입니다. `YoloReport()`는 생성자 옵션이 없으며 configure는 설정을 사용하지 않습니다. 별도의 필수 컨텍스트 필드나 새 출력 필드가 없고 같은 입력 객체를 그대로 전달합니다.
+
+process가 시작되면 실행 문맥의 모든 backend 측정을 활성화합니다. 약 1초마다 보고하고 종료 시 작업 스레드를 정리한 뒤 마지막 결과를 출력하고 활성화를 해제합니다. 일반 사용자 Step의 모든 코드 구간을 자동으로 측정하지는 않으며 프로파일·span 기록에 참여한 구간을 집계합니다. 모델 실행 시간에는 추론 Step이 추가하는 NMS가 없고 모델 자체에 포함된 연산은 포함됩니다.

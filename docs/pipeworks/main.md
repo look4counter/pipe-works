@@ -69,3 +69,17 @@ main.py가 수신 후 실행
 
 - [Pipeline](pipeline.md): 파이프라인 인터페이스
 - [Hotswap](hotswap.md): 실행 중 재로드
+
+## 배포와 사용자 앱의 조건
+
+현재 구현은 Windows 전용 경로를 사용합니다. import 시 whoami로 사용자 SID를 읽고 AF_PIPE·msvcrt·Windows 프로세스 생성 플래그를 사용합니다. 같은 설치 경로·사용자·프로토콜·그룹이 중앙 프로세스 공유 범위를 결정합니다. 일반 앱은 serve나 run_remote를 직접 호출하지 않고 Pipeline.run을 사용합니다.
+
+중앙 프로세스는 클라이언트와 같은 sys.executable의 pythonw.exe가 있으면 그것으로, 없으면 sys.executable로 시작합니다. 시작 시 호출자의 환경과 작업 디렉터리를 상속하지만 이미 실행 중인 서버의 환경은 후속 앱에 맞춰 변경하지 않습니다. 모델·설정은 절대경로를 사용하고 사용자 backend·동적 import 모듈은 서버에서도 가져올 수 있게 설치하거나 최초 시작 전에 PYTHONPATH를 지정합니다.
+
+사용자 Step과 메서드 소유 모듈은 cloudpickle의 값 직렬화로 전달을 시도합니다. 임의 외부 의존성과 파일까지 자동 배포하는 것은 아닙니다. 생성 시 열린 GPU·네트워크 자원 대신 설정을 보관하고 process에서 자원을 준비합니다. stdout 출력은 클라이언트로 전달하지만 모든 stderr·외부 라이브러리 로그까지 같은 방식으로 전달된다는 뜻은 아닙니다.
+
+클라이언트는 약 0.25초마다 heartbeat를 보내고 서버는 약 2초 동안 확인하지 못하거나 연결이 끊기면 중단 신호를 설정합니다. 마지막 실행 연결 종료 후 약 1초 유휴 상태이면 서버가 종료되어 모델 작업자도 사라집니다. 실제 블로킹 호출·GPU 작업 정리 시간은 추가될 수 있습니다. 결과는 완료 상태와 출력 메시지이며 프레임 반환 API가 아닙니다.
+
+서버 그룹 내부 검증은 영문자·숫자·밑줄·하이픈의 1~64자 문자열을 허용하지만 Pipeline은 production 또는 development 두 그룹만 선택합니다. 예제의 production.run과 development.run은 각각 블로킹이므로 연속 호출하면 첫 실행이 끝난 뒤 다음 실행을 시작합니다.
+
+[앱 실행 절차](getting_started.md), [설정과 경로](configuration.md), [공유 모델 작업자](local_yolo_inference.md)를 참고하세요.
