@@ -1,5 +1,12 @@
 # 조사: 인코더 자동 복구
 
+## 2026-10-16 복구 수명 재검토
+
+결정: 복구 내부 예외에 원본 traceback을 연결하지 않고 원인 문자열만 기록한다. bound method와 호출 인수를 먼저 해제한다. 스트림 동기화는 오류·교체·종료 경계에서만 수행한다. 지원 불가 오류와 동기화 실패는 전파한다.
+근거: 읽기 전용 연구에서 출력 풀 생성 전 디코더 오류와 인코더 정상 교체의 동기화 누락, traceback에 의한 해제 순서 역전을 확인했다. 기존 풀의 디코더·스트림 공동 소유는 유지한다.
+대안: 모든 예외 삼키기, 프레임별 CPU 동기화와 전체 프로세스 재시작은 제외한다.
+참고: [NVIDIA 잠금 프레임 계약](https://docs.nvidia.com/video-technologies/pynvvideocodec/pynvc-api-reference/decoder.html)은 처리 완료 후 UnlockFrame을 호출하도록 하며, [인코더 계약](https://docs.nvidia.com/video-technologies/pynvvideocodec/pynvc-api-reference/encoder.html)은 EndEncode가 내부 지연 출력을 배출한다고 설명한다. 이 계약이 모든 GPU 장애의 복구를 보장하지는 않는다.
+
 ## 예외 경계와 재시도
 
 결정: 디코더와 동일하게 RuntimeError와 설치된 PyNvVCException을 네이티브 호출 경계에서만 복구한다. 지원 불가 예외는 전파한다. 실패 후 1초 동안 입력을 소비하여 버리고 다음 새 프레임에서 재시도한다.

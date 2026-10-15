@@ -35,3 +35,15 @@ T001 → T002 → T003 → T004 → T005 → T006 → T007 순서로 수행한�
 ## 구현 전략
 
 기본 복구를 우선 완성하고 실제 GPU 출력 재생을 확인한 뒤 입력 변경과 정리 경계를 검증한다. 마지막에 speckit-converge로 잔여 요구사항을 확인한다.
+
+## 6단계: 복구 수명 보장 보완
+
+**독립 검증**: 약한 참조와 소멸 기록으로 작업 완료 전 해제 및 코덱보다 빠른 스트림 해제가 없는지 확인한다.
+
+- [X] T008 [US1] tests/test_nvidia_encode.py와 tests/test_nvidia_decode.py에 오류·교체·종료의 해제 순서 및 풀 생성 전 오류 회귀 시험을 작성하고 실패를 확인한다. FR-007~008, SC-005.
+- [X] T009 [US1] src/pipeworks/embedded/nvidia_encode.py와 nvidia_decode.py에서 복구 예외의 원본 traceback·호출 참조를 해제한다. FR-008.
+- [X] T010 [US2] src/pipeworks/embedded/nvidia_encode.py에 공통 동기화 정리와 마지막 입력 보유를 적용하고 nvidia_decode.py에 풀 생성 전 오류와 생산자 종료의 동기화 정리를 적용한다. FR-007~008.
+- [X] T011 docs/pipeworks/embedded/nvidia_encode.md와 nvidia_decode.md에 복구 수명 보장과 한계를 기록한다. FR-006~008.
+- [X] T012 tests/test_report.py와 tests/test_hotswap.py의 스트림 대역을 보완하고 specs/030-encode-auto-recovery/quickstart.md의 관련 회귀·GPU·구문·차이 검사를 수행하여 결과를 기록한다. SC-004~005.
+
+T008 → T009 → T010 → T011 → T012 순서로 수행한다. 기존 구현을 유지하며 오류 복구를 먼저 보완하고 교체·종료로 확장한다. 서로 다른 테스트의 읽기 검토는 병렬 가능하지만 같은 파일 구현은 순차 진행한다.

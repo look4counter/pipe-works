@@ -528,7 +528,7 @@ class ReportTests(unittest.TestCase):
             patch.dict(sys.modules, {"PyNvVideoCodec": nvc}),
             patch(
                 "pipeworks.embedded.nvidia_decode.torch.cuda.Stream",
-                return_value=SimpleNamespace(cuda_stream=0),
+                return_value=SimpleNamespace(cuda_stream=0, synchronize=lambda: None),
             ),
             patch(
                 "pipeworks.embedded.nvidia_decode.torch.cuda.stream",
@@ -555,14 +555,14 @@ class ReportTests(unittest.TestCase):
         frame = PipelineContext(
             frame=object(),
             video_stream=stream,
-            cuda_stream=SimpleNamespace(cuda_stream=0),
+            cuda_stream=SimpleNamespace(cuda_stream=0, synchronize=lambda: None),
             pixel_format="NV12",
             processing_started_at=100.0,
         )
         without_start = PipelineContext(
             frame=object(),
             video_stream=stream,
-            cuda_stream=SimpleNamespace(cuda_stream=0),
+            cuda_stream=SimpleNamespace(cuda_stream=0, synchronize=lambda: None),
             pixel_format="NV12",
         )
         step = NvidiaEncode()

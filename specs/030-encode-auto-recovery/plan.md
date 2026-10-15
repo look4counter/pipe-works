@@ -1,5 +1,17 @@
 # 구현 계획: 인코더 자동 복구
 
+## 2026-10-16 수명 보장 보완 설계
+
+기존 tests/test_report.py 및 tests/test_hotswap.py의 CUDA 스트림 대역에도 실제 스트림의 synchronize 계약을 반영하고 회귀 검증한다.
+
+FR-007~008, SC-005를 위해 src/pipeworks/embedded/nvidia_decode.py도 수정한다. 새 공개 설정과 의존성은 없다. 복구 가능한 네이티브 예외는 원본 예외 처리 블록을 빠져나온 뒤 문자열만 가진 내부 예외로 변환한다. 호출 래퍼의 bound method와 인수를 지워 이전 세대가 traceback에 남지 않도록 한다. 지원 불가 예외의 기존 전달은 유지한다.
+
+인코더는 공통 정리 함수에서 기존 CUDA 스트림 동기화 → 인코더 해제 → 스트림 해제를 실행한다. 실패, 정상 교체, 중도 종료, 소스·후속 오류에 적용한다. 마지막 제출 입력은 정리까지 보유한다. 실패 인코더의 EndEncode를 재호출하지 않는다.
+
+디코더는 출력 풀 생성 전에도 스트림 동기화를 수행한다. 생산자 종료에도 정리를 실행하며 정상 종료에서는 큐의 잔여 프레임을 버리지 않는다. 기존 풀의 decoder·stream 강참조와 프레임 완료 이벤트는 유지한다. 정상 프레임마다 CPU 동기화를 추가하지 않는다.
+
+검증은 tests/test_nvidia_encode.py와 tests/test_nvidia_decode.py의 약한 참조 및 소멸 로그 시험으로 수행한다. 실제 GPU 시험과 기존 RTSP·프레임 수명 회귀도 실행하고 docs/pipeworks/embedded/nvidia_encode.md 및 nvidia_decode.md를 갱신한다. 헌법은 미작성 양식이며 설계 전후 원칙 위반은 없다. 아래 기존 계획의 정리 동작은 이 보완 설계를 따른다.
+
 **날짜**: 2026-10-15 | **명세**: [spec.md](spec.md)
 
 ## 요약

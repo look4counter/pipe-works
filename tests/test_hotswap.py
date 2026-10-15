@@ -663,7 +663,7 @@ class HotswapTests(unittest.TestCase):
             patch.dict(sys.modules, {"PyNvVideoCodec": fake_nvc}),
             patch(
                 "pipeworks.embedded.nvidia_decode.torch.cuda.Stream",
-                return_value=SimpleNamespace(cuda_stream=1),
+                return_value=SimpleNamespace(cuda_stream=1, synchronize=lambda: None),
             ),
             patch(
                 "pipeworks.embedded.nvidia_decode.torch.cuda.stream",

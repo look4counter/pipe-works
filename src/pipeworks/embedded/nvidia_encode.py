@@ -34,6 +34,7 @@ class NvidiaEncode(Step):
         encoder = None
         video_stream = None
         cuda_stream = None
+        last_input = None
         fps, gpu_id = self.fps, self.gpu_id
         time_base = Fraction(1, fps)
         next_pts = 0
@@ -52,7 +53,18 @@ class NvidiaEncode(Step):
             except native_errors as error:
                 if isinstance(error, unsupported):
                     raise
-                raise _EncodeError(str(error)) from error
+                message = str(error)
+            # 복구 예외가 bound method·원본 traceback·프레임을 붙잡지 않게 한다.
+            method, args, kwargs = None, (), None
+            raise _EncodeError(message)
+
+        def release():
+            nonlocal encoder, cuda_stream, last_input
+            if cuda_stream is not None:
+                cuda_stream.synchronize()
+            encoder = None
+            last_input = None
+            cuda_stream = None
 
         def stopped():
             return stop is not None and stop.is_set()
@@ -109,7 +121,7 @@ class NvidiaEncode(Step):
                     logger.warning("입력 스트림 또는 영상 형식이 변경되어 인코더를 재생성합니다.")
                     # 기존 세대의 지연 출력은 기존 메타데이터로 전달한다.
                     yield from flush()
-                    encoder = None
+                    release()
                     recovering = True
                 if encoder is None and time.monotonic() < retry_at:
                     continue
@@ -135,6 +147,7 @@ class NvidiaEncode(Step):
                         )
                         active_key = stream_key
                     encode_started_at = time.perf_counter()
+                    last_input = input
                     with torch.cuda.stream(input.cuda_stream):
                         encoded_packets = native_call(encoder.Encode, input.frame)
                 except _EncodeError as error:
@@ -142,11 +155,7 @@ class NvidiaEncode(Step):
                         "인코더 오류로 자동 복구를 시도합니다. 1초 후 새 프레임에서 재시도합니다: %s",
                         error,
                     )
-                    if encoder is not None:
-                        # 실패 직전 제출된 GPU 작업이 입력 프레임보다 오래 살지 않게 한다.
-                        cuda_stream.synchronize()
-                    encoder = None
-                    cuda_stream = None
+                    release()
                     retry_at = time.monotonic() + 1.0
                     recovering = True
                     continue
@@ -160,9 +169,8 @@ class NvidiaEncode(Step):
             if encoder is not None and not stopped():
                 yield from flush()
         finally:
-            # 네이티브 인코더를 CUDA 스트림 참조보다 먼저 해제한다.
-            encoder = None
-            cuda_stream = None
+            # 마지막 제출 입력과 스트림은 GPU 작업 및 인코더 해제까지 유지한다.
+            release()
 
 
 def encoded_bytes(encoded: object) -> bytes:

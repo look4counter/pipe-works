@@ -45,6 +45,85 @@ def context(value=1, codec="h264", pts=None, *, keyframe=True, stream=None):
 
 
 class DecodeTests(unittest.TestCase):
+    def test_stream_replacement_and_producer_exit_wait_before_decoder_release(self):
+        from pipeworks.embedded.nvidia_decode import _FrameQueue
+
+        events, streams = [], []
+        step, api = self.setup_decoder(lambda packet: [])
+
+        class Stream:
+            def __init__(self, **kwargs):
+                self.cuda_stream = len(streams) + 1
+                streams.append(weakref.ref(self))
+
+            def synchronize(self):
+                events.append(("sync", self.cuda_stream))
+
+            def __del__(self):
+                events.append(("stream", self.cuda_stream))
+
+        class Decoder:
+            def __init__(self, handle):
+                self.handle = handle
+
+            def GetPixelFormat(self):
+                return "NV12"
+
+            def Decode(self, packet):
+                return []
+
+            def Flush(self):
+                return []
+
+            def __del__(self):
+                events.append(("decoder", self.handle))
+
+        api.CreateDecoder = lambda **kwargs: Decoder(kwargs["cudastream"])
+        with (
+            patch("pipeworks.embedded.nvidia_decode.torch.cuda.Stream", Stream),
+            patch("pipeworks.embedded.nvidia_decode.torch.cuda.stream", new=lambda stream: nullcontext()),
+        ):
+            step._produce(iter([context(), context(codec="hevc")]), _FrameQueue(), Event())
+        for handle in (1, 3):
+            self.assertLess(events.index(("sync", handle)), events.index(("decoder", handle)))
+            self.assertLess(events.index(("decoder", handle)), events.index(("stream", handle)))
+
+    def test_error_before_buffer_pool_waits_and_releases_decoder_before_stream(self):
+        from pipeworks.embedded.nvidia_decode import _FrameQueue
+
+        events, stream_refs = [], []
+        step, api = self.setup_decoder(lambda packet: [])
+
+        class Stream:
+            def __init__(self, **kwargs):
+                self.cuda_stream = len(stream_refs) + 1
+                stream_refs.append(weakref.ref(self))
+
+            def synchronize(self):
+                events.append(("sync", self.cuda_stream))
+
+            def __del__(self):
+                events.append(("stream", self.cuda_stream))
+
+        class Decoder:
+            def GetPixelFormat(self):
+                return "NV12"
+
+            def Decode(self, packet):
+                raise RuntimeError("first decode failed")
+
+            def __del__(self):
+                events.append(("decoder", stream_refs[0]() is not None))
+
+        api.CreateDecoder = lambda **kwargs: Decoder()
+        with (
+            patch("pipeworks.embedded.nvidia_decode.torch.cuda.Stream", Stream),
+            patch("pipeworks.embedded.nvidia_decode.torch.cuda.stream", new=lambda stream: nullcontext()),
+        ):
+            step._produce(iter([context()]), _FrameQueue(), Event())
+        self.assertLess(events.index(("sync", 1)), events.index(("decoder", True)))
+        self.assertLess(events.index(("decoder", True)), events.index(("stream", 1)))
+
     def setup_decoder(self, decode, flush=lambda: []):
         decoder = SimpleNamespace(
             GetPixelFormat=lambda: "NV12", Decode=decode, Flush=flush
@@ -61,7 +140,7 @@ class DecodeTests(unittest.TestCase):
         self.addCleanup(module_patch.stop)
         stream_patch = patch(
             "pipeworks.embedded.nvidia_decode.torch.cuda.Stream",
-            side_effect=lambda **kwargs: SimpleNamespace(cuda_stream=0),
+            side_effect=lambda **kwargs: SimpleNamespace(cuda_stream=0, synchronize=lambda: None),
         )
         stream_patch.start()
         self.addCleanup(stream_patch.stop)
@@ -666,6 +745,12 @@ class NativeDecodeTests(unittest.TestCase):
 
     def test_native_locked_frame_survives_decode_and_encodes_without_copy(self):
         packets = self.packets(80)
+        synchronized = []
+        original_synchronize = torch.cuda.Stream.synchronize
+
+        def synchronize(stream):
+            synchronized.append(stream.cuda_stream)
+            return original_synchronize(stream)
         video_stream = SimpleNamespace(codec=SimpleNamespace(name="h264"))
         first_taken, progressed = Event(), Event()
         from pipeworks.embedded.nvidia_decode import _FrameQueue
@@ -697,7 +782,7 @@ class NativeDecodeTests(unittest.TestCase):
             patch.object(
                 torch.cuda.Stream,
                 "synchronize",
-                side_effect=AssertionError("프레임별 CPU 스트림 동기화 금지"),
+                new=synchronize,
             ),
         ):
             output = step.process(inputs)
@@ -733,6 +818,8 @@ class NativeDecodeTests(unittest.TestCase):
                     consumed += 1
                     del item
                 self.assertGreaterEqual(consumed, 2)
+                # 정상 프레임별 대기는 없고 생산자 종료에서 한 번만 기다린다.
+                self.assertEqual(synchronized, [pool.stream.cuda_stream])
                 with torch.cuda.stream(pool.stream):
                     encoder.EndEncode()
                 gc.collect()

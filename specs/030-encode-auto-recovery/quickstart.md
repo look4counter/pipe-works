@@ -1,5 +1,13 @@
 # 검증 안내
 
+## 2026-10-16 수명 회귀 검증
+
+인코더 오류·교체·중도 종료와 디코더 풀 생성 전 오류의 대역 시험에서 동기화, 코덱 소멸, 스트림 소멸 순서를 확인한다. 외부 프레임을 보유한 디코더 복구 GPU 시험도 유지한다. 실제 운영 종료의 직접 원인은 별도 재현이 필요하다.
+
+### 검증 결과
+
+인코더 17개·디코더 30개 및 RTSP 수신·송신, 통계, 설정, 프레임 해제, 처리 경계, 핫스왑을 합쳐 142개 시험을 통과했다. 실제 CUDA GPU에서 H.264·HEVC 인코더 오류 복구 및 디코더 잠금 프레임·별칭 유지 시험도 통과했다. 정상 프레임별 CPU 동기화 없이 생산자 종료에서 한 번만 동기화하는 것을 확인했다. 변경 Python 파일 6개의 구문 검사와 git diff --check를 통과했다. 운영 카메라의 실제 연결 끊김과 보고된 프로세스 종료는 재현하지 않았다.
+
 저장소 루트에서 .venv/Scripts/python.exe -X utf8 -m unittest discover -s tests -p test_nvidia_encode.py 를 실행한다. GPU가 있으면 새 인코더 세션의 출력만 독립 디코딩하는 시험도 실행된다.
 
 관련 회귀 시험은 test_nvidia_decode.py, test_rtsp_publish.py, test_report.py, test_step_config_defaults.py, test_frame_release.py, test_processing_boundary.py를 실행한다. 변경 Python 파일 구문 검사와 git diff --check도 수행한다.

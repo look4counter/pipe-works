@@ -102,7 +102,7 @@ class EncodeTests(unittest.TestCase):
         self.assertEqual([item.packet.dts for item in result], [0, 1])
         self.assertEqual(len(self.created), 2)
         self.assertTrue(all(kwargs["repeatspspps"] == 1 for _, kwargs in self.created))
-        self.stream.synchronize.assert_called_once()
+        self.assertEqual(self.stream.synchronize.call_count, 2)
         first.EndEncode.assert_not_called()
         self.assertTrue(any("Encode occured error" in line for line in logs.output))
         self.assertTrue(any("재개" in line for line in logs.output))
@@ -132,7 +132,7 @@ class EncodeTests(unittest.TestCase):
         self.assertEqual(attempts, [0, 1, 2])
         self.assertEqual(consumed, [1, 2, 3, 4, 5])
         self.assertEqual([bytes(item.packet) for item in result], [b"\x05"])
-        self.stream.synchronize.assert_not_called()
+        self.assertEqual(self.stream.synchronize.call_count, 3)
 
     def test_end_encode_failure_is_discarded(self):
         encoder = Encoder()
@@ -286,6 +286,89 @@ class EncodeTests(unittest.TestCase):
     def test_empty_input_does_not_create_encoder(self):
         self.assertEqual(list(self.step.process(iter(()))), [])
         self.assertEqual(self.created, [])
+
+    def test_recovery_releases_failed_encoder_while_its_stream_is_alive(self):
+        events, refs = [], []
+
+        class Stream:
+            cuda_stream = 91
+
+            def synchronize(self):
+                events.append("sync")
+
+            def __del__(self):
+                events.append("stream")
+
+        class FailingEncoder:
+            def Encode(self, frame):
+                raise RuntimeError("native failed")
+
+            def __del__(self):
+                events.append(("encoder", refs[0]() is not None))
+
+        self.api.CreateEncoder = lambda *args, **kwargs: FailingEncoder()
+
+        def inputs():
+            stream = Stream()
+            refs.append(weakref.ref(stream))
+            yield self.item(cuda_stream=stream)
+            del stream
+            # 다음 입력으로 교체하면 직전 컨텍스트도 해제된다.
+            yield self.item()
+
+        with patch("pipeworks.embedded.nvidia_encode.torch.cuda.stream", new=lambda stream: nullcontext()):
+            list(self.step.process(inputs()))
+        self.assertEqual(events, ["sync", ("encoder", True), "stream"])
+
+    def test_stream_replacement_and_close_wait_before_releasing_encoder(self):
+        events = []
+
+        class TrackedEncoder(Encoder):
+            def __del__(self):
+                events.append("encoder")
+
+        self.api.CreateEncoder = lambda *args, **kwargs: TrackedEncoder()
+        self.stream.synchronize.side_effect = lambda: events.append("sync")
+        new_stream = SimpleNamespace(
+            cuda_stream=23, synchronize=lambda: events.append("new-sync")
+        )
+        output = self.step.process(iter([
+            self.item(), self.item(cuda_stream=new_stream)
+        ]))
+        next(output)
+        next(output)
+        output.close()
+        self.assertEqual(events, ["sync", "encoder", "new-sync", "encoder"])
+
+    def test_previous_frame_is_kept_until_replacement_finishes(self):
+        refs, seen = [], []
+
+        class Frame:
+            pass
+
+        class TrackedEncoder:
+            def Encode(self, frame):
+                return b"packet"
+
+            def EndEncode(self):
+                seen.append(refs[0]() is not None)
+                return []
+
+            def __del__(self):
+                seen.append(refs[0]() is not None)
+
+        self.api.CreateEncoder = lambda *args, **kwargs: TrackedEncoder()
+
+        def inputs():
+            frame = Frame()
+            refs.append(weakref.ref(frame))
+            yield self.item(frame)
+            del frame
+            yield self.item(video_stream=SimpleNamespace(codec_context=self.video.codec_context))
+
+        list(self.step.process(inputs()))
+        self.assertEqual(seen[:2], [True, True])
+        self.assertIsNone(refs[0]())
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
