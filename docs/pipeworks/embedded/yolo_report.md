@@ -15,6 +15,21 @@ pipeline.step(CudaAsync(
 pipeline.step(YoloReport())
 ```
 
+## 로깅 설정
+
+주기 보고와 종료 시 마지막 보고는 `pipeworks.embedded.yolo_report` 로거의 DEBUG 메시지로 기록합니다. 기존 여러 줄 형식과 약 1초 주기는 유지하며 INFO 이상에서는 표시하지 않습니다. 라이브러리는 전역 로그 수준이나 핸들러를 설정하지 않습니다.
+
+전체 로그는 INFO로 두고 YoloReport만 표시하려면 다음처럼 설정합니다.
+
+~~~python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("pipeworks.embedded.yolo_report").setLevel(logging.DEBUG)
+~~~
+
+핸들러에 별도 수준 제한이 있으면 DEBUG도 허용해야 합니다. 중앙 프로세스로 실행할 때도 호출자의 로그 정책과 핸들러로 기록합니다.
+
 ## backend별 통계
 
 모든 backend는 같은 프로파일·실행 범위 저장소를 사용하고 표본은 종류별로 구분합니다. 기존 감지는 `YOLO`, 통합 추론은 `ULTRALYTICS`, `TORCHSCRIPT`, `TensorRT`로 출력하며 사용자 실행부는 지정한 경로로 구분합니다. 한 Report가 모든 종류의 측정을 활성화하므로 backend별 Report를 추가할 필요가 없습니다.

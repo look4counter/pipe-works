@@ -15,14 +15,18 @@ import sys
 import tempfile
 from threading import Event, Lock, Thread, Timer, local
 import time
+import uuid
 
 import cloudpickle
 
 
 logger = logging.getLogger(__name__)
-_PROTOCOL = "central-v19"
+_PROTOCOL = "central-v20"
 _IDLE_SHUTDOWN = b"idle-shutdown"
 _IDLE_SECONDS = 1.0
+
+
+_output_lock = Lock()
 
 
 class _ThreadOutput:
@@ -35,17 +39,21 @@ class _ThreadOutput:
         return target(value)
 
     def flush(self):
-        if not hasattr(self.current, "write"):
+        writer = getattr(self.current, "write", None)
+        if writer is None:
             self.fallback.flush()
+        elif callable(getattr(writer, "flush", None)):
+            writer.flush()
 
     def __getattr__(self, name):
         return getattr(self.fallback, name)
 
 
 def _install_output() -> _ThreadOutput:
-    if not isinstance(sys.stdout, _ThreadOutput):
-        sys.stdout = _ThreadOutput(sys.stdout)
-    return sys.stdout
+    with _output_lock:
+        if not isinstance(sys.stdout, _ThreadOutput):
+            sys.stdout = _ThreadOutput(sys.stdout)
+        return sys.stdout
 
 
 def _current_output_writer():
@@ -58,12 +66,25 @@ def _use_output_writer(writer):
     if writer is None:
         yield
         return
+    from pipeworks.remote_logging import current_route, use_route
+
     output = sys.stdout
+    missing = object()
+    previous = getattr(output.current, "write", missing)
     output.current.write = writer
-    try:
-        yield
-    finally:
-        del output.current.write
+    with use_route(getattr(writer, "route", current_route())):
+        try:
+            yield
+        finally:
+            try:
+                flush = getattr(writer, "flush", None)
+                if callable(flush):
+                    flush()
+            finally:
+                if previous is missing:
+                    del output.current.write
+                else:
+                    output.current.write = previous
 
 
 def _user_sid() -> str:
@@ -219,7 +240,13 @@ def run_remote(pipeline) -> None:
 
         for step in pipeline.steps:
             register_step(step)
-        payload = cloudpickle.dumps(pipeline)
+        from pipeworks.remote_logging import capture_settings
+
+        payload = cloudpickle.dumps({
+            "pipeline": pipeline,
+            "logging": capture_settings(),
+            "execution_id": uuid.uuid4().hex,
+        })
     except Exception as error:
         raise TypeError("파이프라인을 중앙 프로세스에 전달할 수 없습니다.") from error
 
@@ -243,9 +270,10 @@ def run_remote(pipeline) -> None:
         sender.start()
         while True:
             status, message = connection.recv()
-            if status == "output":
-                sys.stdout.write(message)
-                sys.stdout.flush()
+            if status == "log":
+                from pipeworks.remote_logging import dispatch_record
+
+                dispatch_record(message)
                 continue
             break
     except (EOFError, OSError) as error:
@@ -274,7 +302,10 @@ def _handle(connection, payload: bytes | None = None) -> None:
             if payload == b"ping":
                 connection.send(("pong", os.getpid()))
                 return
-            pipeline = cloudpickle.loads(payload)
+            request = cloudpickle.loads(payload)
+            pipeline = request["pipeline"]
+            settings = request["logging"]
+            execution_id = request["execution_id"]
             from pipeworks.pipeline import Pipeline
 
             if not isinstance(pipeline, Pipeline):
@@ -290,25 +321,22 @@ def _handle(connection, payload: bytes | None = None) -> None:
         finished = Event()
 
         def execute() -> None:
-            output = _install_output()
+            from pipeworks.remote_logging import LogRoute, PrintAdapter, install_relay
 
-            def write(value: str) -> int:
+            _install_output()
+            install_relay(settings)
+            route = LogRoute(send, stop, settings, pipeline.name, execution_id)
+            writer = PrintAdapter(route)
+            with _use_output_writer(writer):
                 try:
-                    if value:
-                        send(("output", value))
-                except (EOFError, OSError):
-                    stop.set()
-                return len(value)
-
-            output.current.write = write
-            try:
-                pipeline._run_local(stop)
-                response = ("ok", None)
-            except Exception as error:
-                logger.exception("파이프라인 실행 실패: %s", pipeline.name)
-                response = ("error", f"{type(error).__name__}: {error}")
-            finally:
-                del output.current.write
+                    pipeline._run_local(stop)
+                    response = ("ok", None)
+                except Exception as error:
+                    logger.exception("파이프라인 실행 실패: %s", pipeline.name)
+                    response = ("error", f"{type(error).__name__}: {error}")
+                finally:
+                    writer.close()
+                    route.close()
             try:
                 send(response)
             except (EOFError, OSError):
@@ -339,7 +367,7 @@ def serve(*, server_group="production") -> None:
         with _connect(server_group) as connection:
             connection.send_bytes(b"ping")
             if connection.recv()[0] == "pong":
-                print("중앙 스트림 프로세스가 이미 실행 중입니다.")
+                logger.warning("중앙 스트림 프로세스가 이미 실행 중입니다.")
                 return
     except (OSError, EOFError):
         pass

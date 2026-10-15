@@ -944,7 +944,7 @@ class AsyncTests(unittest.TestCase):
                 main.run_remote(pipeline)
             for module in modules:
                 sys.modules.pop(module.__name__)
-            restored = main.cloudpickle.loads(payloads[0])
+            restored = main.cloudpickle.loads(payloads[0])["pipeline"]
             self.assertEqual(len(restored.steps[0].step.steps), 2)
         finally:
             for module in modules:

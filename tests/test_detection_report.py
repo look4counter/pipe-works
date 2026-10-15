@@ -1,10 +1,11 @@
-from contextlib import redirect_stdout
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 from pathlib import Path
 from threading import Event, Thread
 from tempfile import TemporaryDirectory
 import sys
+import logging
 import time
 from types import SimpleNamespace
 import unittest
@@ -14,6 +15,23 @@ from pipeworks import Backend
 from pipeworks.embedded.stream_report import report_scope
 from pipeworks.models import PipelineContext
 import torch
+
+
+@contextmanager
+def capture_yolo(output, level=logging.DEBUG):
+    logger = logging.getLogger("pipeworks.embedded.yolo_report")
+    handler = logging.StreamHandler(output)
+    previous_level, previous_propagate = logger.level, logger.propagate
+    logger.setLevel(level)
+    logger.propagate = False
+    logger.addHandler(handler)
+    try:
+        yield output
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
+        logger.propagate = previous_propagate
+        handler.close()
 
 
 class DetectionProfileTests(unittest.TestCase):
@@ -41,7 +59,7 @@ class DetectionProfileTests(unittest.TestCase):
             self.assertEqual(stats.snapshot("YOLO", 0)["states"], {"completed": 1})
             self.assertEqual(stats.snapshot("TensorRT", 0)["states"], {"error": 1})
 
-    def test_reports_only_print_available_measurements(self):
+    def test_reports_only_log_available_measurements(self):
         from collections import Counter
         from pipeworks.embedded import YoloReport
 
@@ -55,7 +73,7 @@ class DetectionProfileTests(unittest.TestCase):
         for report in (YoloReport(),):
             with self.subTest(report=type(report).__name__):
                 output = StringIO()
-                with redirect_stdout(output):
+                with capture_yolo(output):
                     report._write(stats, 0)
                 text = output.getvalue()
                 self.assertNotIn("없음", text)
@@ -64,6 +82,12 @@ class DetectionProfileTests(unittest.TestCase):
                 self.assertIn("전체: 경과 시간 6.00ms(n=3)/1s", text)
                 self.assertIn("입력 동기화: CPU 1.00ms(n=2)/10s", text)
                 self.assertIn("기타 실행 비용: 경과 시간 0.50ms(n=2)/10s", text)
+                with (
+                    capture_yolo(StringIO(), level=logging.INFO) as quiet,
+                    patch("sys.stdout.write", side_effect=AssertionError("직접 콘솔 출력 금지")),
+                ):
+                    report._write(stats, 0)
+                self.assertEqual(quiet.getvalue(), "")
 
     def test_request_parts_are_summed_and_runs_are_isolated(self):
         from pipeworks.embedded.yolo_report import store, Profile
@@ -114,7 +138,7 @@ class DetectionProfileTests(unittest.TestCase):
                 yield item
 
             output = StringIO()
-            with report_scope(), redirect_stdout(output):
+            with report_scope(), capture_yolo(output):
                 self.assertIs(list(report.process(inputs()))[0], item)
             self.assertIn("완료 1", output.getvalue())
             self.assertIn("모델 실행", output.getvalue())
@@ -437,7 +461,7 @@ class UnifiedReportTests(unittest.TestCase):
                 profile.finish()
             yield PipelineContext()
 
-        with report_scope(), redirect_stdout(StringIO()) as output:
+        with report_scope(), capture_yolo(StringIO()) as output:
             stats = store()
             list(YoloReport().process(inputs()))
             self.assertTrue(all(not stats.enabled(kind) for kind in stats.kinds()))

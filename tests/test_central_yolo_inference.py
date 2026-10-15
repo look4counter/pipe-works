@@ -3,8 +3,6 @@ import os
 import sys
 import time
 import uuid
-from contextlib import redirect_stdout
-from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Lock, Thread, current_thread
@@ -249,13 +247,12 @@ class CentralYoloBatchTests(unittest.TestCase):
             except Exception as error:
                 failures.append(error)
 
-        output = StringIO()
         threads = [Thread(target=execute, args=(pipeline,), daemon=True) for pipeline in pipelines]
         try:
             with (
                 patch.object(main, "_connect", side_effect=lambda _group="production": original_connect(group)),
                 patch.object(main, "_start_server", side_effect=start),
-                redirect_stdout(output),
+                self.assertLogs("pipeworks.embedded.yolo_report", level="DEBUG") as report_logs,
             ):
                 for thread in threads:
                     thread.start()
@@ -263,7 +260,7 @@ class CentralYoloBatchTests(unittest.TestCase):
                     thread.join(timeout=90)
                     self.assertFalse(thread.is_alive(), "중앙 배치 실행이 종료되지 않았습니다.")
             self.assertEqual(failures, [], str(failures))
-            self.assertIn(f"YoloReport | {backend_kind(backend)}", output.getvalue())
+            self.assertIn(f"YoloReport | {backend_kind(backend)}", "\n".join(record.getMessage() for record in report_logs.records))
             records = [json.loads(line) for line in (directory / "worker.jsonl").read_text(encoding="utf-8").splitlines()]
             self.assertEqual(len(records), 2)
             self.assertEqual([record["batch_size"] for record in records], [2, 2])

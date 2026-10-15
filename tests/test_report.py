@@ -1,9 +1,10 @@
-from contextlib import nullcontext, redirect_stdout
+from contextlib import contextmanager, nullcontext
 from io import StringIO
 from threading import Event, Thread
 import time
+import logging
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import sys
 import unittest
 
@@ -12,6 +13,22 @@ from pipeworks.embedded import stream_report as report
 from pipeworks.embedded.nvidia_decode import NvidiaDecode
 from pipeworks.embedded.nvidia_encode import NvidiaEncode
 from pipeworks.models import PipelineContext
+
+
+@contextmanager
+def capture_report(output, level=logging.DEBUG):
+    handler = logging.StreamHandler(output)
+    previous_level, previous_propagate = report.logger.level, report.logger.propagate
+    report.logger.setLevel(level)
+    report.logger.propagate = False
+    report.logger.addHandler(handler)
+    try:
+        yield
+    finally:
+        report.logger.removeHandler(handler)
+        report.logger.setLevel(previous_level)
+        report.logger.propagate = previous_propagate
+        handler.close()
 
 
 class ReportTests(unittest.TestCase):
@@ -261,7 +278,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report._connection_status(4.0), ("성공", "실패"))
         self.assertEqual(report._connection_status(7.0), ("중단", "실패"))
 
-    def test_terminal_report_prints_while_upstream_has_no_outputs(self):
+    def test_debug_report_logs_while_upstream_has_no_outputs(self):
         release = Event()
         output = StringIO()
 
@@ -271,7 +288,7 @@ class ReportTests(unittest.TestCase):
                 yield PipelineContext()
 
         def consume():
-            with redirect_stdout(output), report.report_scope():
+            with capture_report(output), report.report_scope():
                 list(StreamReport().process(silent_upstream()))
 
         runner = Thread(target=consume)
@@ -291,7 +308,7 @@ class ReportTests(unittest.TestCase):
         time.sleep(1.1)
         self.assertEqual(output.getvalue(), previous)
 
-    def test_terminal_report_includes_frame_and_inference_averages(self):
+    def test_debug_report_includes_frame_and_inference_averages(self):
         release = Event()
         output = StringIO()
 
@@ -301,7 +318,7 @@ class ReportTests(unittest.TestCase):
                 yield PipelineContext()
 
         def consume():
-            with redirect_stdout(output), report.report_scope():
+            with capture_report(output), report.report_scope():
                 report.record_frame(0.02)
                 report.record_inference(0.005)
                 report.record_stage("encode", 0.01)
@@ -339,6 +356,21 @@ class ReportTests(unittest.TestCase):
             release.set()
             runner.join(timeout=3)
         self.assertFalse(runner.is_alive())
+
+    def test_info_level_filters_stream_report_without_stdout_writes(self):
+        output = StringIO()
+        done = Mock()
+        done.wait.side_effect = [False, True]
+        view = report._ReportView((0, 0, 0, None, None, None), (), ("대기", "대기"))
+        with (
+            capture_report(output, level=logging.INFO),
+            patch.object(report, "Event", return_value=done),
+            patch.object(report._ReportReader, "read", return_value=view) as read,
+            patch("sys.stdout.write", side_effect=AssertionError("직접 표준 출력 금지")),
+        ):
+            self.assertEqual(list(StreamReport()._process(iter(()))), [])
+        read.assert_called_once()
+        self.assertEqual(output.getvalue(), "")
 
     def test_stream_report_passes_same_packet_context(self):
         packet = PipelineContext(packet=object())

@@ -5,13 +5,16 @@ from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
 from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
-import sys
+import logging
 import time
 
 import torch
 
 from pipeworks.models import Step
 from pipeworks.backend import Backend
+
+
+logger = logging.getLogger(__name__)
 
 
 _current = ContextVar("pipeworks_yolo_report_profile", default=None)
@@ -259,8 +262,7 @@ class YoloReport(Step):
                     values.append(f"{format_value(row, name)}/{period}")
             if values:
                 lines.append(f"  {label}: " + " | ".join(values))
-        sys.stdout.write("\n".join(lines) + "\n")
-        sys.stdout.flush()
+        logger.debug("%s", "\n".join(lines))
 
     def process(self, inputs):
         from pipeworks.main import _current_output_writer, _use_output_writer

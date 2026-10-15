@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from pipeworks import Backend
 from pipeworks import Pipeline
@@ -7,7 +8,6 @@ from pipeworks.embedded import (
     NvidiaEncode,
     NvidiaDecode,
     StreamReport,
-    TapSkipIfBusy,
     CudaAsync,
     EveryNFrames,
     YoloReport,
@@ -15,8 +15,6 @@ from pipeworks.embedded import (
 )
 from step.tensor_rt_pre_process import TensorRTPreProcess
 from step.tensor_rt_post_process import TensorRTPostProcess
-from step.yolo_pre_process import YoloPreProcess
-from step.yolo_post_process import YoloPostProcess
 from step.box_overlay import BoxOverlay
 
 
@@ -52,5 +50,6 @@ def build_pipeline() -> Pipeline:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
     pipeline = build_pipeline()
     pipeline.run()

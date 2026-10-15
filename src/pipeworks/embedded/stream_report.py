@@ -1,7 +1,7 @@
 """파이프라인 실행별 프레임 처리 통계를 상세 형식으로 출력한다."""
 
 import time
-import sys
+import logging
 from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
 from collections import deque
@@ -11,6 +11,9 @@ from types import SimpleNamespace
 from typing import Iterator
 
 from pipeworks.models import PipelineContext, Step
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,8 +381,7 @@ class StreamReport(Step):
                 for name, label in labels
                 if name in stages
             )
-            sys.stdout.write(" | ".join(parts) + "\n" + detail + "\n")
-            sys.stdout.flush()
+            logger.debug("%s\n%s", " | ".join(parts), detail)
 
         def worker() -> None:
             with _use_output_writer(output_writer):

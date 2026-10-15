@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 import os
+import logging
 import signal
-from contextlib import redirect_stdout
+from contextlib import contextmanager
 from multiprocessing import get_context
 import sys
 import types
@@ -29,6 +30,47 @@ from pipeworks.main import (
 )
 from pipeworks.main import _server_endpoint, _LOCK_PATH, _launched_servers
 from pipeworks.models import PipelineContext, Step
+
+
+def _request_payload(pipeline):
+    from pipeworks.remote_logging import capture_settings
+
+    return cloudpickle.dumps({
+        "pipeline": pipeline, "logging": capture_settings(), "execution_id": uuid.uuid4().hex,
+    })
+
+
+@contextmanager
+def capture_logs(output, level=logging.DEBUG):
+    root_logger = logging.getLogger()
+    previous_level, previous_handlers = root_logger.level, root_logger.handlers[:]
+    handler = logging.StreamHandler(output)
+    root_logger.handlers = [handler]
+    root_logger.setLevel(level)
+    try:
+        yield handler
+    finally:
+        root_logger.handlers = previous_handlers
+        root_logger.setLevel(previous_level)
+        handler.close()
+
+
+class LoggingSource(Step):
+    def __init__(self, name="pipeworks.test.remote", message="remote message"):
+        self.name, self.message = name, message
+
+    def configure(self, config):
+        pass
+
+    def process(self, inputs):
+        log = logging.getLogger(self.name)
+        log.debug("debug %s", self.message, extra={"token": self.message, "unserializable": lambda: None})
+        log.info("info %s", self.message)
+        try:
+            raise ValueError("remote exception")
+        except ValueError:
+            log.exception("error %s", self.message)
+        yield PipelineContext()
 
 
 class CentralTestPipeline(Pipeline):
@@ -219,7 +261,7 @@ def _run_print(directory_name: str, message: str, result) -> None:
     config = directory / f"{message}.yml"
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
-    with redirect_stdout(output):
+    with capture_logs(output):
         CentralTestPipeline(message, config=config).step(PrintingSource(message)).run()
     result.put(output.getvalue())
 
@@ -229,7 +271,7 @@ def _run_tap_print(directory_name: str, message: str, result) -> None:
     config = directory / f"sink-{message}.yml"
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
-    with redirect_stdout(output):
+    with capture_logs(output):
         CentralTestPipeline(message, config=config).step(PrintingSource("report output")).step(
             TapSkipIfBusy(PrintingStep(message))
         ).run()
@@ -240,11 +282,49 @@ def _run_status_report(directory_name: str, healthy: bool, result) -> None:
     config = Path(directory_name) / f"status-{healthy}.yml"
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
-    with redirect_stdout(output):
+    with capture_logs(output):
         CentralTestPipeline(f"status-{healthy}", config=config).step(StatusSource(healthy)).step(
             StreamReport()
         ).run()
     result.put((healthy, output.getvalue()))
+
+
+def _run_logging_policy(directory_name, level, result):
+    directory = Path(directory_name)
+    config = directory / f"policy-{level}.yml"
+    config.write_text("{}", encoding="utf-8")
+    records = []
+    with capture_logs(StringIO(), level) as handler:
+        handler.emit = records.append
+        CentralTestPipeline(f"policy-{level}", config=config).step(
+            LoggingSource(message=f"policy-{level}")
+        ).run()
+    result.put((level, [(record.levelno, record.getMessage(), record.pipeworks_execution_id)
+                        for record in records]))
+
+
+class FragmentSource(Step):
+    def configure(self, config):
+        pass
+
+    def process(self, inputs):
+        sys.stdout.write("split ")
+        print("line", end="")
+        sys.stdout.flush()
+        print("a", "b")
+        sys.stdout.write("tail")
+        yield PipelineContext()
+
+
+class AsyncLoggingFailure(Step):
+    def configure(self, config):
+        pass
+
+    def process(self, inputs):
+        for item in inputs:
+            logging.getLogger("pipeworks.test.async").info("async log")
+            raise ValueError("async failure")
+            yield item
 
 
 class CentralProcessTests(unittest.TestCase):
@@ -331,7 +411,7 @@ class CentralProcessTests(unittest.TestCase):
         _start_server(group)
         process = _launched_servers[-1]
         connection = _connect(group)
-        connection.send_bytes(cloudpickle.dumps(pipeline))
+        connection.send_bytes(_request_payload(pipeline))
 
         def heartbeat():
             while True:
@@ -385,6 +465,10 @@ class CentralProcessTests(unittest.TestCase):
                 if dev is not None:
                     dev.close()
                 prod.close()
+                deadline = time.monotonic() + 3
+                while not path.with_suffix(".closed").exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(path.with_suffix(".closed").exists())
 
     def test_development_idle_exit_and_restart_are_independent(self):
         with TemporaryDirectory() as temporary:
@@ -429,6 +513,10 @@ class CentralProcessTests(unittest.TestCase):
                 if dev is not None:
                     dev.close()
                 prod.close()
+                deadline = time.monotonic() + 3
+                while not path.with_suffix(".closed").exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(path.with_suffix(".closed").exists())
 
     def test_concurrent_stream_reports_keep_receive_status_separate(self):
         with TemporaryDirectory() as temporary:
@@ -465,7 +553,7 @@ class CentralProcessTests(unittest.TestCase):
                 .step(StreamReport())
             )
             output = StringIO()
-            with redirect_stdout(output):
+            with capture_logs(output):
                 pipeline.run()
             self.assertIn("source active", output.getvalue())
             self.assertIn("수신 대기", output.getvalue())
@@ -604,16 +692,135 @@ class CentralProcessTests(unittest.TestCase):
             path = directory / "console.txt"
             pipeline = self._pipeline(directory, "console", ConsoleProbeSource(path))
             output = StringIO()
-            with redirect_stdout(output):
+            with capture_logs(output):
                 pipeline.run()
             self.assertEqual(path.read_text(encoding="utf-8"), "0")
             self.assertEqual(output.getvalue(), "console probe output\n")
+
+    def test_structured_logs_preserve_fields_and_exception_at_calling_handler(self):
+        records = []
+        with TemporaryDirectory() as temporary:
+            pipeline = self._pipeline(Path(temporary), "structured", LoggingSource())
+            with capture_logs(StringIO()) as handler:
+                handler.emit = records.append
+                pipeline.run()
+        self.assertEqual([record.levelno for record in records], [logging.DEBUG, logging.INFO, logging.ERROR])
+        self.assertEqual([record.name for record in records], ["pipeworks.test.remote"] * 3)
+        self.assertTrue(all(record.process != os.getpid() for record in records))
+        self.assertTrue(all(record.pipeworks_pipeline == "structured" for record in records))
+        self.assertEqual(len({record.pipeworks_execution_id for record in records}), 1)
+        self.assertTrue(all(record.pathname.endswith("test_central_process.py") for record in records))
+        self.assertTrue(all(record.funcName == "process" for record in records))
+        self.assertIn("ValueError: remote exception", records[-1].exc_text)
+        self.assertEqual(records[0].token, "remote message")
+        self.assertIsInstance(records[0].unserializable, str)
+
+    def test_remote_logs_use_calling_file_handler_and_formatter(self):
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            path = directory / "remote.log"
+            handler = logging.FileHandler(path, encoding="utf-8")
+            handler.setFormatter(logging.Formatter("%(pipeworks_pipeline)s %(levelname)s %(name)s %(message)s"))
+            try:
+                with capture_logs(StringIO()):
+                    logging.getLogger().addHandler(handler)
+                    try:
+                        self._pipeline(directory, "file-log", LoggingSource()).run()
+                    finally:
+                        logging.getLogger().removeHandler(handler)
+            finally:
+                handler.close()
+            text = path.read_text(encoding="utf-8")
+        self.assertIn("file-log DEBUG pipeworks.test.remote debug remote message", text)
+        self.assertIn("file-log ERROR pipeworks.test.remote error remote message", text)
+        self.assertIn("ValueError: remote exception", text)
+
+    def test_named_level_and_handler_filter_apply_to_remote_logging(self):
+        log = logging.getLogger("pipeworks.test.remote")
+        previous = log.level
+        try:
+            log.setLevel(logging.WARNING)
+            with TemporaryDirectory() as temporary, capture_logs(StringIO()) as handler:
+                records = []
+                handler.emit = records.append
+                self._pipeline(Path(temporary), "named", LoggingSource()).run()
+            self.assertEqual([record.levelno for record in records], [logging.ERROR])
+            log.setLevel(logging.DEBUG)
+            with TemporaryDirectory() as temporary, capture_logs(StringIO(), logging.INFO) as handler:
+                records = []
+                handler.setLevel(logging.INFO)
+                handler.emit = records.append
+                self._pipeline(Path(temporary), "named-debug", LoggingSource()).run()
+            self.assertEqual([record.levelno for record in records], [logging.INFO, logging.ERROR])
+        finally:
+            log.setLevel(previous)
+
+    def test_print_is_debug_and_suppressed_when_calling_level_is_info(self):
+        with TemporaryDirectory() as temporary, capture_logs(StringIO(), logging.INFO) as handler:
+            records = []
+            handler.emit = records.append
+            self._pipeline(Path(temporary), "quiet-print", PrintingSource("hidden")).run()
+        self.assertEqual(records, [])
+
+    def test_concurrent_logging_policies_do_not_affect_each_other(self):
+        with TemporaryDirectory() as temporary:
+            context = get_context("spawn")
+            result = context.Queue()
+            processes = [context.Process(target=_run_logging_policy, args=(temporary, level, result))
+                         for level in (logging.DEBUG, logging.INFO)]
+            for process in processes:
+                process.start()
+            try:
+                records = dict(result.get(timeout=20) for _ in processes)
+                self.assertEqual([row[0] for row in records[logging.DEBUG]], [10, 20, 40])
+                self.assertEqual([row[0] for row in records[logging.INFO]], [20, 40])
+                first_ids = {row[2] for row in records[logging.DEBUG]}
+                second_ids = {row[2] for row in records[logging.INFO]}
+                self.assertTrue(first_ids.isdisjoint(second_ids))
+                self.assertTrue(all("policy-10" in row[1] for row in records[logging.DEBUG]))
+                self.assertTrue(all("policy-20" in row[1] for row in records[logging.INFO]))
+            finally:
+                for process in processes:
+                    process.join(5)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(5)
+            self.assertTrue(all(process.exitcode == 0 for process in processes))
+
+    def test_fragmented_print_and_final_partial_line_are_debug_records(self):
+        records = []
+        with TemporaryDirectory() as temporary, capture_logs(StringIO()) as handler:
+            handler.emit = records.append
+            self._pipeline(Path(temporary), "fragments", FragmentSource()).run()
+        self.assertEqual([record.getMessage() for record in records], ["split line", "a b", "tail"])
+        self.assertTrue(all(record.levelno == logging.DEBUG for record in records))
+        self.assertTrue(all(record.name == "pipeworks.user_output" for record in records))
+
+    def test_async_worker_errors_are_forwarded_with_the_execution_context(self):
+        from pipeworks.embedded import CudaAsync
+        from pipeworks.hotswap import Hotswap
+
+        for kind in ("cuda", "tap"):
+            with self.subTest(kind=kind), TemporaryDirectory() as temporary:
+                inner = Hotswap(AsyncLoggingFailure(), watch_code=False, recover_errors=False)
+                wrapper = CudaAsync(inner, timeout_ms=1000) if kind == "cuda" else TapSkipIfBusy(inner)
+                pipeline = self._pipeline(Path(temporary), kind, PrintingSource("source"))
+                pipeline.step(wrapper)
+                records = []
+                with capture_logs(StringIO()) as handler:
+                    handler.emit = records.append
+                    pipeline.run()
+                self.assertTrue(any(record.getMessage() == "async log" for record in records))
+                errors = [record for record in records if record.levelno == logging.ERROR]
+                self.assertTrue(errors)
+                self.assertTrue(all(record.pipeworks_pipeline == kind for record in records))
+                self.assertTrue(any("ValueError: async failure" in (record.exc_text or "") for record in errors))
 
     def test_server_executable_falls_back_to_current_python(self):
         with patch("pipeworks.main.Path.is_file", return_value=False):
             self.assertEqual(_server_executable(), sys.executable)
 
-    def test_tap_step_output_reaches_calling_stdout(self):
+    def test_tap_step_output_reaches_calling_logger(self):
         with TemporaryDirectory() as temporary:
             config = Path(temporary) / "sink.yml"
             config.write_text("{}", encoding="utf-8")
@@ -623,7 +830,7 @@ class CentralProcessTests(unittest.TestCase):
                 .step(TapSkipIfBusy(PrintingStep("post output")))
             )
             output = StringIO()
-            with redirect_stdout(output):
+            with capture_logs(output):
                 pipeline.run()
             self.assertIn("report output\n", output.getvalue())
             self.assertIn("post output\n", output.getvalue())
@@ -656,13 +863,13 @@ class CentralProcessTests(unittest.TestCase):
                         process.join(timeout=5)
             self.assertTrue(all(process.exitcode == 0 for process in processes))
 
-    def test_step_output_reaches_calling_stdout(self):
+    def test_step_output_reaches_calling_logger(self):
         with TemporaryDirectory() as temporary:
             pipeline = self._pipeline(
                 Path(temporary), "print", PrintingSource("step output")
             )
             output = StringIO()
-            with redirect_stdout(output):
+            with capture_logs(output):
                 pipeline.run()
             self.assertEqual(output.getvalue(), "step output\n")
 
@@ -672,7 +879,7 @@ class CentralProcessTests(unittest.TestCase):
                 Path(temporary), "live", PrintingSource("live output", delay=1)
             )
             output = StringIO()
-            with redirect_stdout(output):
+            with capture_logs(output):
                 runner = Thread(target=pipeline.run)
                 runner.start()
                 deadline = time.monotonic() + 5
@@ -826,8 +1033,8 @@ class CentralProcessTests(unittest.TestCase):
             connection = _connect()
             other_connection = _connect()
             cloudpickle.register_pickle_by_value(sys.modules[__name__])
-            connection.send_bytes(cloudpickle.dumps(pipeline))
-            other_connection.send_bytes(cloudpickle.dumps(other))
+            connection.send_bytes(_request_payload(pipeline))
+            other_connection.send_bytes(_request_payload(other))
             deadline = time.monotonic() + 10
             while (
                 not path.exists() or not other_path.exists()
@@ -865,7 +1072,7 @@ class CentralProcessTests(unittest.TestCase):
                         name,
                         RecordingSource(directory / f"{name}.pid", continuous=True),
                     )
-                    connection.send_bytes(cloudpickle.dumps(pipeline))
+                    connection.send_bytes(_request_payload(pipeline))
                 deadline = time.monotonic() + 10
                 while (
                     not all(
@@ -901,7 +1108,7 @@ class CentralProcessTests(unittest.TestCase):
                     "replacement",
                     RecordingSource(directory / "replacement.pid", continuous=True),
                 )
-                replacement.send_bytes(cloudpickle.dumps(replacement_pipeline))
+                replacement.send_bytes(_request_payload(replacement_pipeline))
                 deadline = time.monotonic() + 5
                 while (
                     not (directory / "replacement.pid").exists()
