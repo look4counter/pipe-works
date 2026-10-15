@@ -9,6 +9,12 @@
   </head>
   <body>
     <main data-step="NvidiaEncode">
+      <section aria-labelledby="NvidiaEncode-recovery">
+        <h3 id="NvidiaEncode-recovery">자동 복구</h3>
+        <p>복구 가능한 인코더 생성·인코딩 오류가 발생하면 오류 프레임과 인코더를 버리고 최소 1초 후 최신 입력으로 재생성을 시도합니다. 대기 중 입력은 버리며 연속 실패에도 사용자 개입 없이 재시도합니다.</p>
+        <p>입력 스트림·코덱·해상도·픽셀 형식·CUDA 스트림 변경을 감지합니다. H.264/HEVC 영상 헤더와 시작 프레임을 새 세션에서 제공하며 PTS/DTS와 시간 기준은 유지합니다. 복구 중에는 영상이 잠시 멈추거나 프레임이 누락될 수 있습니다.</p>
+        <p>복구 가능한 종료 오류의 잔여 패킷은 버립니다. 설정·지원 불가·입력 소스·후속 처리 오류는 전달하며 네이티브 프로세스 충돌은 복구 대상이 아닙니다.</p>
+      </section>
       <section class="parameters" aria-labelledby="NvidiaEncode-parameters">
         <h3 id="NvidiaEncode-parameters">설정 파라미터</h3>
         <div class="table-scroll">

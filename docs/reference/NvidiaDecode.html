@@ -9,6 +9,11 @@
   </head>
   <body>
     <main data-step="NvidiaDecode">
+      <section aria-labelledby="NvidiaDecode-recovery">
+        <h3 id="NvidiaDecode-recovery">자동 복구</h3>
+        <p>복구 가능한 디코더 오류가 발생하면 오류 패킷과 대기 프레임을 버리고 다음 키프레임에서 디코더를 재생성합니다. 연속 실패에도 사용자 개입 없이 다음 키프레임에서 재시도합니다. RTSP 입력 스트림 교체도 감지하여 초기화합니다.</p>
+        <p>복구 중 일시 정지와 프레임 누락이 있을 수 있으며 재개 시간은 카메라의 키프레임 및 헤더 전송 주기에 따라 달라집니다. 이미 전달한 GPU 프레임의 수명과 소비자 스트림은 유지합니다. 소스·설정·후속 처리 오류는 전달하며 네이티브 프로세스 충돌은 복구 대상이 아닙니다.</p>
+      </section>
       <section class="parameters" aria-labelledby="NvidiaDecode-parameters">
         <h3 id="NvidiaDecode-parameters">설정 파라미터</h3>
         <div class="table-scroll">

@@ -1,12 +1,20 @@
 from typing import Iterator
 from types import SimpleNamespace
 from fractions import Fraction
+import logging
 import time
 
 import av
 import torch
 from pipeworks.models import PipelineContext, Step
 from pipeworks.embedded.stream_report import record_frame, record_stage
+
+
+logger = logging.getLogger(__name__)
+
+
+class _EncodeError(Exception):
+    """네이티브 인코더 호출에서 발생한 복구 대상 오류."""
 
 
 class NvidiaEncode(Step):
@@ -26,11 +34,31 @@ class NvidiaEncode(Step):
         encoder = None
         video_stream = None
         cuda_stream = None
-        time_base = Fraction(1, self.fps)
+        fps, gpu_id = self.fps, self.gpu_id
+        time_base = Fraction(1, fps)
         next_pts = 0
+        active_key = None
+        retry_at = 0.0
+        recovering = False
+        stop = getattr(self, "_pipeworks_stop_event", None)
+        native_errors = (RuntimeError,)
+        if isinstance(getattr(nvc, "PyNvVCException", None), type):
+            native_errors += (nvc.PyNvVCException,)
+        unsupported = getattr(nvc, "PyNvVCExceptionUnsupported", ())
+
+        def native_call(method, *args, **kwargs):
+            try:
+                return method(*args, **kwargs)
+            except native_errors as error:
+                if isinstance(error, unsupported):
+                    raise
+                raise _EncodeError(str(error)) from error
+
+        def stopped():
+            return stop is not None and stop.is_set()
 
         def output_packet(encoded_packets: object) -> Iterator[PipelineContext]:
-            nonlocal next_pts
+            nonlocal next_pts, recovering
             if encoded_packets is None:
                 return
             if isinstance(encoded_packets, (bytes, bytearray, memoryview, dict)):
@@ -51,46 +79,90 @@ class NvidiaEncode(Step):
                 packet.time_base = time_base
                 packet.duration = 1
                 next_pts += 1
+                if recovering:
+                    logger.info("인코더 복구 후 영상 출력을 재개했습니다.")
+                    recovering = False
                 yield PipelineContext(packet=packet, video_stream=video_stream)
 
-        for input in inputs:
-            if encoder is None:
-                video_stream = input.video_stream
-                cuda_stream = input.cuda_stream
+        def flush():
+            try:
+                with torch.cuda.stream(cuda_stream):
+                    packets = native_call(encoder.EndEncode)
+            except _EncodeError as error:
+                logger.warning("인코더 종료 처리 오류로 지연 패킷을 버립니다: %s", error)
+                return
+            yield from output_packet(packets)
 
-                encoder_kwargs = {
-                    "gpu_id": self.gpu_id,
-                    "codec": video_stream.codec_context.name.lower(),
-                    "bf": 0,
-                    "fps": self.fps,
-                    "gop": self.fps,
-                    "idrperiod": self.fps,
-                    "cudastream": cuda_stream.cuda_stream,
-                }
-
-                encoder = nvc.CreateEncoder(
-                    video_stream.codec_context.width,
-                    video_stream.codec_context.height,
-                    getattr(input.pixel_format, "name", input.pixel_format),
-                    False,
-                    **encoder_kwargs,
+        try:
+            for input in inputs:
+                if stopped():
+                    return
+                codec = input.video_stream.codec_context
+                pixel_format = getattr(input.pixel_format, "name", input.pixel_format)
+                stream_key = (
+                    codec.name.lower(), codec.width, codec.height,
+                    pixel_format, input.cuda_stream.cuda_stream,
                 )
+                if encoder is not None and (
+                    input.video_stream is not video_stream or stream_key != active_key
+                ):
+                    logger.warning("입력 스트림 또는 영상 형식이 변경되어 인코더를 재생성합니다.")
+                    # 기존 세대의 지연 출력은 기존 메타데이터로 전달한다.
+                    yield from flush()
+                    encoder = None
+                    recovering = True
+                if encoder is None and time.monotonic() < retry_at:
+                    continue
+                try:
+                    if encoder is None:
+                        video_stream = input.video_stream
+                        cuda_stream = input.cuda_stream
+                        encoder_kwargs = {
+                            "gpu_id": gpu_id,
+                            "codec": stream_key[0],
+                            "bf": 0,
+                            "fps": fps,
+                            "gop": fps,
+                            "idrperiod": fps,
+                            "cudastream": cuda_stream.cuda_stream,
+                        }
+                        if stream_key[0] in ("h264", "hevc", "h265"):
+                            encoder_kwargs["repeatspspps"] = 1
+                        encoder = native_call(
+                            nvc.CreateEncoder,
+                            codec.width, codec.height, pixel_format, False,
+                            **encoder_kwargs,
+                        )
+                        active_key = stream_key
+                    encode_started_at = time.perf_counter()
+                    with torch.cuda.stream(input.cuda_stream):
+                        encoded_packets = native_call(encoder.Encode, input.frame)
+                except _EncodeError as error:
+                    logger.warning(
+                        "인코더 오류로 자동 복구를 시도합니다. 1초 후 새 프레임에서 재시도합니다: %s",
+                        error,
+                    )
+                    if encoder is not None:
+                        # 실패 직전 제출된 GPU 작업이 입력 프레임보다 오래 살지 않게 한다.
+                        cuda_stream.synchronize()
+                    encoder = None
+                    cuda_stream = None
+                    retry_at = time.monotonic() + 1.0
+                    recovering = True
+                    continue
+                record_stage("encode", time.perf_counter() - encode_started_at)
 
-            encode_started_at = time.perf_counter()
-            with torch.cuda.stream(input.cuda_stream):
-                encoded_packets = encoder.Encode(input.frame)
-            record_stage("encode", time.perf_counter() - encode_started_at)
+                started_at = getattr(input, "processing_started_at", None)
+                if started_at is not None:
+                    record_frame(time.perf_counter() - started_at)
+                yield from output_packet(encoded_packets)
 
-            started_at = getattr(input, "processing_started_at", None)
-            if started_at is not None:
-                record_frame(time.perf_counter() - started_at)
-
-            yield from output_packet(encoded_packets)
-
-        if encoder is not None:
-            with torch.cuda.stream(cuda_stream):
-                encoded_packets = encoder.EndEncode()
-            yield from output_packet(encoded_packets)
+            if encoder is not None and not stopped():
+                yield from flush()
+        finally:
+            # 네이티브 인코더를 CUDA 스트림 참조보다 먼저 해제한다.
+            encoder = None
+            cuda_stream = None
 
 
 def encoded_bytes(encoded: object) -> bytes:

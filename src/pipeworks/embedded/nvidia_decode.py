@@ -17,6 +17,10 @@ from pipeworks.models import PipelineContext, Step
 logger = logging.getLogger(__name__)
 
 
+class _DecodeError(Exception):
+    """네이티브 디코더 호출에서 발생한 복구 대상 오류."""
+
+
 class _LockedBuffer:
     """CUDA Array Interface owner retained by the shared Tensor storage."""
 
@@ -43,16 +47,17 @@ class _DecoderBuffers:
 
     limit = 34
 
-    def __init__(self, decoder, stream, pixel_format):
+    def __init__(self, decoder, stream, pixel_format, native_call=None):
         self.decoder, self.stream = decoder, stream
         self.condition = Condition()
         self.locked = set()
         self.retired = []
         self.closed = False
+        call = native_call or (lambda method: method())
         width, height, size = (
-            decoder.GetWidth(),
-            decoder.GetHeight(),
-            decoder.GetFrameSize(),
+            call(decoder.GetWidth),
+            call(decoder.GetHeight),
+            call(decoder.GetFrameSize),
         )
         name = getattr(pixel_format, "name", str(pixel_format)).upper()
         layouts = {
@@ -105,8 +110,9 @@ class _DecoderBuffers:
                 self.condition.wait(0.001)
         return False
 
-    def acquire(self):
-        pointer = self.decoder.GetLockedFrame()
+    def acquire(self, native_call=None):
+        call = native_call or (lambda method: method())
+        pointer = call(self.decoder.GetLockedFrame)
         ready = torch.cuda.Event()
         ready.record(self.stream)
         with self.condition:
@@ -172,6 +178,11 @@ class _FrameQueue:
             self.error = error
             self.condition.notify_all()
 
+    def discard(self):
+        with self.condition:
+            self.dropped += len(self.pending)
+            self.pending.clear()
+
     def cancel(self):
         with self.condition:
             self.cancelled = True
@@ -193,6 +204,34 @@ class NvidiaDecode(Step):
         decoder = None
         decode_stream = consumer_stream = video_stream = pixel_format = None
         stop = getattr(self, "_pipeworks_stop_event", None)
+        waiting_keyframe = recovering = False
+        native_errors = (RuntimeError,)
+        if isinstance(getattr(nvc, "PyNvVCException", None), type):
+            native_errors += (nvc.PyNvVCException,)
+        unsupported = getattr(nvc, "PyNvVCExceptionUnsupported", ())
+
+        def native_call(method, *args, **kwargs):
+            try:
+                return method(*args, **kwargs)
+            except native_errors as error:
+                if isinstance(error, unsupported):
+                    raise
+                raise _DecodeError(str(error)) from error
+
+        def reset():
+            nonlocal decoder, decode_stream, pixel_format
+            slot.discard()
+            if slot.buffers is not None:
+                slot.buffers.close()
+                slot.buffers = None
+            # 외부 프레임 owner가 기존 풀과 디코더의 수명을 보장한다.
+            decoder = decode_stream = pixel_format = None
+
+        def resumed():
+            nonlocal recovering
+            if recovering:
+                logger.info("디코더 복구 후 영상 출력을 재개했습니다.")
+                recovering = False
 
         def stopped():
             return cancel.is_set() or (stop is not None and stop.is_set())
@@ -214,24 +253,27 @@ class NvidiaDecode(Step):
                         decoded_at=time.perf_counter(),
                     )
                 )
+                resumed()
 
         def decode(packet_data):
             nonlocal pixel_format
             if not locked_decoder:
-                publish(decoder.Decode(packet_data))
+                publish(native_call(decoder.Decode, packet_data))
                 return
-            count = decoder.GetNumDecodedFrame(packet_data)
+            count = native_call(decoder.GetNumDecodedFrame, packet_data)
             if not count:
                 return
             if slot.buffers is None:
-                pixel_format = decoder.GetPixelFormat()
-                slot.buffers = _DecoderBuffers(decoder, decode_stream, pixel_format)
+                pixel_format = native_call(decoder.GetPixelFormat)
+                slot.buffers = _DecoderBuffers(
+                    decoder, decode_stream, pixel_format, native_call
+                )
             buffers = slot.buffers
             for _ in range(count):
                 slot.make_room()
                 if not buffers.available(stopped):
                     return
-                frame, owner = buffers.acquire()
+                frame, owner = buffers.acquire(native_call)
                 slot.publish(
                     PipelineContext(
                         frame=frame,
@@ -242,55 +284,75 @@ class NvidiaDecode(Step):
                         decoded_at=time.perf_counter(),
                     )
                 )
+                resumed()
                 del frame, owner
             buffers.reap()
 
         for item in inputs:
             if stopped():
                 return
-            if decoder is None:
-                video_stream = item.video_stream
-                codec_ids = {
-                    "h264": nvc.cudaVideoCodec.H264,
-                    "hevc": nvc.cudaVideoCodec.HEVC,
-                    "h265": nvc.cudaVideoCodec.HEVC,
-                }
-                decode_stream = torch.cuda.Stream(device=self.gpu_id)
-                consumer_stream = torch.cuda.Stream(device=self.gpu_id)
-                decoder = nvc.CreateDecoder(
-                    gpuid=self.gpu_id,
-                    codec=codec_ids[video_stream.codec.name.lower()],
-                    usedevicememory=True,
-                    outputColorType=nvc.OutputColorType.NATIVE,
-                    latency=nvc.DisplayDecodeLatencyType.NATIVE,
-                    cudastream=decode_stream.cuda_stream,
-                )
-                pixel_format = decoder.GetPixelFormat()
-                if all(
-                    callable(getattr(decoder, name, None))
-                    for name in ("GetNumDecodedFrame", "GetLockedFrame", "UnlockFrame")
-                ):
-                    # Geometry becomes available after the first packet is decoded.
-                    locked_decoder = True
-                else:
-                    locked_decoder = False
-            packet_data = nvc.PacketData()
-            # Keep the packet owner alive until the decoder has consumed its bitstream.
+            if video_stream is not None and item.video_stream is not video_stream:
+                logger.warning("입력 스트림이 변경되어 디코더를 초기화하고 키프레임을 기다립니다.")
+                reset()
+                waiting_keyframe = recovering = True
+            video_stream = item.video_stream
             packet = item.packet
-            packet_data.bsl_data = packet.buffer_ptr
-            packet_data.bsl = packet.size
-            if packet.pts is not None:
-                packet_data.pts = int(packet.pts)
-            with torch.cuda.stream(decode_stream):
-                decode(packet_data)
-            del item, packet
+            try:
+                if waiting_keyframe and not getattr(packet, "is_keyframe", False):
+                    continue
+                try:
+                    if decoder is None:
+                        codec_ids = {
+                            "h264": nvc.cudaVideoCodec.H264,
+                            "hevc": nvc.cudaVideoCodec.HEVC,
+                            "h265": nvc.cudaVideoCodec.HEVC,
+                        }
+                        codec = codec_ids[video_stream.codec.name.lower()]
+                        decode_stream = torch.cuda.Stream(device=self.gpu_id)
+                        if consumer_stream is None:
+                            consumer_stream = torch.cuda.Stream(device=self.gpu_id)
+                        decoder = native_call(
+                            nvc.CreateDecoder,
+                            gpuid=self.gpu_id,
+                            codec=codec,
+                            usedevicememory=True,
+                            outputColorType=nvc.OutputColorType.NATIVE,
+                            latency=nvc.DisplayDecodeLatencyType.NATIVE,
+                            cudastream=decode_stream.cuda_stream,
+                        )
+                        pixel_format = native_call(decoder.GetPixelFormat)
+                        locked_decoder = all(
+                            callable(getattr(decoder, name, None))
+                            for name in ("GetNumDecodedFrame", "GetLockedFrame", "UnlockFrame")
+                        )
+                    packet_data = nvc.PacketData()
+                    # 디코더가 비트스트림을 소비할 때까지 패킷 소유자를 유지한다.
+                    packet_data.bsl_data = packet.buffer_ptr
+                    packet_data.bsl = packet.size
+                    if packet.pts is not None:
+                        packet_data.pts = int(packet.pts)
+                    with torch.cuda.stream(decode_stream):
+                        decode(packet_data)
+                    waiting_keyframe = False
+                except _DecodeError as error:
+                    logger.warning(
+                        "디코더 오류로 자동 복구를 시도합니다. 다음 키프레임을 기다립니다: %s",
+                        error,
+                    )
+                    reset()
+                    waiting_keyframe = recovering = True
+            finally:
+                del item, packet
 
         if decoder is not None and not stopped():
-            with torch.cuda.stream(decode_stream):
-                if locked_decoder:
-                    decode(nvc.PacketData())
-                else:
-                    publish(decoder.Flush())
+            try:
+                with torch.cuda.stream(decode_stream):
+                    if locked_decoder:
+                        decode(nvc.PacketData())
+                    else:
+                        publish(native_call(decoder.Flush))
+            except _DecodeError as error:
+                logger.warning("디코더 종료 처리 오류로 지연 프레임을 버립니다: %s", error)
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         from pipeworks.main import _current_output_writer, _use_output_writer

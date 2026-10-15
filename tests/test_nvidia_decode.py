@@ -25,15 +25,22 @@ class Packet:
         self._buffer = ctypes.create_string_buffer(bytes([value]))
         self.buffer_ptr = ctypes.addressof(self._buffer)
         self.size = 1
+        self.is_keyframe = True
 
     def __bytes__(self):
         raise AssertionError("packet bytes must not be copied")
 
 
-def context(value=1, codec="h264", pts=None):
+_STREAMS = {name: SimpleNamespace(codec=SimpleNamespace(name=name))
+            for name in ("h264", "hevc", "h265")}
+
+
+def context(value=1, codec="h264", pts=None, *, keyframe=True, stream=None):
+    packet = Packet(value, pts)
+    packet.is_keyframe = keyframe
     return PipelineContext(
-        packet=Packet(value, pts),
-        video_stream=SimpleNamespace(codec=SimpleNamespace(name=codec)),
+        packet=packet,
+        video_stream=stream or _STREAMS[codec],
     )
 
 
@@ -196,32 +203,146 @@ class DecodeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source failed"):
             list(step.process(failed()))
 
-    def test_decode_error_wakes_consumer(self):
-        def failed(packet):
-            raise RuntimeError("decode failed")
+    def test_decode_error_waits_for_keyframe_and_recreates_decoder(self):
+        seen, created = [], []
 
-        step, _ = self.setup_decoder(failed)
-        with self.assertRaisesRegex(RuntimeError, "decode failed"):
+        def decode(packet):
+            seen.append(packet.pts)
+            if packet.pts == 2:
+                raise RuntimeError("Decode occured error")
+            return [packet.pts]
+
+        step, api = self.setup_decoder(decode)
+        original = api.CreateDecoder
+        api.CreateDecoder = lambda **kwargs: (created.append(kwargs), original(**kwargs))[1]
+        with self.assertLogs("pipeworks.embedded.nvidia_decode", level="INFO") as logs:
+            results = list(step.process(iter([
+                context(1, pts=1), context(2, pts=2),
+                context(3, pts=3, keyframe=False), context(4, pts=4),
+            ])))
+        self.assertEqual(seen, [1, 2, 4])
+        self.assertEqual(len(created), 2)
+        self.assertEqual(results[-1].frame, 4)
+        self.assertNotIn(3, [item.frame for item in results])
+        self.assertTrue(any("Decode occured error" in line for line in logs.output))
+        self.assertTrue(any("재개" in line for line in logs.output))
+
+    def test_native_exception_and_repeated_create_failure_recover(self):
+        class NativeError(Exception):
+            pass
+
+        calls, seen = [], []
+        step, api = self.setup_decoder(lambda packet: (seen.append(packet.pts), [packet.pts])[1])
+        api.PyNvVCException = NativeError
+        original = api.CreateDecoder
+
+        def create(**kwargs):
+            calls.append(kwargs)
+            if len(calls) <= 2:
+                raise NativeError("native failure")
+            return original(**kwargs)
+
+        api.CreateDecoder = create
+        results = list(step.process(iter([
+            context(1, pts=1), context(2, pts=2, keyframe=False),
+            context(3, pts=3), context(4, pts=4, keyframe=False), context(5, pts=5),
+        ])))
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(seen, [5])
+        self.assertEqual([item.frame for item in results], [5])
+
+    def test_stream_replacement_waits_for_keyframe_and_updates_metadata(self):
+        seen, created = [], []
+        step, api = self.setup_decoder(lambda packet: (seen.append(packet.pts), [packet.pts])[1])
+        original = api.CreateDecoder
+        api.CreateDecoder = lambda **kwargs: (created.append(kwargs), original(**kwargs))[1]
+        new_stream = SimpleNamespace(codec=SimpleNamespace(name="hevc"))
+        first_taken = Event()
+
+        def inputs():
+            yield context(1, pts=1)
+            self.assertTrue(first_taken.wait(2))
+            yield context(2, pts=2, keyframe=False, stream=new_stream)
+            yield context(3, pts=3, stream=new_stream)
+
+        output = step.process(inputs())
+        try:
+            first = next(output)
+            first_taken.set()
+            rest = list(output)
+            self.assertEqual(seen, [1, 3])
+            self.assertEqual([c["codec"] for c in created], [1, 2])
+            self.assertIs(rest[0].video_stream, new_stream)
+            self.assertIs(first.cuda_stream, rest[0].cuda_stream)
+        finally:
+            first_taken.set()
+            output.close()
+
+    def test_recovery_discards_queued_old_frames(self):
+        from pipeworks.embedded.nvidia_decode import _FrameQueue
+
+        def decode(packet):
+            if packet.pts == 2:
+                raise RuntimeError("decode failed")
+            return [packet.pts]
+
+        step, _ = self.setup_decoder(decode)
+        finished = Event()
+        original_take, original_finish = _FrameQueue.take, _FrameQueue.finish
+
+        def take(slot, stop=None):
+            self.assertTrue(finished.wait(2))
+            return original_take(slot, stop)
+
+        def finish(slot, error=None):
+            original_finish(slot, error)
+            finished.set()
+
+        with patch.object(_FrameQueue, "take", take), patch.object(_FrameQueue, "finish", finish):
+            results = list(step.process(iter([context(1, pts=1), context(2, pts=2), context(3, pts=3)])))
+        self.assertEqual([item.frame for item in results], [3])
+        self.assertEqual(results[0].decode_dropped_frames, 1)
+
+    def test_flush_error_is_discarded_without_raising(self):
+        def flush():
+            raise RuntimeError("flush failed")
+
+        step, _ = self.setup_decoder(lambda packet: [packet.pts], flush)
+        results = list(step.process(iter([context(1, pts=1)])))
+        self.assertEqual([item.frame for item in results], [1])
+
+    def test_non_decoder_errors_and_unsupported_errors_propagate(self):
+        step, api = self.setup_decoder(lambda packet: [])
+        with self.assertRaises(KeyError):
+            list(step.process(iter([context(stream=SimpleNamespace(codec=SimpleNamespace(name="vp9")))])))
+
+        class Unsupported(Exception):
+            pass
+
+        api.PyNvVCExceptionUnsupported = Unsupported
+        api.CreateDecoder = lambda **kwargs: (_ for _ in ()).throw(Unsupported("unsupported"))
+        with self.assertRaisesRegex(Unsupported, "unsupported"):
             list(step.process(iter([context()])))
 
-    def test_decode_error_closes_upstream_in_producer(self):
-        owner_thread, closed = get_ident(), []
-
-        def failed(packet):
-            raise RuntimeError("decode failed")
-
-        step, _ = self.setup_decoder(failed)
+    def test_recovery_wait_is_cancellable_and_does_not_close_source_early(self):
+        stop, consumed, closed = Event(), [], Event()
+        step, _ = self.setup_decoder(lambda packet: (_ for _ in ()).throw(RuntimeError("decode failed")))
+        step._pipeworks_stop_event = stop
 
         def inputs():
             try:
                 yield context()
+                for value in range(2, 8):
+                    consumed.append(value)
+                    if value == 5:
+                        stop.set()
+                    yield context(value, keyframe=False)
             finally:
-                closed.append(get_ident())
+                closed.set()
 
-        with self.assertRaisesRegex(RuntimeError, "decode failed"):
-            list(step.process(inputs()))
-        self.assertEqual(len(closed), 1)
-        self.assertNotEqual(closed[0], owner_thread)
+        self.assertEqual(list(step.process(inputs())), [])
+        self.assertEqual(consumed, [2, 3, 4, 5])
+        self.assertTrue(closed.is_set())
 
     def test_worker_inherits_context_and_closes_input_on_cancel(self):
         from pipeworks.execution import current_source_cancel
@@ -616,6 +737,80 @@ class NativeDecodeTests(unittest.TestCase):
                     encoder.EndEncode()
                 gc.collect()
                 self.assertEqual(pool.locked, set())
+            finally:
+                first_taken.set()
+                output.close()
+
+    def test_native_recovery_preserves_previous_tensor_alias_and_consumer_stream(self):
+        first_segment, second_segment = self.packets(6), self.packets(6)
+        video = SimpleNamespace(codec=SimpleNamespace(name="h264"))
+        first_taken = Event()
+        created = []
+        original_create = self.nvc.CreateDecoder
+
+        class FaultOnce:
+            def __init__(self, decoder):
+                self.decoder = decoder
+                self.calls = 0
+
+            def __getattr__(self, name):
+                return getattr(self.decoder, name)
+
+            def GetNumDecodedFrame(self, packet):
+                self.calls += 1
+                if self.calls == 4:
+                    raise RuntimeError("주입된 디코딩 오류")
+                return self.decoder.GetNumDecodedFrame(packet)
+
+        def create(**kwargs):
+            decoder = original_create(**kwargs)
+            created.append(decoder)
+            return FaultOnce(decoder) if len(created) == 1 else decoder
+
+        def inputs():
+            for packet in first_segment + second_segment:
+                yield PipelineContext(packet=packet, video_stream=video)
+
+        step = NvidiaDecode()
+        step.configure(SimpleNamespace())
+        from pipeworks.embedded.nvidia_decode import _FrameQueue
+
+        original_publish = _FrameQueue.publish
+        published = []
+
+        def publish(slot, item):
+            original_publish(slot, item)
+            published.append(True)
+            if len(published) == 1:
+                self.assertTrue(first_taken.wait(5))
+
+        with (
+            patch.object(self.nvc, "CreateDecoder", side_effect=create),
+            patch.object(_FrameQueue, "publish", publish),
+        ):
+            output = step.process(inputs())
+            try:
+                first = next(output)
+                old_pool = first._decode_buffer.pool
+                pointer = first.frame.data_ptr()
+                alias = torch.from_dlpack(first.frame)
+                baseline = alias.cpu()
+                consumer_stream = first.cuda_stream
+                first_taken.set()
+                rest = list(output)
+                self.assertEqual(len(created), 2)
+                self.assertGreater(len(rest), 0)
+                self.assertTrue(all(item.cuda_stream is consumer_stream for item in rest))
+                self.assertTrue(all(item._decode_buffer.pool is not old_pool for item in rest))
+                self.assertTrue(old_pool.closed)
+                self.assertTrue(torch.equal(alias.cpu(), baseline))
+                self.assertIn(pointer, old_pool.locked)
+                del first
+                gc.collect()
+                self.assertIn(pointer, old_pool.locked)
+                del alias
+                gc.collect()
+                self.assertEqual(old_pool.locked, set())
             finally:
                 first_taken.set()
                 output.close()
