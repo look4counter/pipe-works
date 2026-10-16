@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import av
+from fractions import Fraction
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -13,7 +14,11 @@ from pipeworks.embedded.rtsp_source import RTSPSource
 
 class Container:
     def __init__(self):
-        self.stream = object()
+        self.stream = SimpleNamespace(
+            codec_context=SimpleNamespace(name="h264", width=640, height=480,
+                                          extradata=bytearray(b"header")),
+            time_base=Fraction(1, 90000), index=0,
+        )
         self.streams = SimpleNamespace(video=[self.stream])
         self.packets = [
             SimpleNamespace(size=2),
@@ -151,8 +156,43 @@ class RTSPSourceTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in status.call_args_list], [True, True])
         self.assertIs(first.packet, container.packets[0])
         self.assertIs(second.packet, container.packets[2])
-        self.assertIs(first.video_stream, container.stream)
+        self.assertIsNot(first.video_stream, container.stream)
+        self.assertIs(first.video_stream, second.video_stream)
+        self.assertEqual(first.video_stream.codec_context.extradata, b"header")
         self.assertEqual(container.closed, 1)
+
+    def test_metadata_is_copied_once_for_thousand_packets(self):
+        from pipeworks.video import VideoStreamInfo
+
+        container = Container()
+        container.packets = [SimpleNamespace(size=2) for _ in range(1000)]
+        source = RTSPSource("rtsp://input", reconnect=False)
+        with (
+            patch("pipeworks.embedded.rtsp_source.av.open", return_value=container),
+            patch("pipeworks.embedded.rtsp_source.VideoStreamInfo.from_stream",
+                  wraps=VideoStreamInfo.from_stream) as snapshot,
+        ):
+            iterator = source.process(iter(()))
+            items = [next(iterator) for _ in range(1000)]
+            iterator.close()
+        snapshot.assert_called_once_with(container.stream)
+        container.stream.codec_context.extradata[0] = 0
+        container.stream.codec_context = None
+        self.assertEqual(len({id(item.video_stream) for item in items}), 1)
+        self.assertEqual(items[-1].video_stream.codec_context.extradata, b"header")
+
+    def test_identical_reconnection_has_new_metadata_identity(self):
+        first, second = Container(), Container()
+        source = RTSPSource("rtsp://input", reconnect_interval_ms=0)
+        with patch("pipeworks.embedded.rtsp_source.av.open", side_effect=[first, second]):
+            iterator = source.process(iter(()))
+            old = next(iterator).video_stream
+            next(iterator)
+            new = next(iterator).video_stream
+            iterator.close()
+        self.assertEqual(first.closed, 1)
+        self.assertNotEqual(old.connection_id, new.connection_id)
+        self.assertEqual(old.codec_context, new.codec_context)
 
     def test_connection_error_retries_and_disabled_reconnect_raises(self):
         container = Container()

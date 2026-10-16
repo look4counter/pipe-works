@@ -111,12 +111,15 @@ class Step(ABC):
 - **TapSkipIfBusy Step** (TapSkipIfBusy): 원본을 전달하면서 배경 후처리 실행
 
 ### PipelineContext
-스트림의 각 "프레임" 또는 "패킷" 단위 데이터입니다.
+스트림의 각 "프레임" 또는 "패킷" 단위 데이터입니다. `video_stream`은 연결당 한 번 생성해 공유하는 불변 `VideoStreamInfo`이며 원본 컨테이너 종료 후에도 값이 유지됩니다. 기존 `codec_context.width`·`height` 접근은 유지됩니다.
 
 ```python
-# Source Step에서 생성
+# 사용자 정의 Source Step에서 연결당 한 번 생성
+from pipeworks.video import VideoStreamInfo
+
+stream_info = VideoStreamInfo.from_stream(stream)  # 컨테이너가 열린 동안 호출
 context = PipelineContext(
-    video_stream=stream,
+    video_stream=stream_info,
     packet=packet,
     # 다른 필드들...
 )

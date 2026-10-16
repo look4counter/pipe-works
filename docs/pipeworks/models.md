@@ -50,7 +50,7 @@ from step.yolo_pre_process import YoloPreProcess
 from step.yolo_post_process import YoloPostProcess
 
 # RTSPSource에서 생성
-context.video_stream  # av.VideoStream
+context.video_stream  # pipeworks.video.VideoStreamInfo（불변 메타데이터）
 context.packet  # av.Packet
 
 # NvidiaDecode에서 생성한 새 컨텍스트
@@ -69,6 +69,16 @@ context.model_id  # 모델 실행 ID, 후처리에서 정리
 ```
 
 `StreamReport`는 실행별 수집기의 통계를 읽으며 컨텍스트에 개별 추론 시간이나 수신 시각 필드를 추가하지 않습니다. 디코더·인코더가 새 컨텍스트를 만들 때 임의 입력 속성을 자동 승계하지 않습니다.
+
+#### 비디오 메타데이터 수명
+
+`video_stream`은 원본 `av.VideoStream` 대신 `pipeworks.video.VideoStreamInfo`를 담습니다. 수신 연결마다 한 번 복사한 불변 값이며 같은 연결의 모든 패킷과 프레임이 공유합니다. 연결이 닫혀도 메타데이터는 유효하며 영상·GPU 버퍼를 복사하지 않습니다.
+
+기존 `video_stream.codec_context.width`·`height`·`name`·`extradata`, `video_stream.codec.name`, `width`·`height`·`time_base`·`average_rate`·`index` 접근을 지원합니다. `codec_context`도 네이티브 객체가 아닌 `CodecInfo` 값입니다. `connection_id`는 동일 설정의 새 연결도 구분합니다. 원본 스트림의 메서드·컨테이너 접근·속성 변경은 지원하지 않습니다.
+
+사용자 정의 소스는 컨테이너가 열린 동안 `VideoStreamInfo.from_stream(stream)`을 한 번 호출하고 결과를 공유합니다. `packet`은 여전히 원본 `av.Packet`이며 내부 `packet.stream`을 후속 메타데이터 접근에 사용하지 않습니다. 송출 단계는 패킷에 출력 스트림을 지정합니다.
+
+재인코딩 출력은 새 인코더 세대의 메타데이터를 제공합니다. 코덱 헤더는 실제 출력의 SPS/PPS/VPS를 사용하며 입력 헤더를 복사하지 않습니다.
 
 #### 필드 접근 패턴
 

@@ -97,3 +97,7 @@ RTSP 재연결 등으로 입력 video_stream 객체가 교체되어도 기존 �
 필수 입력은 packet과 video_stream입니다. 현재 코덱 매핑은 h264와 hevc/h265입니다. 첫 입력에서 디코더와 스트림을 만듭니다. 이후 video_stream 객체 교체를 감지하면 디코더를 재생성합니다. 자동 복구 및 스트림 교체 후 재개에는 packet.is_keyframe 값이 필요하며, 이 값이 없는 입력은 키프레임으로 간주하지 않습니다.
 
 출력은 새 PipelineContext이며 frame·video_stream·cuda_stream·pixel_format·decoded_at·processing_started_at·decode_dropped_frames를 제공합니다. 입력 packet이나 사용자 속성을 그대로 복사하지 않습니다. 패킷 하나에서 출력 프레임이 없거나 여러 개일 수 있습니다. pixel_format은 디코더의 실제 NATIVE 출력 형식이며 NV12로 고정하지 않습니다. 잠금 API 경로의 _decode_buffer는 내부 수명 관리용입니다.
+
+## 비디오 메타데이터
+
+video_stream은 불변 VideoStreamInfo이며 입력 연결에서 받은 같은 객체를 출력 프레임에 공유합니다. 같은 설정으로 재연결해도 새로운 메타데이터 객체가 생성되어 기존 스트림 교체 감지가 유지됩니다. codec_context.width·height와 codec.name 접근은 네이티브 리소스를 읽지 않습니다.

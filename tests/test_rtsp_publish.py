@@ -9,16 +9,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from pipeworks.embedded.rtsp_publish import RTSPPublish
 from pipeworks.models import PipelineContext
+from pipeworks.video import CodecInfo, VideoStreamInfo
+from dataclasses import replace
 
 
 class Output:
     def __init__(self, fail_mux=False):
-        self.stream = SimpleNamespace(time_base=Fraction(1, 90000))
+        self.stream = SimpleNamespace(time_base=Fraction(1, 90000), codec_context=SimpleNamespace())
         self.sent = []
         self.closed = 0
         self.fail_mux = fail_mux
 
-    def add_stream_from_template(self, template):
+    def add_stream_from_template(self, template, **kwargs):
         return self.stream
 
     def start_encoding(self):
@@ -124,11 +126,8 @@ class RTSPPublishTests(unittest.TestCase):
         return publisher
 
     def bypass_input(self, dts, pts=None):
-        stream = SimpleNamespace(
-            index=0,
-            codec_context=SimpleNamespace(name="h264", extradata=b""),
-            width=640,
-            height=480,
+        stream = VideoStreamInfo(
+            CodecInfo("h264", 640, 480),
             time_base=Fraction(1, 90000),
         )
         packet = SimpleNamespace(
@@ -236,7 +235,8 @@ class RTSPPublishTests(unittest.TestCase):
         second_output = Output()
         first = self.bypass_input(0)
         second = self.bypass_input(0)
-        second.video_stream.width = 1280
+        second.video_stream = replace(second.video_stream,
+                                      codec_context=CodecInfo("h264", 1280, 480))
         with patch(
             "pipeworks.embedded.rtsp_publish.av.open",
             side_effect=[first_output, second_output],
@@ -246,6 +246,18 @@ class RTSPPublishTests(unittest.TestCase):
         self.assertEqual([packet.dts for packet in second_output.sent], [0])
         self.assertEqual(first_output.closed, 1)
         self.assertEqual(second_output.closed, 1)
+
+    def test_identical_settings_new_connection_reopens_output(self):
+        first_output, second_output = Output(), Output()
+        first, second = self.bypass_input(0), self.bypass_input(0)
+        self.assertEqual(first.video_stream.codec_context, second.video_stream.codec_context)
+        with patch("pipeworks.embedded.rtsp_publish.av.open",
+                   side_effect=[first_output, second_output]) as opened:
+            list(self.publisher().process(iter([first, second])))
+        self.assertEqual(opened.call_count, 2)
+        self.assertEqual(first_output.closed, 1)
+        self.assertEqual(second_output.closed, 1)
+        self.assertEqual([len(first_output.sent), len(second_output.sent)], [1, 1])
 
     def test_output_open_failure_and_invalid_time_base(self):
         publisher = self.publisher(reconnect=False)

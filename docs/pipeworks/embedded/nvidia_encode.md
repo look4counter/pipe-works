@@ -56,3 +56,7 @@ H.264/HEVC는 IDR마다 필요한 영상 헤더를 반복하도록 설정합니�
 필수 입력은 frame·pixel_format·video_stream·cuda_stream입니다. processing_started_at은 프레임 처리 시간 기록에 사용하는 선택 필드입니다. 첫 입력의 스트림 코덱·너비·높이와 픽셀 형식으로 인코더를 만들고 B프레임을 끕니다. codec·bitrate·framerate는 공개 설정 키가 아닙니다.
 
 출력은 packet과 video_stream만 가진 새 PipelineContext입니다. 원본 frame이나 사용자 속성을 복사하지 않습니다. 패킷 PTS/DTS는 0부터 증가하며 duration=1, time_base=1/fps입니다. 입력 하나에서 패킷이 없거나 여러 개일 수 있고 정상 입력 종료 시 EndEncode의 잔여 패킷도 출력합니다. 복구 가능한 네이티브 인코더 오류에는 자동 복구를 적용합니다. 설정·지원 불가·입력 소스·후속 처리 오류는 호출자에게 전달합니다.
+
+## 비디오 메타데이터
+
+출력 video_stream은 입력과 별개인 인코더 세대별 불변 VideoStreamInfo입니다. 첫 출력에서 실제 Annex B SPS/PPS 또는 VPS/SPS/PPS를 한 번 추출하고 이후 패킷에서 공유합니다. time_base는 패킷과 같은 1/fps이며 입력 extradata는 재사용하지 않습니다. 인코더 교체 전 EndEncode 출력은 이전 메타데이터를 사용합니다. repeatspspps=1로 출력 비트스트림에 헤더를 반복합니다.

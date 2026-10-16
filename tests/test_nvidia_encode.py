@@ -1,5 +1,6 @@
 from contextlib import nullcontext
 from fractions import Fraction
+from io import BytesIO
 import gc
 import os
 from pathlib import Path
@@ -67,7 +68,9 @@ class EncodeTests(unittest.TestCase):
         self.assertEqual([item.packet.dts for item in result], [0, 1, 2])
         self.assertTrue(all(item.packet.time_base == Fraction(1, 30) for item in result))
         self.assertTrue(all(item.packet.duration == 1 for item in result))
-        self.assertTrue(all(item.video_stream is self.video for item in result))
+        self.assertTrue(all(item.video_stream is result[0].video_stream for item in result))
+        self.assertIsNot(result[0].video_stream, self.video)
+        self.assertEqual(result[0].video_stream.time_base, Fraction(1, 30))
         self.assertTrue(all(not hasattr(item, "frame") for item in result))
 
     def test_encode_failure_recreates_after_one_second_and_preserves_timestamps(self):
@@ -163,8 +166,9 @@ class EncodeTests(unittest.TestCase):
             (768, 256, "P010"), (768, 256, "P010"),
         ])
         self.assertEqual(self.created[-1][1]["cudastream"], 23)
-        self.assertIs(result[0].video_stream, self.video)
-        self.assertTrue(all(item.video_stream is new_video for item in result[1:]))
+        self.assertEqual(result[0].video_stream.width, 256)
+        self.assertEqual([item.video_stream.width for item in result[1:]], [512, 768, 768, 768])
+        self.assertEqual(len({item.video_stream.connection_id for item in result}), 5)
         self.assertEqual([item.packet.pts for item in result], list(range(5)))
 
     def test_same_format_new_stream_recreates_and_flushes_with_old_metadata(self):
@@ -175,8 +179,26 @@ class EncodeTests(unittest.TestCase):
         result = list(self.step.process(iter([self.item(1), self.item(2, video_stream=new_video)])))
         self.assertEqual(self.api.CreateEncoder.call_count, 2)
         self.assertEqual([bytes(item.packet) for item in result], [b"\x01", b"tail", b"\x02"])
-        self.assertIs(result[1].video_stream, self.video)
-        self.assertIs(result[2].video_stream, new_video)
+        self.assertIs(result[1].video_stream, result[0].video_stream)
+        self.assertNotEqual(result[2].video_stream.connection_id, result[0].video_stream.connection_id)
+
+    def test_output_metadata_uses_encoder_headers_once_per_generation(self):
+        from pipeworks.video import encoded_stream_info
+
+        self.video.codec_context.extradata = b"input header"
+        encoder = Encoder()
+        header = b"\x00\x00\x01\x67sps\x00\x00\x01\x68pps"
+        encoder.Encode = lambda frame: header + b"\x00\x00\x01\x65frame"
+        self.api.CreateEncoder = lambda *args, **kwargs: encoder
+        with patch("pipeworks.embedded.nvidia_encode.encoded_stream_info",
+                   wraps=encoded_stream_info) as snapshot:
+            results = list(self.step.process(iter([self.item(), self.item()])))
+        self.assertEqual(snapshot.call_count, 1)
+        info = results[0].video_stream
+        self.assertIs(info, results[1].video_stream)
+        self.assertNotIn(b"input header", info.codec_context.extradata)
+        self.assertIn(b"sps", info.codec_context.extradata)
+        self.assertIn(b"pps", info.codec_context.extradata)
 
     def test_unsupported_and_non_native_errors_propagate(self):
         class Unsupported(RuntimeError):
@@ -395,7 +417,7 @@ class NativeEncodeRecoveryTests(unittest.TestCase):
 
     def check_recovery(self, codec):
         original_create = self.nvc.CreateEncoder
-        created, outputs = [], []
+        created, outputs, metadata = [], [], {}
         now = [0.0]
         stream = torch.cuda.Stream()
         video = SimpleNamespace(
@@ -439,6 +461,8 @@ class NativeEncodeRecoveryTests(unittest.TestCase):
         ):
             for item in step.process(inputs()):
                 outputs.append((len(created), item.packet))
+                previous = metadata.setdefault(len(created), item.video_stream)
+                self.assertIs(previous, item.video_stream)
         self.assertEqual(len(created), 2)
         self.assertTrue(all(config["repeatspspps"] == 1 for config in created))
         self.assertEqual([packet.pts for _, packet in outputs], list(range(len(outputs))))
@@ -452,6 +476,20 @@ class NativeEncodeRecoveryTests(unittest.TestCase):
         frames.extend(decoder.decode(None))
         self.assertEqual(len(frames), 25)
         self.assertTrue(frames[0].key_frame)
+        self.assertEqual((frames[0].width, frames[0].height), (256, 256))
+        self.assertNotEqual(metadata[1].connection_id, metadata[2].connection_id)
+        self.assertTrue(metadata[2].codec_context.extradata)
+        muxed = BytesIO()
+        with av.open(muxed, "w", format="matroska") as output:
+            output_stream = metadata[2].add_to_output(output)
+            for generation, packet in outputs:
+                if generation == 2:
+                    packet.stream = output_stream
+                    output.mux(packet)
+        muxed.seek(0)
+        with av.open(muxed) as source:
+            frames = list(source.decode(video=0))
+        self.assertEqual(len(frames), 25)
         self.assertEqual((frames[0].width, frames[0].height), (256, 256))
 
 

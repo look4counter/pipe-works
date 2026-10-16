@@ -6,6 +6,7 @@ from pipeworks.embedded.stream_report import record_receive
 from typing import Iterator
 from types import SimpleNamespace
 from pipeworks.models import PipelineContext, Step
+from pipeworks.video import VideoStreamInfo
 from pipeworks.execution import current_source_cancel
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ class RTSPSource(Step):
                     raise RuntimeError("RTSP 입력에 비디오 스트림이 없습니다.")
 
                 video_stream = video_streams[0]
+                stream_info = VideoStreamInfo.from_stream(video_stream)
                 for packet in container.demux(video_stream):
                     if (stop is not None and stop.is_set()) or (
                         cancel is not None and cancel.is_set()
@@ -86,7 +88,7 @@ class RTSPSource(Step):
                         return
                     if packet.size > 0:
                         record_receive(True)
-                        yield PipelineContext(video_stream=video_stream, packet=packet)
+                        yield PipelineContext(video_stream=stream_info, packet=packet)
 
                 record_receive(False)
                 if not self.reconnect:

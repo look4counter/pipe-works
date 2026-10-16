@@ -37,3 +37,7 @@ pipeline.step(RTSPPublish("rtsp://mediamtx:8554/camera"))
 ```
 
 전체 실행 통계는 [StreamReport](stream_report.md)를 함께 사용합니다. 이 Sink 뒤의 보고자는 입력을 전달받지 않지만 상류 소비 동안 주기 출력을 수행할 수 있습니다.
+
+## 비디오 메타데이터
+
+video_stream에는 불변 VideoStreamInfo를 전달합니다. 원본 수신 스트림 대신 복사한 값으로 출력 스트림을 구성하며 extradata를 보존하고 별도 소프트웨어 인코더를 열지 않습니다. 연결 식별자 connection_id가 바뀌면 코덱·해상도가 같아도 출력 연결을 다시 만듭니다. 사용자 정의 소스는 열린 컨테이너에서 VideoStreamInfo.from_stream을 연결당 한 번 호출해야 합니다.

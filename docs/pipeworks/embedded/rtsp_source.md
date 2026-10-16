@@ -23,7 +23,7 @@ YAML 섹션은 `RTSPSource`입니다. YAML 값이 생성자 값보다 우선하�
 | 출력 필드 | 의미 |
 | --- | --- |
 | packet | PyAV 압축 패킷. 영상 프레임이 아닙니다. |
-| video_stream | 선택한 입력 비디오 스트림 |
+| video_stream | 연결당 복사한 불변 비디오 메타데이터 |
 
 프레임이 필요하면 [NvidiaDecode](nvidia_decode.md)를 연결합니다. 재인코딩 없이 [RTSPPublish](rtsp_publish.md)로 패킷을 전달할 수도 있습니다.
 
@@ -41,3 +41,7 @@ from pipeworks.embedded import RTSPSource, NvidiaDecode
 pipeline.step(RTSPSource("rtsp://camera/main", timeout_ms=5000))
 pipeline.step(NvidiaDecode(gpu_id=0))
 ```
+
+## 비디오 메타데이터
+
+video_stream은 원본 av.VideoStream이 아닌 불변 VideoStreamInfo입니다. 코덱 이름·해상도·헤더·시간 기준·프레임률을 열린 연결에서 한 번 복사하고 모든 패킷이 공유합니다. 재연결하면 새 connection_id를 만들며 이전 값은 원본 컨테이너 종료 이후에도 유효합니다. packet은 원본 av.Packet으로 유지하며 packet.stream을 후속 메타데이터 접근에 사용하지 않습니다.

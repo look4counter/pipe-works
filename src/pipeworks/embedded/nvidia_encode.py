@@ -7,6 +7,7 @@ import time
 import av
 import torch
 from pipeworks.models import PipelineContext, Step
+from pipeworks.video import CodecInfo, encoded_stream_info
 from pipeworks.embedded.stream_report import record_frame, record_stage
 
 
@@ -33,6 +34,7 @@ class NvidiaEncode(Step):
 
         encoder = None
         video_stream = None
+        output_info = codec_info = None
         cuda_stream = None
         last_input = None
         fps, gpu_id = self.fps, self.gpu_id
@@ -70,7 +72,7 @@ class NvidiaEncode(Step):
             return stop is not None and stop.is_set()
 
         def output_packet(encoded_packets: object) -> Iterator[PipelineContext]:
-            nonlocal next_pts, recovering
+            nonlocal next_pts, recovering, output_info
             if encoded_packets is None:
                 return
             if isinstance(encoded_packets, (bytes, bytearray, memoryview, dict)):
@@ -85,6 +87,9 @@ class NvidiaEncode(Step):
                 if not data:
                     continue
 
+                if output_info is None:
+                    output_info = encoded_stream_info(codec_info, data, time_base)
+
                 packet = av.Packet(data)
                 packet.pts = next_pts
                 packet.dts = next_pts
@@ -94,7 +99,7 @@ class NvidiaEncode(Step):
                 if recovering:
                     logger.info("인코더 복구 후 영상 출력을 재개했습니다.")
                     recovering = False
-                yield PipelineContext(packet=packet, video_stream=video_stream)
+                yield PipelineContext(packet=packet, video_stream=output_info)
 
         def flush():
             try:
@@ -145,6 +150,14 @@ class NvidiaEncode(Step):
                             codec.width, codec.height, pixel_format, False,
                             **encoder_kwargs,
                         )
+                        codec_info = CodecInfo(
+                            stream_key[0], codec.width, codec.height,
+                            pix_fmt={
+                                "NV12": "yuv420p", "P010": "yuv420p10le",
+                                "YUV444": "yuv444p", "YUV444_16Bit": "yuv444p10le",
+                            }.get(pixel_format),
+                        )
+                        output_info = None
                         active_key = stream_key
                     encode_started_at = time.perf_counter()
                     last_input = input

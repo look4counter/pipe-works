@@ -85,6 +85,7 @@ class RTSPPublish(Step):
 
                 codec = video_stream.codec_context
                 stream_key = (
+                    video_stream.connection_id,
                     getattr(video_stream, "index", None),
                     codec.name,
                     video_stream.width,
@@ -118,7 +119,7 @@ class RTSPPublish(Step):
                                 "timeout": str(int(self.timeout_ms * 1000)),
                             },
                         )
-                        output_stream = output.add_stream_from_template(video_stream)
+                        output_stream = video_stream.add_to_output(output)
                         output.start_encoding()
                     except Exception as error:
                         record_publish(False)
