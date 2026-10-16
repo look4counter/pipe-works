@@ -71,7 +71,7 @@ class RTSPSource(Step):
                 container = av.open(
                     self.url,
                     mode="r",
-                    options={"rtsp_transport": self.transport},
+                    options={"rtsp_transport": self.transport, 'fflags': 'nobuffer+discardcorrupt+flush_packets'},
                     timeout=(self.timeout_ms / 1000, self.timeout_ms / 1000),
                 )
                 video_streams = container.streams.video
