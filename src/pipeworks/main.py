@@ -344,21 +344,26 @@ def _handle(connection, payload: bytes | None = None) -> None:
             finally:
                 finished.set()
 
-        Thread(target=execute, name=f"pipeworks-{pipeline.name}", daemon=True).start()
-        last_seen = time.monotonic()
-        while not finished.is_set():
-            try:
-                if connection.poll(0.1):
-                    connection.recv_bytes()
-                    last_seen = time.monotonic()
-            except (EOFError, OSError):
+        worker = Thread(target=execute, name=f"pipeworks-{pipeline.name}", daemon=True)
+        worker.start()
+        try:
+            last_seen = time.monotonic()
+            while not finished.is_set():
+                try:
+                    if connection.poll(0.1):
+                        connection.recv_bytes()
+                        last_seen = time.monotonic()
+                except (EOFError, OSError):
+                    stop.set()
+                    break
+                if time.monotonic() - last_seen > 2:
+                    stop.set()
+                    break
+        finally:
+            if not finished.is_set():
                 stop.set()
-                break
-            if time.monotonic() - last_seen > 2:
-                stop.set()
-                break
-        if stop.is_set():
-            finished.wait(10)
+            # 정리 중인 실행은 활성 요청으로 유지하여 유휴 종료를 막는다.
+            worker.join()
 
 
 def serve(*, server_group="production") -> None:
