@@ -23,7 +23,8 @@ class _InputSlot(Iterator[PipelineContext]):
         with self._condition:
             if self._closed or self._busy:
                 return False
-            self._pending = item
+            # 분기별 속성과 핫스왑 정보는 격리하고 영상·자원 참조는 공유한다.
+            self._pending = PipelineContext(**vars(item))
             self._busy = True
             self._condition.notify()
             return True

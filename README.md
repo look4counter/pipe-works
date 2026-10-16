@@ -252,7 +252,7 @@ NVIDIA GPU를 이용해 영상을 인코딩합니다.
 - **상세**: [docs/pipeworks/embedded/nvidia_encode.md](docs/pipeworks/embedded/nvidia_encode.md)
 
 #### **TapSkipIfBusy**
-원본을 다음 단계로 전달하면서 별도 작업자에서 후처리를 실행합니다.
+원본을 다음 단계로 전달하면서 별도 작업자에서 후처리를 실행합니다. 수락한 배경 입력은 별도 컨텍스트로 만들어 최상위 속성과 핫스왑 변경 정보를 분리합니다. 영상·GPU 버퍼와 중첩 데이터는 참조를 공유하므로 배경 처리는 공유 데이터를 읽기 전용으로 사용합니다.
 
 - **역할**: 배경 후처리, 작업 중 새 입력은 후처리에서 건너뛰기
 - **사용**: `pipeline.step(TapSkipIfBusy(step=MyFinalStep()))`
