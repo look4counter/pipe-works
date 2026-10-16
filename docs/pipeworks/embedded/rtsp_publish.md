@@ -21,7 +21,11 @@ YAML 섹션은 RTSPPublish이며 YAML 값이 우선합니다. 옵션 삭제 시 
 
 필수 입력은 `packet`과 `video_stream`입니다. 누락하면 ValueError입니다. 압축 패킷을 송출하는 Sink이며 입력을 소비하고 **출력 컨텍스트를 만들지 않습니다**. 인코딩은 [NvidiaEncode](nvidia_encode.md)가 수행합니다. bitrate·framerate·codec은 이 Step의 설정이 아닙니다.
 
-입력 스트림의 인덱스·코덱·해상도·extradata·time_base가 바뀌면 출력 연결을 다시 만듭니다. 패킷의 time_base가 없으면 입력 스트림, 출력 스트림 순으로 보완하며 유효한 양수 시간 기준이 없으면 ValueError입니다. DTS 누락은 PTS 또는 이전 송신 DTS와 duration으로 보완하고, 이전 DTS 이하이면 시간 기준을 환산해 증가하도록 보정합니다. 이때 기존 PTS도 같은 차이만큼 이동합니다. 입력 패킷의 DTS·PTS·stream을 직접 수정할 수 있습니다.
+입력 스트림의 인덱스·코덱·해상도·extradata·time_base가 바뀌면 출력 연결을 다시 만듭니다. 패킷의 time_base가 없으면 입력 스트림, 출력 스트림 순으로 보완하며 유효한 양수 시간 기준이 없으면 ValueError입니다. DTS 누락은 PTS 또는 이전 송신 DTS와 duration으로 보완하고, 이전 DTS 이하이면 시간 기준을 환산해 증가하도록 보정합니다. 이때 기존 PTS도 같은 차이만큼 이동합니다. 시간 보정과 출력 stream 지정은 송신 전용 패킷에 적용하며 입력 패킷은 변경하지 않습니다.
+
+송신마다 독립적인 av.Packet과 FFmpeg 패딩을 갖춘 압축 버퍼를 만들고 압축 데이터를 한 번 복사합니다. 영상 프레임·GPU 버퍼는 복사하지 않습니다. PTS·DTS·duration·time_base·키프레임·손상 표시와 부가 데이터도 독립 복사하므로 동일 입력을 여러 송신 단계에서 사용할 수 있습니다. 단, 사용자 코드가 원본 패킷을 동시에 수정해서는 안 됩니다.
+
+PyAV 공개 API로 보존할 수 없는 is_discard·is_trusted·is_disposable 플래그가 참인 패킷은 ValueError로 거부합니다. 입력 파일 위치 pos와 opaque는 송신에 복사하지 않습니다. 재연결 대기 중 생략하는 입력은 복사하지 않습니다.
 
 ## 오류와 종료
 

@@ -10,6 +10,24 @@ from pipeworks.models import PipelineContext, Step
 logger = logging.getLogger(__name__)
 
 
+def _copy_packet_for_publish(source: av.Packet) -> av.Packet:
+    """출력별 메타데이터와 FFmpeg 패딩을 갖춘 압축 버퍼를 만든다."""
+    for flag in ("is_discard", "is_trusted", "is_disposable"):
+        if getattr(source, flag):
+            raise ValueError(f"송신 패킷에서 보존할 수 없는 플래그입니다: {flag}")
+    packet = av.Packet(source.size)
+    packet.update(source)
+    packet.pts, packet.dts = source.pts, source.dts
+    packet.duration = source.duration
+    if source.time_base is not None:
+        packet.time_base = source.time_base
+    packet.is_keyframe = source.is_keyframe
+    packet.is_corrupt = source.is_corrupt
+    for side_data in source.iter_sidedata():
+        packet.set_sidedata(side_data, move=True)
+    return packet
+
+
 class RTSPPublish(Step):
     def __init__(
         self,
@@ -136,6 +154,7 @@ class RTSPPublish(Step):
                         logger.warning("RTSP 출력 연결 실패, 재시도 예정: %s", error)
                         continue
 
+                packet = _copy_packet_for_publish(packet)
                 packet_time_base = (
                     packet.time_base
                     or video_stream.time_base

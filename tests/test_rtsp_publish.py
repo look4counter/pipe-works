@@ -1,7 +1,10 @@
 import sys
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
+from io import BytesIO
 from pathlib import Path
+from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -11,11 +14,15 @@ from pipeworks.embedded.rtsp_publish import RTSPPublish
 from pipeworks.models import PipelineContext
 from pipeworks.video import CodecInfo, VideoStreamInfo
 from dataclasses import replace
+import av
+from av import open as open_container
 
 
 class Output:
     def __init__(self, fail_mux=False):
-        self.stream = SimpleNamespace(time_base=Fraction(1, 90000), codec_context=SimpleNamespace())
+        self._container = open_container(BytesIO(), mode="w", format="matroska")
+        self.stream = self._container.add_stream("h264")
+        self.stream.time_base = Fraction(1, 90000)
         self.sent = []
         self.closed = 0
         self.fail_mux = fail_mux
@@ -130,13 +137,10 @@ class RTSPPublishTests(unittest.TestCase):
             CodecInfo("h264", 640, 480),
             time_base=Fraction(1, 90000),
         )
-        packet = SimpleNamespace(
-            dts=dts,
-            pts=pts,
-            duration=3000,
-            time_base=Fraction(1, 90000),
-            stream=None,
-        )
+        packet = av.Packet(b"data")
+        packet.dts, packet.pts = dts, pts
+        packet.duration = 3000
+        packet.time_base = Fraction(1, 90000)
         return PipelineContext(packet=packet, video_stream=stream)
 
     def test_bypass_repairs_dts_and_consumes_input(self):
@@ -152,8 +156,11 @@ class RTSPPublishTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in status.call_args_list], [True, True])
         self.assertEqual(result, [])
         self.assertEqual(len(output.sent), 2)
-        self.assertEqual(second.packet.dts, 6000)
-        self.assertEqual(second.packet.pts, 6000)
+        self.assertEqual(output.sent[1].dts, 6000)
+        self.assertEqual(output.sent[1].pts, 6000)
+        self.assertEqual(second.packet.dts, 3000)
+        self.assertEqual(second.packet.pts, 3000)
+        self.assertIsNone(second.packet.stream)
         self.assertEqual(output.closed, 1)
 
     def test_bypass_fills_missing_dts(self):
@@ -163,7 +170,8 @@ class RTSPPublishTests(unittest.TestCase):
         second.video_stream = first.video_stream
         with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output):
             list(self.publisher().process(iter([first, second])))
-        self.assertEqual(second.packet.dts, 3000)
+        self.assertEqual(output.sent[1].dts, 3000)
+        self.assertIsNone(second.packet.dts)
 
     def test_output_options_follow_configuration(self):
         output = Output()
@@ -190,7 +198,8 @@ class RTSPPublishTests(unittest.TestCase):
         with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output):
             result = list(self.publisher().process(iter([encoded])))
         self.assertEqual(result, [])
-        self.assertEqual(output.sent, [context.packet])
+        self.assertEqual([bytes(packet) for packet in output.sent], [bytes(context.packet)])
+        self.assertIsNot(output.sent[0], context.packet)
         self.assertEqual(output.closed, 1)
 
     def test_mux_failure_retries_or_raises_by_setting(self):
@@ -297,6 +306,121 @@ class RTSPPublishTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 list(self.publisher().process(inputs()))
         self.assertEqual(output.closed, 1)
+
+    def test_copy_preserves_metadata_and_has_independent_payload_and_side_data(self):
+        from pipeworks.embedded.rtsp_publish import _copy_packet_for_publish
+
+        original = self.bypass_input(2, 3).packet
+        original.is_keyframe = original.is_corrupt = True
+        side = av.packet.PacketSideData(
+            av.packet.packet_sidedata_type_from_literal("new_extradata"), 4,
+        )
+        side.update(b"abcd")
+        original.set_sidedata(side, move=True)
+        copied = _copy_packet_for_publish(original)
+        self.assertIsNot(copied, original)
+        self.assertNotEqual(copied.buffer_ptr, original.buffer_ptr)
+        self.assertEqual(bytes(copied), bytes(original))
+        self.assertEqual((copied.dts, copied.pts, copied.duration, copied.time_base),
+                         (2, 3, 3000, Fraction(1, 90000)))
+        self.assertTrue(copied.is_keyframe)
+        self.assertTrue(copied.is_corrupt)
+        self.assertEqual(bytes(copied.get_sidedata("new_extradata")), b"abcd")
+        copied.update(b"xxxx")
+        side = copied.get_sidedata("new_extradata")
+        side.update(b"efgh")
+        copied.set_sidedata(side, move=True)
+        self.assertEqual(bytes(original), b"data")
+        self.assertEqual(bytes(original.get_sidedata("new_extradata")), b"abcd")
+        empty_times = _copy_packet_for_publish(av.Packet(b"data"))
+        self.assertIsNone(empty_times.pts)
+        self.assertIsNone(empty_times.dts)
+        self.assertIsNone(empty_times.time_base)
+
+    def test_unrepresentable_flags_are_explicit_errors(self):
+        from pipeworks.embedded.rtsp_publish import _copy_packet_for_publish
+
+        for flag in ("is_discard", "is_trusted", "is_disposable"):
+            flags = dict.fromkeys(("is_discard", "is_trusted", "is_disposable"), False)
+            flags[flag] = True
+            with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, flag):
+                _copy_packet_for_publish(SimpleNamespace(**flags))
+
+    def test_parallel_publishers_do_not_change_source_or_each_other(self):
+        barrier = Barrier(2)
+
+        class ConcurrentOutput(Output):
+            def mux(self, packet):
+                barrier.wait(timeout=3)
+                if packet.stream is not self.stream:
+                    raise AssertionError("다른 송신의 스트림이 연결되었습니다.")
+                packet.update(b"xxxx")
+                self.sent.append(packet)
+
+        outputs = {url: ConcurrentOutput() for url in ("rtsp://one", "rtsp://two")}
+        context = self.bypass_input(None, 3000)
+        context.packet = av.Packet(b"data")
+        context.packet.pts = 3000
+        context.packet.duration = 3000
+        with patch("pipeworks.embedded.rtsp_publish.av.open",
+                   side_effect=lambda url, **kwargs: outputs[url]):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [executor.submit(
+                    lambda url=url: list(RTSPPublish(url, reconnect=False).process(iter([context])))
+                ) for url in outputs]
+                for future in futures:
+                    future.result(timeout=5)
+        self.assertEqual(bytes(context.packet), b"data")
+        self.assertEqual(context.packet.pts, 3000)
+        self.assertIsNone(context.packet.dts)
+        self.assertIsNone(context.packet.time_base)
+        self.assertIsNone(context.packet.stream)
+        sent = [output.sent[0] for output in outputs.values()]
+        self.assertIsNot(sent[0], sent[1])
+        for packet, output in zip(sent, outputs.values()):
+            self.assertIs(packet.stream, output.stream)
+            self.assertEqual(packet.dts, 3000)
+
+    def test_real_parallel_file_mux_preserves_source_and_decodes(self):
+        from pipeworks.video import encoded_stream_info
+
+        for codec, encoder_name in (("h264", "libx264"), ("hevc", "libx265")):
+            with self.subTest(codec=codec):
+                encoder = av.CodecContext.create(encoder_name, "w")
+                encoder.width = encoder.height = 64
+                encoder.pix_fmt = "yuv420p"
+                encoder.time_base = Fraction(1, 30)
+                encoder.options = {"preset": "ultrafast", "tune": "zerolatency"}
+                if codec == "hevc":
+                    encoder.options["x265-params"] = "log-level=error:pools=none"
+                frame = av.VideoFrame(64, 64, "yuv420p")
+                frame.pts = 0
+                for plane in frame.planes:
+                    plane.update(bytes([128]) * plane.buffer_size)
+                packets = encoder.encode(frame) + encoder.encode(None)
+                info = encoded_stream_info(CodecInfo(codec, 64, 64, pix_fmt="yuv420p"),
+                                           bytes(packets[0]), Fraction(1, 30))
+                before = [(bytes(p), p.pts, p.dts, p.time_base, p.stream) for p in packets]
+                buffers = {url: BytesIO() for url in ("rtsp://one", "rtsp://two")}
+                with patch("pipeworks.embedded.rtsp_publish.av.open", side_effect=(
+                    lambda url, **kwargs: open_container(buffers[url], mode="w", format="matroska")
+                )):
+                    with ThreadPoolExecutor(max_workers=2) as executor:
+                        futures = [executor.submit(
+                            lambda url=url: list(RTSPPublish(url, reconnect=False).process(
+                                iter(PipelineContext(packet=p, video_stream=info) for p in packets)
+                            ))
+                        ) for url in buffers]
+                        for future in futures:
+                            future.result(timeout=5)
+                self.assertEqual(before,
+                                 [(bytes(p), p.pts, p.dts, p.time_base, p.stream) for p in packets])
+                for buffer in buffers.values():
+                    buffer.seek(0)
+                    with open_container(buffer) as result:
+                        decoded = list(result.decode(video=0))
+                    self.assertEqual(len(decoded), 1)
+                    self.assertEqual((decoded[0].width, decoded[0].height), (64, 64))
 
 
 if __name__ == "__main__":

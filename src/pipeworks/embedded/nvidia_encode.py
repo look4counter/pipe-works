@@ -43,6 +43,7 @@ class NvidiaEncode(Step):
         active_key = None
         retry_at = 0.0
         recovering = False
+        cleanup_failed = False
         stop = getattr(self, "_pipeworks_stop_event", None)
         native_errors = (RuntimeError,)
         if isinstance(getattr(nvc, "PyNvVCException", None), type):
@@ -61,9 +62,15 @@ class NvidiaEncode(Step):
             raise _EncodeError(message)
 
         def release():
-            nonlocal encoder, cuda_stream, last_input
-            if cuda_stream is not None:
-                cuda_stream.synchronize()
+            nonlocal encoder, cuda_stream, last_input, cleanup_failed
+            if cleanup_failed:
+                return
+            try:
+                if cuda_stream is not None:
+                    cuda_stream.synchronize()
+            except BaseException:
+                cleanup_failed = True
+                raise
             encoder = None
             last_input = None
             cuda_stream = None

@@ -53,6 +53,7 @@ class _DecoderBuffers:
         self.locked = set()
         self.retired = []
         self.closed = False
+        self._cleanup_failed = False
         call = native_call or (lambda method: method())
         width, height, size = (
             call(decoder.GetWidth),
@@ -78,31 +79,39 @@ class _DecoderBuffers:
 
     def retire(self, pointer, event):
         with self.condition:
-            if self.closed:
-                # After producer shutdown, the last external Tensor may outlive process().
-                event.synchronize()
-                self.decoder.UnlockFrame(pointer)
-                self.locked.remove(pointer)
-            else:
-                self.retired.append((pointer, event))
+            self.retired.append((pointer, event))
+            if self.closed and not self._cleanup_failed:
+                # 종료 후 마지막 외부 참조도 같은 정리 실패 상태를 따른다.
+                self.reap(wait=True)
             self.condition.notify_all()
 
     def reap(self, *, wait=False):
         with self.condition:
-            remaining = []
-            for pointer, event in self.retired:
-                if wait:
-                    event.synchronize()
-                elif not event.query():
-                    remaining.append((pointer, event))
-                    continue
-                self.decoder.UnlockFrame(pointer)
-                self.locked.remove(pointer)
-            self.retired = remaining
+            if self._cleanup_failed:
+                return
+            index = 0
+            while index < len(self.retired):
+                pointer, event = self.retired[index]
+                try:
+                    if wait:
+                        event.synchronize()
+                    elif not event.query():
+                        index += 1
+                        continue
+                    self.decoder.UnlockFrame(pointer)
+                    self.locked.remove(pointer)
+                except BaseException:
+                    # 네이티브 반환의 성공 여부가 불명확하므로 재시도하지 않는다.
+                    self._cleanup_failed = True
+                    raise
+                # 이후 항목이 실패해도 이미 반환한 포인터는 다시 처리하지 않는다.
+                del self.retired[index]
             self.condition.notify_all()
 
     def available(self, stopped):
         while not stopped():
+            if self._cleanup_failed:
+                raise RuntimeError("정리에 실패한 디코더 버퍼 풀은 재사용할 수 없습니다.")
             self.reap()
             with self.condition:
                 if len(self.locked) < self.limit:
@@ -111,6 +120,8 @@ class _DecoderBuffers:
         return False
 
     def acquire(self, native_call=None):
+        if self._cleanup_failed:
+            raise RuntimeError("정리에 실패한 디코더 버퍼 풀은 재사용할 수 없습니다.")
         call = native_call or (lambda method: method())
         pointer = call(self.decoder.GetLockedFrame)
         ready = torch.cuda.Event()
@@ -205,6 +216,7 @@ class NvidiaDecode(Step):
         decode_stream = consumer_stream = video_stream = pixel_format = None
         stop = getattr(self, "_pipeworks_stop_event", None)
         waiting_keyframe = recovering = False
+        cleanup_failed = False
         native_errors = (RuntimeError,)
         if isinstance(getattr(nvc, "PyNvVCException", None), type):
             native_errors += (nvc.PyNvVCException,)
@@ -222,15 +234,25 @@ class NvidiaDecode(Step):
             raise _DecodeError(message)
 
         def reset(*, discard=True):
-            nonlocal decoder, decode_stream, pixel_format
-            if decode_stream is not None:
-                decode_stream.synchronize()
-            if discard:
-                slot.discard()
-            if slot.buffers is not None:
-                slot.buffers.close()
+            nonlocal decoder, decode_stream, pixel_format, cleanup_failed
+            if cleanup_failed or (
+                slot.buffers is not None and slot.buffers._cleanup_failed
+            ):
+                return
+            try:
+                if decode_stream is not None:
+                    decode_stream.synchronize()
                 if discard:
-                    slot.buffers = None
+                    slot.discard()
+                if slot.buffers is not None:
+                    slot.buffers.close()
+                    if discard:
+                        slot.buffers = None
+            except BaseException:
+                cleanup_failed = True
+                if slot.buffers is not None:
+                    slot.buffers._cleanup_failed = True
+                raise
             # 외부 프레임 owner가 기존 풀과 디코더의 수명을 보장한다.
             decoder = decode_stream = pixel_format = None
 

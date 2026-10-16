@@ -76,7 +76,7 @@ context.model_id  # 모델 실행 ID, 후처리에서 정리
 
 기존 `video_stream.codec_context.width`·`height`·`name`·`extradata`, `video_stream.codec.name`, `width`·`height`·`time_base`·`average_rate`·`index` 접근을 지원합니다. `codec_context`도 네이티브 객체가 아닌 `CodecInfo` 값입니다. `connection_id`는 동일 설정의 새 연결도 구분합니다. 원본 스트림의 메서드·컨테이너 접근·속성 변경은 지원하지 않습니다.
 
-사용자 정의 소스는 컨테이너가 열린 동안 `VideoStreamInfo.from_stream(stream)`을 한 번 호출하고 결과를 공유합니다. `packet`은 여전히 원본 `av.Packet`이며 내부 `packet.stream`을 후속 메타데이터 접근에 사용하지 않습니다. 송출 단계는 패킷에 출력 스트림을 지정합니다.
+사용자 정의 소스는 컨테이너가 열린 동안 `VideoStreamInfo.from_stream(stream)`을 한 번 호출하고 결과를 공유합니다. `packet`은 여전히 원본 `av.Packet`이며 내부 `packet.stream`을 후속 메타데이터 접근에 사용하지 않습니다. 송출 단계는 독립적인 압축 패킷을 만들어 출력 스트림과 시간 보정을 적용하므로 원본 패킷은 변경하지 않습니다.
 
 재인코딩 출력은 새 인코더 세대의 메타데이터를 제공합니다. 코덱 헤더는 실제 출력의 SPS/PPS/VPS를 사용하며 입력 헤더를 복사하지 않습니다.
 
