@@ -1,4 +1,3 @@
-"""Resolve model paths only when connecting to a shared worker for the first time."""
 
 from pathlib import Path
 

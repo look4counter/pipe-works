@@ -1,4 +1,3 @@
-"""Share OS notifications and immutable file snapshots within one process."""
 
 import atexit
 from dataclasses import dataclass
@@ -74,8 +73,8 @@ class _WatchService:
         if self.observer is None and now < self.retry_at:
             return False
         self.retry_at = now + 0.5
-        # Stop is nonblocking: joining here would deadlock an event callback
-        # waiting for our lock. Retired observers are joined outside the lock.
+        # 중지는 대기하지 않는다. 여기서 종료를 기다리면 우리 잠금을 기다리는 이벤트 콜백과
+        # 교착 상태가 생긴다. 사용이 끝난 감시자의 종료는 잠금 밖에서 기다린다.
         old = self.observer
         if old is not None:
             old.stop()
@@ -109,7 +108,7 @@ class _WatchService:
             entry = self.entries.setdefault(path, _Entry())
             entry.users += 1
             self.targets = frozenset(self.entries)
-            # Existing observer can add a directory without rebuilding others.
+            # 기존 감시자에 디렉터리를 추가할 때 다른 감시자를 다시 만들 필요는 없다.
             if self._healthy() and path.parent not in self.directories:
                 try:
                     self.directories[path.parent] = self.observer.schedule(
@@ -129,8 +128,8 @@ class _WatchService:
             if directory
             else ({path} if path in targets else set())
         )
-        # Watchdog dispatch holds its own observer lock. Never acquire our
-        # service lock here: stop/unschedule acquire the locks in reverse order.
+        # Watchdog의 이벤트 전달은 자체 감시자 잠금을 보유한다. 중지와 감시 해제는
+        # 반대 순서로 잠금을 획득하므로 여기서는 서비스 잠금을 획득하면 안 된다.
         with self.notification_lock:
             self.changed.update(affected)
 
@@ -154,7 +153,7 @@ class _WatchService:
             entry = self.entries[path]
             interval = 30.0 if healthy else 0.5
             if force or entry.dirty or now - entry.checked >= interval:
-                # Keep dirty on read failure so creation/restoration is retried.
+                # 읽기에 실패하면 변경 상태를 유지해 생성 또는 복구 시 다시 시도한다.
                 entry.dirty = True
                 source = path.read_bytes()
                 entry.snapshot = FileSnapshot(source, sha256(source).hexdigest())
@@ -226,7 +225,6 @@ def _shared_service():
 
 
 class FileSubscription:
-    """A lazy subscription; only its path crosses a process boundary."""
 
     def __init__(self, path, *, service=None):
         self.path = Path(path).resolve()

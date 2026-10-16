@@ -137,7 +137,7 @@ class BoxOverlay(Step):
                         else dict.fromkeys(previous)
                     )
                 else:
-                    # Preserve the single-result YOLO contract when no ID is selected.
+                    # ID를 선택하지 않으면 단일 결과 YOLO 계약을 유지한다.
                     selected = {self.id: detections if self.id is None else None}
                 chosen = []
                 for model_id, result in selected.items():
@@ -201,6 +201,6 @@ class BoxOverlay(Step):
                     frame[height : height + height // 2, 1:width:2].masked_fill_(
                         chroma, v
                     )
-                    # The input owns the storage until downstream GPU work finishes.
+                    # 하위 GPU 작업이 끝날 때까지 입력이 저장 공간을 소유한다.
                     del frame
             yield item

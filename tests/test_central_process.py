@@ -74,7 +74,6 @@ class LoggingSource(Step):
 
 
 class CentralTestPipeline(Pipeline):
-    """Exercise the central protocol independently of automatic routing."""
 
     def run(self):
         from pipeworks.main import run_remote
@@ -457,7 +456,7 @@ class CentralProcessTests(unittest.TestCase):
                 dev, _, dev_pid, process = self._open_group_stream(
                     directory, development
                 )
-                # Windows venv launchers can have a different PID from the Python server.
+                # Windows 가상 환경 실행기의 PID는 Python 서버의 PID와 다를 수 있다.
                 os.kill(dev_pid, signal.SIGTERM)
                 process.wait(timeout=5)
                 self._assert_group_progress(production, path, prod_pid)
@@ -495,7 +494,7 @@ class CentralProcessTests(unittest.TestCase):
                     RecordingSource(replacement_path),
                     development=True,
                 )
-                # Use the isolated test server while exercising constructor-based routing.
+                # 생성자 기반 라우팅을 검증할 때 격리된 테스트 서버를 사용한다.
                 with patch(
                     "pipeworks.main._connect",
                     side_effect=lambda group: _connect(development),

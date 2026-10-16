@@ -1,4 +1,3 @@
-"""컨테이너 수명과 독립적인 비디오 메타데이터."""
 
 from dataclasses import dataclass, field
 from fractions import Fraction
@@ -45,7 +44,6 @@ class VideoStreamInfo:
 
     @classmethod
     def from_stream(cls, stream) -> "VideoStreamInfo":
-        """원본 컨테이너가 열려 있을 때 연결마다 한 번 호출한다."""
         codec = stream.codec_context
         return cls(
             CodecInfo(
@@ -58,7 +56,6 @@ class VideoStreamInfo:
         )
 
     def add_to_output(self, output):
-        """값으로 출력 스트림을 만들고 자동 소프트웨어 인코더 열기를 막는다."""
         codec = self.codec_context
         # add_mux_stream은 extradata를 설정할 수 없다. 빈 로컬 템플릿으로
         # remux 상태만 초기화한 뒤 출력 소유 코덱에 독립 값들을 넣는다.
@@ -83,7 +80,6 @@ def _fraction(value):
 
 
 def encoded_stream_info(source, data: bytes, time_base: Fraction) -> VideoStreamInfo:
-    """인코더 세대의 첫 Annex B 출력에서 실제 헤더만 보관한다."""
     codec = getattr(source, "codec_context", source)
     name = codec.name.lower()
     name = "hevc" if name == "h265" else name

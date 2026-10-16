@@ -1,4 +1,3 @@
-"""Compare the checked-in baseline and optimized generic preprocessing on CUDA."""
 
 import argparse
 import subprocess
@@ -48,7 +47,7 @@ def main():
         parser.error("iterations must be positive")
     if not torch.cuda.is_available():
         parser.error("CUDA is required")
-    # Preserve the exact pre-change implementation as the independent baseline.
+    # 변경 전 구현을 그대로 보존해 독립적인 비교 기준으로 사용한다.
     for baseline_path in (
         "examples/step/tensor_rt_pre_process.py",
         "src/pipeworks/embedded/tensor_rt_pre_process.py",

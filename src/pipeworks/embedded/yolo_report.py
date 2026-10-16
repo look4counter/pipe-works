@@ -1,4 +1,3 @@
-"""감지 요청의 CPU/GPU 구간을 추가 동기화 없이 수집한다."""
 
 from collections import Counter, deque
 from contextlib import contextmanager

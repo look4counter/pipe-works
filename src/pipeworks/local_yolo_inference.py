@@ -1,4 +1,3 @@
-"""Shared GPU batch execution for caller-prepared model inputs."""
 
 import math
 import time
@@ -116,7 +115,7 @@ class _ModelWorker:
                             tensors = concatenate_inputs([r.inputs for r in batch])
                         started = time.perf_counter()
                         if self.backend == Backend.TENSORRT:
-                            # Callers record completed requests in their own report scopes.
+                            # 호출자는 각자의 보고 범위에 완료된 요청을 기록한다.
                             with report_scope():
                                 outputs = sessions[session_key].infer(
                                     tensors, stream, copy_context()
@@ -144,20 +143,20 @@ class _ModelWorker:
                         elapsed = time.perf_counter() - started
                         for request in batch:
                             request.inference_seconds = elapsed
-            except Exception as error:  # noqa: BLE001 -- wake every waiting request
+            except Exception as error:  # noqa: BLE001 -- 대기 중인 모든 요청을 깨운다
                 message = f"{type(error).__name__}: {error}"
                 session = sessions.pop(session_key, None)
                 try:
                     if stream is not None:
                         stream.synchronize()
-                except Exception as cleanup_error:  # noqa: BLE001 -- preserve original failure
+                except Exception as cleanup_error:  # noqa: BLE001 -- 원래 오류를 보존한다
                     message += f"; cleanup: {cleanup_error}"
                 finally:
                     close = getattr(session, "close", None)
                     if callable(close):
                         try:
                             close()
-                        except Exception:  # noqa: BLE001 -- original failure already retained
+                        except Exception:  # noqa: BLE001 -- 원래 오류는 이미 보존되어 있다
                             pass
                 for request in batch:
                     request.result = None
@@ -171,12 +170,12 @@ class _ModelWorker:
                         request.profile = own
                     request.inputs = request.ready_event = None
                     request.done.set()
-                # Do not retain caller tensors or evicted sessions while idle.
+                # 유휴 상태에서는 호출자 텐서나 캐시에서 제거된 세션의 참조를 유지하지 않는다.
                 batch = first = request = tensors = outputs = session = None
 
 
 def _worker(model_path, backend):
-    # Separate path aliases and canonical caches for each execution backend.
+    # 실행 백엔드별로 경로 별칭과 정규 경로 캐시를 분리한다.
     with _workers_lock:
         workers = _workers.setdefault(backend, {})
         paths = _worker_paths.setdefault(backend, {})

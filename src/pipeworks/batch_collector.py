@@ -1,4 +1,3 @@
-"""Collect compatible requests without model or GPU dependencies."""
 
 from collections import deque
 from collections.abc import Callable
@@ -19,10 +18,6 @@ def collect_batch(
     key: Callable[[Request], object],
     received_at: Callable[[Request], float],
 ) -> list[Request]:
-    """Wait from the oldest request's arrival; defer incompatible requests.
-
-    timeout is in seconds. Queue ownership and result delivery stay with callers.
-    """
     first = deferred.popleft() if deferred else requests.get()
     batch = [first]
     first_key = key(first)

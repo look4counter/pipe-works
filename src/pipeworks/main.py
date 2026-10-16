@@ -1,4 +1,3 @@
-"""Run all requested pipelines in one local process."""
 
 import hashlib
 import csv
@@ -220,7 +219,7 @@ def run_remote(pipeline) -> None:
                 for inner in step.steps:
                     register_step(inner)
             module_names = {type(step).__module__}
-            # Reused methods can belong to a different user module than the Step.
+            # 재사용한 메서드는 Step과 다른 사용자 모듈에 속할 수 있다.
             for cls in type(step).__mro__:
                 for member in vars(cls).values():
                     member = getattr(member, "__func__", member)

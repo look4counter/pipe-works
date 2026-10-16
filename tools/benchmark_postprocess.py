@@ -1,4 +1,3 @@
-"""Compare complete old and optimized postprocessing on identical CUDA predictions."""
 
 import argparse
 import statistics
@@ -46,7 +45,7 @@ def measure(step, source, stream, iterations):
     for _ in range(iterations):
         with torch.cuda.stream(stream):
             prediction = source.clone()
-            stream.synchronize()  # Exclude the input reset from both timings.
+            stream.synchronize()  # 두 시간 측정에서 모두 입력 초기화를 제외한다.
             start, end = (
                 torch.cuda.Event(enable_timing=True),
                 torch.cuda.Event(enable_timing=True),

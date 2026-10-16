@@ -1,4 +1,3 @@
-"""Reload a Step implementation between finite input epochs."""
 
 from collections.abc import Callable, Iterator
 import _imp
@@ -91,8 +90,8 @@ class _InputEpoch:
             self.reason = "upstream"
             raise StopIteration
 
-        # The upstream iterator may block while a source reconnects. Check
-        # again before handing the newly obtained item to the old Step.
+        # 소스가 재연결되는 동안 상위 반복자가 대기할 수 있다. 새로 얻은 항목을
+        # 기존 Step에 넘기기 전에 다시 확인한다.
         if self.owner._check_for_update():
             self.cursor.put_back(item)
             self.reason = "code"

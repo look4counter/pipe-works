@@ -29,7 +29,7 @@ class NmsTests(unittest.TestCase):
                         step.configure(SimpleNamespace(classes=classes, max_det=15))
                         reference = prediction.clone()
                         if count == 6:
-                            # Avoid the library's automatic end2end shape branch.
+                            # 라이브러리가 텐서 형태에 따라 자동으로 end2end 분기를 선택하지 않도록 한다.
                             reference = torch.cat((reference, reference.new_zeros((1, 84, 1))), dim=2)
                         expected = non_max_suppression(
                             reference,
@@ -79,7 +79,7 @@ class NmsTests(unittest.TestCase):
         for device in devices:
             prediction = torch.zeros((1, 84, 20), device=device)
             prediction[:, :4] = 10
-            prediction[:, 4:6] = 0.5  # Class ties select the lowest index.
+            prediction[:, 4:6] = 0.5  # 클래스 점수가 같으면 가장 작은 인덱스를 선택한다.
             for confidence, iou, classes in ((0, 0, [0]), (0.5, 0.7, None), (1, 1, [])):
                 step.configure(
                     SimpleNamespace(

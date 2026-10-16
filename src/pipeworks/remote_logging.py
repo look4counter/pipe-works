@@ -1,4 +1,3 @@
-"""중앙 실행의 구조화 로그와 기존 stdout 출력을 호출자에게 중계한다."""
 
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -142,7 +141,6 @@ class _OutsideRoute(logging.Filter):
 
 
 def install_relay(settings):
-    """중앙 프로세스에서만 생성 단계를 개방하고 실행별 필터를 설치한다."""
     global _relay
     with _install_lock:
         root = logging.getLogger()

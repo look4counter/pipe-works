@@ -1,4 +1,3 @@
-"""Run Steps without input copies; drop timed-out frames still in use."""
 
 from contextlib import nullcontext
 from contextvars import Context, copy_context
@@ -47,7 +46,6 @@ class _Request:
 
 
 def _tensors(value, found, seen):
-    """Collect tensor leaves without traversing opaque shared stream resources."""
     if id(value) in seen:
         return
     seen.add(id(value))
@@ -65,7 +63,6 @@ def _tensors(value, found, seen):
 
 
 def _prepare(request):
-    """Retain input storage and separate attributes without copying data."""
     source = request.owner
     stream = getattr(source, "cuda_stream", None)
     fields = vars(source).copy()
@@ -147,8 +144,8 @@ class _InputSlot(Iterator[PipelineContext]):
                 and not request.expired.is_set()
                 and request.completed_at <= request.deadline
             ):
-                # Separate the output before suspended stage generators relinquish
-                # native input fields. Tensor storage itself remains shared.
+                # 중단된 단계 제너레이터가 네이티브 입력 필드를 놓기 전에 출력을 분리한다.
+                # 텐서 저장 공간 자체는 계속 공유한다.
                 request.result = (
                     PipelineContext(**vars(result))
                     if borrowed_frame and result is not None

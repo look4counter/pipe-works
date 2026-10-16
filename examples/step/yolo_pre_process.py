@@ -1,4 +1,3 @@
-"""Prepare GPU model inputs and own image conversion and geometry."""
 
 import math
 from dataclasses import dataclass
@@ -16,7 +15,6 @@ from pipeworks.models import PipelineContext, Step
 
 @dataclass(frozen=True)
 class ImageTransform:
-    """Map original pixels to model pixels by per-axis scale and translation."""
 
     shape: tuple[int, int]
     ratio_xy: tuple[float, float]
@@ -31,7 +29,6 @@ class ImageTransform:
         return x if x == y else self.ratio_xy
 
     def restore_boxes_(self, boxes: torch.Tensor) -> torch.Tensor:
-        """Restore N×4-or-more xyxy rows in-place, preserving additional columns."""
         height, width = self.shape
         ratio_x, ratio_y = self.ratio_xy
         boxes[:, 0:4:2].sub_(self.left).div_(ratio_x).clamp_(0, width)
@@ -40,7 +37,6 @@ class ImageTransform:
 
 
 def nv12_to_rgb(image: torch.Tensor) -> torch.Tensor:
-    """Convert packed GPU uint8 NV12 to independent FP32 CHW RGB in [0, 1]."""
     if not image.is_cuda or image.dtype != torch.uint8 or image.ndim != 2:
         raise ValueError("NV12 입력은 GPU의 2차원 uint8 텐서여야 합니다.")
     packed_height, width = image.shape
@@ -85,7 +81,6 @@ def _channels(value, name):
 
 
 class YoloPreProcess(Step):
-    """Convert video frames into prepared GPU inputs for any inference backend."""
 
     _report_kind = "YOLO"
 
@@ -186,7 +181,7 @@ class YoloPreProcess(Step):
         entry = self._constant_cache.get(key)
         if entry is None:
             value = pixels.new_tensor(getattr(self, name)).view(1, 3, 1, 1)
-            # Constants may subsequently be used on a different CUDA stream.
+            # 상수는 이후 다른 CUDA 스트림에서 사용될 수 있다.
             if pixels.is_cuda:
                 torch.cuda.current_stream(pixels.device).synchronize()
             self._constant_cache[key] = value
@@ -234,7 +229,7 @@ class YoloPreProcess(Step):
             pixels = nv12_to_rgb(frame).mul_(255)
             source_order = "rgb"
         else:
-            # The dtype conversion allocates storage independent of the frame.
+            # 자료형 변환은 프레임과 독립된 저장 공간을 할당한다.
             pixels = frame.permute(2, 0, 1).float()
             source_order = pixel_format.lower()
         if source_order != self.color_order:
@@ -295,8 +290,8 @@ class YoloPreProcess(Step):
 
 
     def _normalize(self, pixels):
-        # _pixels always owns storage independent of the source frame.
-        # Keep the original arithmetic order, including extreme valid settings.
+        # _pixels는 항상 소스 프레임과 독립된 저장 공간을 소유한다.
+        # 유효 범위의 극단적인 설정값에서도 기존 연산 순서를 유지한다.
         output = pixels
         if self.scale != 1:
             output.mul_(self.scale)

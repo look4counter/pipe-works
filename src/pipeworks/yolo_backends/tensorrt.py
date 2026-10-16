@@ -1,4 +1,3 @@
-"""Execute raw GPU tensors with TensorRT using engine-discovered I/O names."""
 
 from contextvars import copy_context
 import json
@@ -326,8 +325,8 @@ class _EngineSession:
                     raise RuntimeError(f"TensorRT 출력 할당기 설정 실패: {name}")
                 self.allocators[name] = allocator
             else:
-                # TensorRT retains registered Python allocators until context teardown.
-                # Reuse the callback owner, but preserve earlier output Tensor storage.
+                # TensorRT는 컨텍스트를 해제할 때까지 등록된 Python 할당자의 참조를 유지한다.
+                # 콜백 소유자는 재사용하되 이전 출력 텐서의 저장 공간은 보존한다.
                 allocator.reset(known_shape)
             address = allocator.buffer.data_ptr() if allocator.buffer is not None else 0
             if not self.context.set_tensor_address(name, address):
@@ -335,7 +334,6 @@ class _EngineSession:
 
 
 class TensorRTBackend:
-    """Execute a TensorRT engine with the shared GPU backend contract."""
 
     def __init__(self, model_path, gpu_id):
         self.gpu_id = gpu_id
@@ -345,7 +343,7 @@ class TensorRTBackend:
         )
 
     def infer(self, inputs):
-        # The outer inference step records elapsed time for this request.
+        # 바깥 추론 단계에서 이 요청의 경과 시간을 기록한다.
         from pipeworks.embedded.stream_report import report_scope
 
         stream = torch.cuda.current_stream(self.gpu_id)

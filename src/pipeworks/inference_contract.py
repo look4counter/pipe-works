@@ -1,4 +1,3 @@
-"""Backend-neutral geometry, profiling, and temporary context fields."""
 
 from importlib import import_module
 
@@ -19,7 +18,6 @@ def inherited_profile(item):
 
 
 def bind_profile(profile, kind):
-    """Retain already collected stages while assigning the actual backend."""
     if profile is not None:
         stats = _report(kind).store()
         profile.kind = kind

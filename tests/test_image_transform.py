@@ -14,7 +14,7 @@ from step.yolo_pre_process import ImageTransform
 
 class ImageTransformTests(unittest.TestCase):
     def test_preprocess_geometry_restores_original_boxes(self):
-        # Expected scale/translation are independent fixtures for each mode.
+        # 예상 배율과 평행 이동값은 각 모드에 독립적인 테스트 기준값이다.
         cases = [
             ({}, (2.0, 2.0), (0, 2)),
             ({"center": False}, (2.0, 2.0), (0, 0)),

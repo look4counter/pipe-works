@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class _EncodeError(Exception):
-    """네이티브 인코더 호출에서 발생한 복구 대상 오류."""
+    pass
 
 
 class NvidiaEncode(Step):

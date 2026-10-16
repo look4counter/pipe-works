@@ -1,4 +1,3 @@
-"""Library-independent CUDA model execution contracts."""
 
 import math
 import re
@@ -12,7 +11,6 @@ from torch.utils._python_dispatch import TorchDispatchMode
 
 
 class YoloBackend(Protocol):
-    """Backends load a model with (model_path, gpu_id) and execute GPU inputs."""
 
     def infer(self, inputs): ...
 
@@ -69,7 +67,6 @@ def validate_gpu(tensor, gpu_id):
 
 
 class GpuOnly(TorchDispatchMode):
-    """Reject CPU tensors, device transfers, and GPU scalar reads during forward."""
 
     def __init__(self, gpu_id, scalar_constants=()):
         super().__init__()
@@ -107,7 +104,7 @@ class GpuOnly(TorchDispatchMode):
             func == torch.ops.aten._local_scalar_dense.default
             and args[0].data_ptr() in self.scalar_constants
         ):
-            # TorchScript unwraps immutable scalar graph constants as metadata.
+            # TorchScript는 불변 스칼라 그래프 상수를 메타데이터로 꺼낸다.
             return func(*args, **kwargs)
         if func in (
             torch.ops.aten._local_scalar_dense.default,
@@ -137,7 +134,7 @@ def validate_inputs(inputs, gpu_id, *, batch=False):
         )
     for tensor in values:
         if not isinstance(tensor, torch.Tensor):
-            raise ValueError("모든 모델 입력은 GPU 텐서여야 합니다.")  # noqa: TRY004 -- input contract
+            raise ValueError("모든 모델 입력은 GPU 텐서여야 합니다.")  # noqa: TRY004 -- 입력 계약
         validate_gpu(tensor, gpu_id)
         if (
             tensor.layout != torch.strided
@@ -214,7 +211,7 @@ def batch_settings(model_path):
         return 1, 0.0
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
-        raise ValueError(f"YOLO 배치 설정은 객체여야 합니다: {config_path}")  # noqa: TRY004 -- YAML contract
+        raise ValueError(f"YOLO 배치 설정은 객체여야 합니다: {config_path}")  # noqa: TRY004 -- YAML 계약
     if "timeout" in config:
         raise ValueError("모델 YAML의 timeout 대신 timeout_ms를 사용하세요.")
     size, timeout = config.get("max_batch_size"), config.get("timeout_ms")

@@ -1,4 +1,3 @@
-"""Explicit CUDA compatibility adapter for Ultralytics PyTorch checkpoints."""
 
 import torch
 
@@ -22,7 +21,7 @@ class UltralyticsBackend:
         self._stride_constants()
 
     def _stride_constants(self):
-        # Strides are immutable model geometry metadata, never image data.
+        # 스트라이드는 불변 모델 기하 메타데이터이며 이미지 데이터가 아니다.
         self.scalar_constants.clear()
         for module in self.model.modules():
             stride = getattr(module, "stride", None)

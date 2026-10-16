@@ -1,4 +1,3 @@
-"""Execute library-independent TorchScript models on CUDA."""
 
 import torch
 

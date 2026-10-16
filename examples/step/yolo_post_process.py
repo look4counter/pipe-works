@@ -1,10 +1,9 @@
-"""Filter GPU detection predictions and restore original image coordinates."""
 
 import math
 from types import SimpleNamespace
 
 import torch
-import torchvision  # noqa: F401 -- Ultralytics selects the compiled GPU NMS.
+import torchvision  # noqa: F401 -- Ultralytics가 컴파일된 GPU NMS를 선택한다.
 from ultralytics.engine.results import Boxes
 from ultralytics.utils import ROOT, YAML
 from ultralytics.utils.nms import non_max_suppression
@@ -32,7 +31,6 @@ def _names(value):
 
 
 class YoloPostProcess(Step):
-    """Decode detection outputs independently of the inference backend."""
 
     def __init__(
         self,
@@ -125,7 +123,7 @@ class YoloPostProcess(Step):
             keep &= (labels[:, None] == allowed).any(dim=1)
         rows = prediction[0].transpose(0, 1)
         rows[:, :4] = xywh2xyxy(rows[:, :4])
-        # Select only the final six columns; consume raw coordinates in place.
+        # 마지막 여섯 열만 선택하고 원시 좌표는 제자리에서 처리한다.
         boxes = torch.cat(
             (rows[:, :4], scores[:, None], labels[:, None].float()), dim=1
         )[keep]

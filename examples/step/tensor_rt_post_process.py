@@ -1,4 +1,3 @@
-"""Reuse example-owned detection postprocessing under the TensorRT step name."""
 
 from step.yolo_post_process import YoloPostProcess
 from pipeworks.models import Step

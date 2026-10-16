@@ -1,4 +1,3 @@
-"""Run a group of one-input/one-output steps every N frames."""
 
 from collections.abc import Iterator
 from contextlib import ExitStack

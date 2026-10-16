@@ -1,5 +1,3 @@
-"""수신·디코딩을 독립 실행하고 최대 30개 프레임을 FIFO로 전달한다."""
-
 from contextvars import copy_context
 from collections import deque
 import logging
@@ -18,11 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class _DecodeError(Exception):
-    """네이티브 디코더 호출에서 발생한 복구 대상 오류."""
+    pass
 
 
 class _LockedBuffer:
-    """CUDA Array Interface owner retained by the shared Tensor storage."""
 
     def __init__(self, pool, pointer, ready):
         self.pool, self.pointer, self.completion = pool, pointer, ready
@@ -43,7 +40,6 @@ class _LockedBuffer:
 
 
 class _DecoderBuffers:
-    """Keep native output locks until both GPU work and shared owners finish."""
 
     limit = 34
 
@@ -131,7 +127,7 @@ class _DecoderBuffers:
                 raise RuntimeError("디코더가 이미 잠긴 버퍼를 다시 반환했습니다.")
             self.locked.add(pointer)
         owner = _LockedBuffer(self, pointer, ready)
-        # as_tensor retains owner; DLPack aliases retain the same Tensor storage.
+        # as_tensor는 소유자 참조를 유지하며, DLPack 별칭은 같은 텐서 저장 공간을 유지한다.
         with torch.cuda.stream(self.stream):
             frame = torch.as_tensor(owner, device=self.stream.device)
         return frame, owner
@@ -442,7 +438,7 @@ class NvidiaDecode(Step):
             slot.cancel()
             # 소스 읽기 중이면 기존 RTSP 제한 시간/다음 패킷까지 기다린다.
             worker.join()
-            # External Tensor aliases keep their locks until their last reference ends.
+            # 외부 텐서 별칭은 마지막 참조가 사라질 때까지 잠금을 유지한다.
             item = owner = None
             if slot.buffers is not None:
                 slot.buffers.close()

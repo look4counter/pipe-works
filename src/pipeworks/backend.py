@@ -1,4 +1,3 @@
-"""Named model execution backends."""
 
 from enum import StrEnum
 

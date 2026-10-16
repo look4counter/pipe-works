@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 def _copy_packet_for_publish(source: av.Packet) -> av.Packet:
-    """출력별 메타데이터와 FFmpeg 패딩을 갖춘 압축 버퍼를 만든다."""
     for flag in ("is_discard", "is_trusted", "is_disposable"):
         if getattr(source, flag):
             raise ValueError(f"송신 패킷에서 보존할 수 없는 플래그입니다: {flag}")

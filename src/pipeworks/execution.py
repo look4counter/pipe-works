@@ -1,4 +1,3 @@
-"""Optional signals scoped to the currently executing asynchronous request."""
 
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -13,7 +12,7 @@ _frame_drop_enabled = ContextVar("pipeworks_frame_drop_enabled", default=False)
 
 
 class _DroppedFrame(PipelineContext):
-    """Internal acknowledgement of an input dropped while still in use."""
+    pass
 
 
 def _can_signal_frame_drop():
@@ -43,23 +42,12 @@ def _source_cancel_scope(cancel):
 
 
 def release_input(*, ready_event=None) -> None:
-    """Promise no further shared-input access, optionally after a CUDA event.
-
-    Outside an CudaAsync request this is a no-op. Result attributes may still be
-    assigned to the working context, but its shared data must not be used again.
-    """
     callback = _input_release.get()
     if callback is not None:
         callback(ready_event)
 
 
 def release_frame(*, ready_event=None) -> None:
-    """Promise no further original-frame reads in this CudaAsync chain.
-
-    RGB/model tensors created by preprocessing may still be used. A CUDA event
-    must cover every submitted original-frame read. Outside a request this is
-    a no-op; later wrapped Steps must also honor the promise.
-    """
     callback = _frame_release.get()
     if callback is not None:
         callback(ready_event)

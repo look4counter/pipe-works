@@ -173,7 +173,7 @@ class CudaContractTests(unittest.TestCase):
                     if both_active:
                         other_stats.activate(other_kind)
                     item = self.frame()
-                    # The supplied TensorRT model uses a fixed 640 input.
+                    # 제공된 TensorRT 모델은 입력 크기가 640으로 고정되어 있다.
                     size = (640, 640) if kind == "TensorRT" else (32, 32)
                     inputs = pre_cls(size=size).process(iter([item]))
                     options = (

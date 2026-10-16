@@ -1,4 +1,3 @@
-"""Run library-independent YOLO inference on caller-prepared GPU tensors."""
 
 import time
 from contextlib import nullcontext
@@ -50,7 +49,7 @@ class _Session:
                 with span("output_copy", stream):
                     return normalize_outputs(output, self.gpu_id)
         except Exception as error:
-            # TorchScript can strip the Python dispatch exception message.
+            # TorchScript는 Python 디스패치 예외 메시지를 제거할 수 있다.
             if getattr(guard, "error", None) is not None and guard.error is not error:
                 raise guard.error from error
             raise
@@ -68,7 +67,7 @@ class YoloInference(Step):
         profile_index: int = 0,
     ) -> None:
         if not isinstance(batch, bool):
-            raise ValueError("batch는 불리언이어야 합니다.")  # noqa: TRY004 -- preserve configuration error contract
+            raise ValueError("batch는 불리언이어야 합니다.")  # noqa: TRY004 -- 설정 오류 계약을 보존한다
         self.model_path = Path(model_path)
         self.batch = batch
         self._set_config_defaults(
@@ -273,7 +272,7 @@ class YoloInference(Step):
                 stream = item.cuda_stream
                 with torch.cuda.stream(stream):
                     try:
-                        # Keep input ordering on the GPU, including caller-owned streams.
+                        # 호출자 소유 스트림을 포함해 GPU에서 입력 처리 순서를 유지한다.
                         with span("input_wait"):
                             stream.wait_event(ready_event)
                         tensors = (

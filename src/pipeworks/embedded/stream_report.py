@@ -1,4 +1,3 @@
-"""파이프라인 실행별 프레임 처리 통계를 상세 형식으로 출력한다."""
 
 import time
 import logging
@@ -259,7 +258,6 @@ def record_inference(inference_seconds: float) -> None:
 
 
 class _ReportReader:
-    """Observe one published snapshot without locking or changing collectors."""
 
     def __init__(self, stats: _ReportStats):
         self.stats = stats
@@ -273,8 +271,8 @@ class _ReportReader:
         self.observed_at = self.started_at
 
     def read(self, *, now: float | None = None) -> _ReportView | None:
-        # CPython 3.11 publishes a single object reference. All reachable
-        # statistics are immutable, so writers can replace it while we read.
+        # CPython 3.11은 객체 참조 하나를 게시한다. 참조로 도달하는 모든 통계는
+        # 불변이므로 읽는 동안에도 쓰는 쪽에서 참조를 교체할 수 있다.
         snapshot = self.stats.snapshot
         now = time.perf_counter() if now is None else now
         elapsed = now - self.started_at

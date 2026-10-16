@@ -1,4 +1,3 @@
-"""Reuse example-owned GPU preprocessing under the TensorRT step name."""
 
 from step.yolo_pre_process import YoloPreProcess, F
 from pipeworks.models import Step
