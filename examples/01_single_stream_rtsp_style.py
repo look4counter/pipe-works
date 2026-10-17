@@ -12,6 +12,7 @@ from pipeworks.embedded import (
     EveryNFrames,
     YoloReport,
     YoloInference,
+    DropFrames,
 )
 from step.yolo_pre_process import YoloPreProcess
 from step.yolo_post_process import YoloPostProcess
@@ -27,6 +28,7 @@ def build_pipeline() -> Pipeline:
         )
         .step(RTSPSource("rtsp://210.99.70.120:1935/live/cctv001.stream"))
         .step(NvidiaDecode())
+        .step(DropFrames(keep_every=1))
         .step(
             EveryNFrames(
                 CudaAsync(

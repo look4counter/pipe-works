@@ -1,5 +1,6 @@
 from pipeworks.backend import Backend
 from pipeworks.embedded.every_n_frames import EveryNFrames
+from pipeworks.embedded.drop_frames import DropFrames
 from pipeworks.embedded.cuda_async import CudaAsync
 from pipeworks.embedded.rtsp_source import RTSPSource
 from pipeworks.embedded.rtsp_publish import RTSPPublish
@@ -13,6 +14,7 @@ from pipeworks.embedded.yolo_report import YoloReport
 __all__ = [
     "Backend",
     "EveryNFrames",
+    "DropFrames",
     "CudaAsync",
     "RTSPSource",
     "RTSPPublish",
