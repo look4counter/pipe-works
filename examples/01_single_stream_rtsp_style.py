@@ -23,7 +23,7 @@ def build_pipeline() -> Pipeline:
         Pipeline(
             "cobble-detection",
             config=Path(__file__).with_name("config") / "stream.yml",
-            development=True,
+            batch_process="development",
         )
         .step(RTSPSource("rtsp://210.99.70.120:1935/live/cctv001.stream"))
         .step(NvidiaDecode())

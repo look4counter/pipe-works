@@ -13,27 +13,27 @@ Batch 추론이 포함된 파이프라인을 별도의 중앙 프로세스에서
 - `pipeline.run()` 호출 시 Batch 추론이 있으면 자동으로 사용됨
 - Named pipe를 통한 프로세스 간 통신
 
-## 운영·개발 중앙 프로세스 분리
+## 별칭으로 중앙 프로세스 분리
 
 ```python
-production_pipeline = Pipeline("production", config=Path("stream.yml"))
-development_pipeline = Pipeline(
-    "development", config=Path("stream.yml"), development=True
+first_pipeline = Pipeline("first", config=Path("stream.yml"), batch_process="camera-a")
+second_pipeline = Pipeline(
+    "second", config=Path("stream.yml"), batch_process="camera-b"
 )
-production_pipeline.run()
-development_pipeline.run()
+first_pipeline.run()
+second_pipeline.run()
 ```
 
-같은 설치·Windows 사용자·실행 모드의 Batch 파이프라인은 하나의 중앙 프로세스를 공유합니다. 운영과 개발은 별도 프로세스와 연결 주소·시작 잠금을 사용합니다. Pipeline 생성자의 `development` 기본값은 `False`이며 운영용 프로세스를 선택합니다. `True`는 개발용 프로세스를 선택합니다. bool 이외의 값은 생성 시 오류로 거부합니다.
+같은 설치·Windows 사용자·별칭의 Batch 파이프라인은 하나의 중앙 프로세스를 공유합니다. 별칭이 다르면 별도 프로세스와 연결 주소·시작 잠금을 사용합니다. Pipeline 생성자의 `batch_process` 기본값은 `"production"`입니다. 별칭은 대소문자를 구분하는 영문자·숫자·밑줄·하이픈 1~64자입니다. 비문자열은 TypeError, 잘못된 문자열은 ValueError로 거부합니다. 기존 `development` 인자는 제거되었습니다.
 
-선택 그룹은 필요할 때 자동 시작하고 마지막 연결 종료 후 유휴 상태가 되면 자동 종료합니다. 개발 그룹의 종료는 운영 그룹의 연결과 작업자를 종료하지 않습니다. `development`는 생성자 옵션이며 YAML 실시간 변경 대상이 아닙니다. `run()`에는 선택 인자를 전달하지 않습니다.
+선택 그룹은 필요할 때 자동 시작하고 마지막 연결 종료 후 유휴 상태가 되면 자동 종료합니다. 한 그룹의 종료는 다른 그룹의 연결과 작업자를 종료하지 않습니다. `batch_process`는 생성자 옵션이며 YAML 실시간 변경 대상이 아닙니다. `run()`에는 선택 인자를 전달하지 않습니다. 파이프라인의 name은 프로세스 별칭과 별개입니다.
 
 `YoloInference(batch=True)`가 하나라도 있으면 영상의 Step과 GPU 추론을 모두 선택한 중앙 프로세스에서 실행합니다. 래퍼 내부도 검사하며 일반 추론과 Batch 추론이 섞여 있어도 전체 파이프라인을 중앙에서 실행합니다. Batch 추론이 없는 파이프라인은 호출자 프로세스에서 실행합니다. 서로 다른 그룹은 모델 배치·엔진 세션을 공유하지 않으므로 같은 모델도 그룹마다 로드하여 GPU 메모리를 추가로 사용합니다. 같은 GPU의 연산·메모리 자원과 드라이버 리셋·장치 전체 장애는 공유합니다.
 
 내부 서버를 직접 실행할 때도 그룹을 지정할 수 있습니다.
 
 ```powershell
-python -m pipeworks.main --server-group development
+python -m pipeworks.main --server-group camera-a
 ```
 
 ---
@@ -80,7 +80,7 @@ main.py가 수신 후 실행
 
 클라이언트는 약 0.25초마다 heartbeat를 보내고 서버는 약 2초 동안 확인하지 못하거나 연결이 끊기면 중단 신호를 설정합니다. 연결이 끊겨도 해당 파이프라인 실행 스레드가 리소스·로그 정리를 마치고 실제로 종료할 때까지 활성 요청으로 유지합니다. 정리 대기에는 고정 시간 제한이 없으며, 정리 중에도 다른 요청을 처리합니다. 마지막 실행의 정리가 끝난 뒤 약 1초 유휴 상태이면 서버가 종료되어 모델 작업자도 사라집니다. 블로킹 호출이나 정리가 끝나지 않으면 자동 유휴 종료도 계속 대기합니다. 결과는 완료 상태와 구조화 로그이며 프레임 반환 API가 아닙니다.
 
-서버 그룹 내부 검증은 영문자·숫자·밑줄·하이픈의 1~64자 문자열을 허용하지만 Pipeline은 production 또는 development 두 그룹만 선택합니다. 예제의 production.run과 development.run은 각각 블로킹이므로 연속 호출하면 첫 실행이 끝난 뒤 다음 실행을 시작합니다.
+서버 그룹과 Pipeline의 batch_process는 동일한 별칭 규칙을 사용합니다. 내부 연결 주소는 설치 경로와 Windows 사용자 SID의 해시를 기반으로 하며, production 이외의 별칭은 별칭의 SHA-256 해시를 주소와 잠금 파일에 덧붙여 구분합니다. 예제의 두 run() 호출은 각각 블로킹이므로 연속 호출하면 첫 실행이 끝난 뒤 다음 실행을 시작합니다.
 
 [앱 실행 절차](getting_started.md), [설정과 경로](configuration.md), [공유 모델 작업자](local_yolo_inference.md)를 참고하세요.
 

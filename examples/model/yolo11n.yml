@@ -1,3 +1,2 @@
 max_batch_size: 1
-timeout_ms: 20
-plugins: []
+max_batch_wait_ms: 20

@@ -58,7 +58,7 @@ GpuOnly는 CPU·다른 GPU 텐서 연산과 장치 전환, GPU 값의 CPU scalar
 | input_signature | 자료형·이름·비배치 형상으로 호환 키 생성 |
 | contiguous_inputs / concatenate_inputs | 연속 입력 생성, 배치 첫 축 결합 |
 | normalize_outputs | GPU 출력 검증·이름 평탄화·복제 |
-| batch_settings | 모델 옆 .yml의 max_batch_size와 timeout_ms 읽기. 반환 시간은 초 |
+| batch_settings(model_path) | 모델 동명 .yml의 max_batch_size와 max_batch_wait_ms 읽기. 파일이 없으면 크기 1·대기 0. 반환 시간은 초 |
 | GpuOnly | PyTorch 연산의 GPU 전용 계약 감시 |
 
 도우미는 내부 추론 경로에서도 사용합니다. 직접 조합하면 동기화·오류 전달·자원 수명을 호출자가 책임져야 합니다. 모델 실행은 YoloInference 또는 [공유 infer](local_yolo_inference.md)를 통해 사용하는 것이 기본 경로입니다. [실행부별 차이](yolo_backends/README.md)를 참고하세요.

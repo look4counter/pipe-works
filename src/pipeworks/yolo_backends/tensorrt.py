@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_model_config(model_path):
-    path = model_path.with_suffix(".yml")
+    path = Path(model_path).with_suffix(".yml")
     if not path.is_file():
         return {}
     try:
@@ -24,22 +24,13 @@ def _load_model_config(model_path):
         raise ValueError(f"TensorRT 모델 설정이 잘못되었습니다: {path}") from error
     if not isinstance(config, dict):
         raise ValueError("TensorRT 모델 설정은 객체여야 합니다.")
-    if "timeout" in config:
-        raise ValueError("모델 YAML의 timeout 대신 timeout_ms를 사용하세요.")
+    if any(key in config for key in ("timeout", "timeout_ms", "batch_timeout_ms")):
+        raise ValueError("모델 YAML의 timeout·timeout_ms·batch_timeout_ms 대신 max_batch_wait_ms를 사용하세요.")
     if "profile_index" in config:
         raise ValueError(
             "profile_index는 모델 YAML 대신 stream.yml의 YoloInference 아래에 설정하세요."
         )
     return config
-
-
-def _engine_settings(model_path, config):
-    plugins = config.get("plugins", [])
-    if not isinstance(plugins, list) or any(
-        not isinstance(plugin, str) or not plugin for plugin in plugins
-    ):
-        raise ValueError("plugins는 공유 라이브러리 경로 문자열 목록이어야 합니다.")
-    return tuple(model_path.parent / plugin for plugin in plugins)
 
 
 def _validate_profile_index(profile_index):
@@ -135,12 +126,11 @@ def _output_allocator(trt, dtype, device, shape):
 
 
 class _EngineSession:
-    def __init__(self, model_path: Path, plugins=(), profile_index=0):
+    def __init__(self, model_path: Path, profile_index=0):
         import tensorrt as trt
 
         self.context = self.engine = self.runtime = self.logger = None
         self.allocators = {}
-        self.plugin_handles = []
         self.profile_index = profile_index
         self._profile_selected = False
         self.trt = trt
@@ -149,14 +139,6 @@ class _EngineSession:
             raise RuntimeError("TensorRT 표준 플러그인 초기화에 실패했습니다.")
         self.runtime = trt.Runtime(self.logger)
         self.runtime.engine_host_code_allowed = True
-        self.plugin_handles = []
-        for plugin in plugins:
-            if not plugin.is_file():
-                raise FileNotFoundError(plugin)
-            handle = self.runtime.get_plugin_registry().load_library(str(plugin))
-            if handle is None:
-                raise RuntimeError(f"TensorRT 플러그인 라이브러리 로딩 실패: {plugin}")
-            self.plugin_handles.append(handle)
         payload = model_path.read_bytes()
         if len(payload) >= 4:
             metadata_size = int.from_bytes(payload[:4], "little")
@@ -216,11 +198,10 @@ class _EngineSession:
         self.allocators = {}
 
     def close(self):
-        # 실행 컨텍스트와 엔진을 해제한 뒤 플러그인 레지스트리와 Runtime을 해제한다.
+        # 실행 컨텍스트와 엔진을 해제한 뒤 Runtime을 해제한다.
         self.context = None
         self.allocators = {}
         self.engine = None
-        self.plugin_handles = []
         self.runtime = None
         self.logger = None
 
@@ -338,9 +319,8 @@ class TensorRTBackend:
     def __init__(self, model_path, gpu_id):
         self.gpu_id = gpu_id
         model_path = Path(model_path)
-        self.session = _EngineSession(
-            model_path, _engine_settings(model_path, _load_model_config(model_path))
-        )
+        _load_model_config(model_path)
+        self.session = _EngineSession(model_path)
 
     def infer(self, inputs):
         # 바깥 추론 단계에서 이 요청의 경과 시간을 기록한다.

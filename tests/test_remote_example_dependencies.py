@@ -32,7 +32,7 @@ class RemoteExampleDependenciesTests(unittest.TestCase):
             code = (
                 "import sys, cloudpickle, torch; "
                 "sys.modules['step'] = None; "
-                "pipeline = cloudpickle.loads(open(sys.argv[1], 'rb').read()); "
+                "pipeline = cloudpickle.loads(open(sys.argv[1], 'rb').read())['pipeline']; "
                 "pre, post = pipeline.steps[0].steps[0].steps; "
                 "image, transform = pre._resize(torch.zeros(3, 4, 4)); "
                 "assert tuple(image.shape) == (1, 3, 8, 8); "

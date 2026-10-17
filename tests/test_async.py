@@ -898,7 +898,7 @@ class AsyncTests(unittest.TestCase):
 
         pipeline = SimpleNamespace(
             steps=[CudaAsync(FunctionStep(lambda item, _: item))],
-            development=False,
+            batch_process="production",
         )
         with (
             patch.object(main, "_connect", return_value=Connection()),
@@ -938,7 +938,7 @@ class AsyncTests(unittest.TestCase):
                 steps=[
                     TapSkipIfBusy(CudaAsync(modules[0].Custom(), CudaAsync(modules[1].Custom())))
                 ],
-                development=False,
+                batch_process="production",
             )
             with patch.object(main, "_connect", return_value=Connection()):
                 main.run_remote(pipeline)

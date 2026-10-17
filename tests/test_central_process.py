@@ -327,26 +327,28 @@ class AsyncLoggingFailure(Step):
 
 
 class CentralProcessTests(unittest.TestCase):
-    def test_development_constructor_contract(self):
+    def test_batch_process_constructor_contract(self):
         with TemporaryDirectory() as temporary:
             config = Path(temporary) / "config.yml"
             config.write_text("{}", encoding="utf-8")
             with patch("pipeworks.main._connect") as connect:
-                for value in (None, 0, 1, "true", "development", [], {}):
-                    with (
-                        self.subTest(value=value),
-                        self.assertRaisesRegex(TypeError, "development"),
-                    ):
-                        Pipeline("invalid", config=config, development=value)
+                for value in (None, False, True, 0, 1, [], {}):
+                    with self.subTest(value=value), self.assertRaisesRegex(TypeError, "batch_process"):
+                        Pipeline("invalid", config=config, batch_process=value)
+                for value in ("", " ", "a b", "a/b", "a.b", "x" * 65):
+                    with self.subTest(value=value), self.assertRaisesRegex(ValueError, "batch_process"):
+                        Pipeline("invalid", config=config, batch_process=value)
                 pipeline = Pipeline("default", config=config)
-                self.assertIs(pipeline.development, False)
+                self.assertEqual(pipeline.batch_process, "production")
                 with self.assertRaises(TypeError):
-                    pipeline.run(server_group="development")
+                    Pipeline("old", config=config, development=True)
+                with self.assertRaises(TypeError):
+                    pipeline.run(server_group="camera-a")
                 connect.assert_not_called()
-            for development in (False, True):
-                pipeline = Pipeline("mode", config=config, development=development)
+            for alias in ("production", "camera-a", "Camera_A", "0", "x" * 64):
+                pipeline = Pipeline("alias", config=config, batch_process=alias)
                 restored = cloudpickle.loads(cloudpickle.dumps(pipeline))
-                self.assertIs(restored.development, development)
+                self.assertEqual(restored.batch_process, alias)
                 from pipeworks.embedded import YoloInference
 
                 pipeline.step(YoloInference(Path("model.pt"), backend="torchscript", batch=True))
@@ -355,14 +357,12 @@ class CentralProcessTests(unittest.TestCase):
                     remote.assert_called_once_with(pipeline)
         self.assertEqual(_server_endpoint(), (_ADDRESS, _LOCK_PATH))
         self.assertEqual(_server_endpoint("production"), (_ADDRESS, _LOCK_PATH))
-        self.assertNotEqual(
-            _server_endpoint("development"), _server_endpoint("Development")
-        )
+        self.assertNotEqual(_server_endpoint("camera-a"), _server_endpoint("Camera-a"))
 
     def test_concurrent_groups_reuse_only_their_own_server(self):
         with TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            groups = [False, True]
+            groups = [f"camera-a-{uuid.uuid4().hex}", f"camera-b-{uuid.uuid4().hex}"]
             failures = []
 
             def run(group, index):
@@ -371,7 +371,7 @@ class CentralProcessTests(unittest.TestCase):
                         directory,
                         f"{group}-{index}",
                         RecordingSource(directory / f"{group}-{index}.pid"),
-                        development=group,
+                        batch_process=group,
                     ).run()
                 except Exception as error:
                     failures.append(error)
@@ -492,7 +492,7 @@ class CentralProcessTests(unittest.TestCase):
                     directory,
                     "replacement",
                     RecordingSource(replacement_path),
-                    development=True,
+                    batch_process=development,
                 )
                 # 생성자 기반 라우팅을 검증할 때 격리된 테스트 서버를 사용한다.
                 with patch(
@@ -938,11 +938,11 @@ class CentralProcessTests(unittest.TestCase):
                     _start_server()
 
     def _pipeline(
-        self, directory: Path, name: str, source: Step, *, development=False
+        self, directory: Path, name: str, source: Step, *, batch_process="production"
     ) -> Pipeline:
         config = directory / f"{name}.yml"
         config.write_text("{}", encoding="utf-8")
-        return CentralTestPipeline(name, config=config, development=development).step(source)
+        return CentralTestPipeline(name, config=config, batch_process=batch_process).step(source)
 
     def test_run_executes_in_shared_process(self):
         with TemporaryDirectory() as temporary:

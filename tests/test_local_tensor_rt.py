@@ -28,7 +28,7 @@ class BatchTests(unittest.TestCase):
             path = Path(directory) / "delayed.plan"
             path.write_bytes(b"test")
             path.with_suffix(".yml").write_text(
-                "max_batch_size: 2\ntimeout_ms: 1000", encoding="utf-8"
+                "max_batch_size: 2\nmax_batch_wait_ms: 1000", encoding="utf-8"
             )
             requests = []
             for number in (3, 7):
@@ -111,7 +111,7 @@ class BatchTests(unittest.TestCase):
         broken = [False]
 
         class Session:
-            def __init__(self, path, plugins, profile_index):
+            def __init__(self, path, profile_index):
                 self.profile_index = profile_index
                 created.append(profile_index)
 
@@ -128,7 +128,7 @@ class BatchTests(unittest.TestCase):
             path = Path(directory) / "profiles.plan"
             path.write_bytes(b"test")
             path.with_suffix(".yml").write_text(
-                "max_batch_size: 2\ntimeout_ms: 50", encoding="utf-8"
+                "max_batch_size: 2\nmax_batch_wait_ms: 50", encoding="utf-8"
             )
             value = torch.ones((1, 3), device="cuda")
             torch.cuda.synchronize()
@@ -173,7 +173,7 @@ class BatchTests(unittest.TestCase):
             path = Path(directory) / "model.plan"
             path.write_bytes(b"test")
             path.with_suffix(".yml").write_text(
-                "max_batch_size: 2\ntimeout_ms: 1000\nplugins: [custom.dll]",
+                "max_batch_size: 2\nmax_batch_wait_ms: 1000",
                 encoding="utf-8",
             )
             a, b = (
@@ -192,7 +192,7 @@ class BatchTests(unittest.TestCase):
                 outputs = [f.result(timeout=5) for f in futures]
             self.assertEqual(calls, [(2, 3)])
             self.assertEqual(
-                settings, [(path.resolve(), (path.parent / "custom.dll",), 1)]
+                settings, [(path.resolve(), 1)]
             )
             torch.testing.assert_close(outputs[0]["output"], a * 2)
             torch.testing.assert_close(outputs[1]["output"], b * 2)
@@ -227,24 +227,23 @@ class SettingsTests(unittest.TestCase):
     def test_settings(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "model.plan"
-            self.assertEqual(batch._settings(path), (1, 0.0, ()))
+            self.assertEqual(batch._settings(path), (1, 0.0))
             path.with_suffix(".yml").write_text(
-                "timeout_ms: 25\nplugins: [custom.dll]", encoding="utf-8"
+                "max_batch_wait_ms: 25", encoding="utf-8"
             )
             self.assertEqual(
-                batch._settings(path), (1, 0.025, (path.parent / "custom.dll",))
+                batch._settings(path), (1, 0.025)
             )
             for text in (
                 "max_batch_size: 0",
-                "timeout_ms: -1",
-                "plugins: wrong",
+                "max_batch_wait_ms: -1",
                 "[]",
                 "timeout: 20",
                 "profile_index: 0",
-                "timeout_ms: true",
-                "timeout_ms: .inf",
-                'timeout_ms: "1"',
-                "timeout_ms: null",
+                "max_batch_wait_ms: true",
+                "max_batch_wait_ms: .inf",
+                'max_batch_wait_ms: "1"',
+                "max_batch_wait_ms: null",
             ):
                 path.with_suffix(".yml").write_text(text, encoding="utf-8")
                 with self.assertRaises(ValueError):

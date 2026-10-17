@@ -210,7 +210,7 @@ class CentralYoloBatchTests(unittest.TestCase):
         _build_tensor_rt(engine)
         cls.models[Backend.TENSORRT] = engine
         for path in cls.models.values():
-            path.with_suffix(".yml").write_text("max_batch_size: 2\ntimeout_ms: 5000\n", encoding="utf-8")
+            path.with_suffix(".yml").write_text("max_batch_size: 2\nmax_batch_wait_ms: 5000\n", encoding="utf-8")
 
     def _verify_backend(self, backend):
         from pipeworks import main

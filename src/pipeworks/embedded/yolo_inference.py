@@ -14,7 +14,7 @@ from pipeworks.inference_contract import bind_profile, inherited_profile
 from pipeworks.backend import Backend
 from pipeworks.models import PipelineContext, Step
 from pipeworks.yolo_backends.tensorrt import (
-    _EngineSession, TensorRTBackend, _engine_settings, _load_model_config, _validate_profile_index,
+    _EngineSession, TensorRTBackend, _load_model_config, _validate_profile_index,
 )
 from pipeworks.yolo_backend import (
     GpuOnly,
@@ -190,9 +190,6 @@ class YoloInference(Step):
             if stream is not None:
                 stream.synchronize()
 
-    def _model_settings(self):
-        return _engine_settings(self.model_path, _load_model_config(self.model_path))
-
     def _process_tensor_rt_profiled(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         # 원래 생성기를 유지하여 엔진/스트림 수명을 바꾸지 않는다.
         current = [None, None, False]
@@ -254,7 +251,7 @@ class YoloInference(Step):
                 )
                 yield item
             return
-        plugins = self._model_settings()
+        _load_model_config(self.model_path)
         session = stream = None
         session_settings = None
         try:
@@ -286,7 +283,7 @@ class YoloInference(Step):
                         if session is None:
                             with span("prepare"):
                                 session = _EngineSession(
-                                    self.model_path, plugins, self.profile_index
+                                    self.model_path, self.profile_index
                                 )
                         item.model_output = session.infer(
                             tensors, stream, copy_context()

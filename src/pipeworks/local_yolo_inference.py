@@ -19,7 +19,7 @@ from pipeworks.yolo_backend import (
     batch_settings, concatenate_inputs, input_signature, validate_backend, validate_gpu,
 )
 from pipeworks.yolo_backends.tensorrt import (
-    _EngineSession, _engine_settings, _load_model_config, _validate_profile_index,
+    _EngineSession, _load_model_config, _validate_profile_index,
 )
 
 _workers = {}
@@ -44,10 +44,9 @@ class _Request:
     profile_index: int = 0
 
 
-def _settings(path):
-    config = _load_model_config(path)
-    plugins = _engine_settings(path, config)
-    size, timeout = config.get("max_batch_size", 1), config.get("timeout_ms", 0)
+def _settings(model_path):
+    config = _load_model_config(model_path)
+    size, timeout = config.get("max_batch_size", 1), config.get("max_batch_wait_ms", 0)
     if isinstance(size, bool) or not isinstance(size, int) or size < 1:
         raise ValueError("max_batch_size must be a positive integer.")
     if (
@@ -56,17 +55,16 @@ def _settings(path):
         or not math.isfinite(timeout)
         or timeout < 0
     ):
-        raise ValueError("timeout_ms must be finite nonnegative milliseconds.")
-    return size, timeout / 1000, plugins
+        raise ValueError("max_batch_wait_ms는 0 이상의 유한한 밀리초여야 합니다.")
+    return size, timeout / 1000
 
 
 class _ModelWorker:
     def __init__(self, path, backend="torchscript"):
         self.path = path
         self.backend = backend
-        self.plugins = ()
         if backend == Backend.TENSORRT:
-            self.size, self.timeout, self.plugins = _settings(path)
+            self.size, self.timeout = _settings(path)
         else:
             self.size, self.timeout = batch_settings(path)
         self.requests = Queue()
@@ -106,7 +104,7 @@ class _ModelWorker:
                             with span("prepare"):
                                 if self.backend == Backend.TENSORRT:
                                     session = _EngineSession(
-                                        self.path, self.plugins, first.profile_index
+                                        self.path, first.profile_index
                                     )
                                 else:
                                     session = _Session(self.path, first.gpu_id, self.backend)
@@ -175,7 +173,7 @@ class _ModelWorker:
 
 
 def _worker(model_path, backend):
-    # 실행 백엔드별로 경로 별칭과 정규 경로 캐시를 분리한다.
+    # 실행 백엔드별로 모델의 경로 별칭 및 정규 경로 캐시를 분리한다.
     with _workers_lock:
         workers = _workers.setdefault(backend, {})
         paths = _worker_paths.setdefault(backend, {})

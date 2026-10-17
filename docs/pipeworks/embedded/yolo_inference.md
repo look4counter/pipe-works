@@ -116,11 +116,11 @@ YAML이 생성자 기본값보다 우선하며 키를 제거하면 생성자 값
 
 `batch=True`이면 각 입력 텐서의 첫 축이 1이어야 합니다. 같은 모델 경로·실행부·GPU·입력 이름·자료형·비배치 형상의 요청만 결합합니다. 모든 출력의 첫 축이 요청 수와 같아야 하며 그렇지 않은 출력은 분리할 수 없어 오류로 처리합니다. 각 출력의 요청별 GPU 복사본을 반환합니다. ID는 공유 조건에 영향을 주지 않습니다. 공유 워커는 준비된 모델 입력만 처리하며 전후처리는 호출자가 연결합니다.
 
-모델과 같은 위치의 같은 이름 `.yml`에 기존 YOLO 배치 설정을 지정합니다. 파일이 없으면 배치 크기 1과 대기 0을 사용합니다.
+모델과 같은 디렉터리의 동명 `.yml`을 자동으로 읽습니다. 예: `models/yolo11n.pt` 또는 `models/yolo11n.plan`은 `models/yolo11n.yml`을 사용합니다. 파일이 없으면 배치 크기 1과 대기 0을 사용하며 `.yaml`이나 다른 이름은 탐색하지 않습니다. 같은 프로세스 안에서 동일 모델 경로와 백엔드의 요청은 작업자와 배치 설정을 공유합니다.
 
 ```yaml
 max_batch_size: 4
-timeout_ms: 10
+max_batch_wait_ms: 10
 ```
 
 오류가 발생한 배치의 모든 요청은 오류를 받고 다음 요청에서 모델을 다시 준비합니다. 준비된 작업자는 기존 경로 캐시 규칙에 따라 재사용합니다. `CudaAsync`, `YoloReport`, `StreamReport`와 연결할 수 있습니다.
@@ -206,7 +206,7 @@ inference = YoloInference(
 )
 ```
 
-TensorRT 실행도 동일한 model_input·model_output·model_id 계약을 사용합니다. 엔진의 실제 입출력 이름·자료형·형상과 동적 프로파일 범위는 그대로 검증하며 플러그인 및 모델별 배치 설정은 [TensorRT 엔진 안내](tensor_rt_inference.md)를 따릅니다. YAML 설정은 YoloInference 섹션에서 backend: tensorrt와 profile_index를 지정합니다. 전후처리는 유지하고 추론 backend만 바꿀 수 있습니다. YoloReport에서 전후처리·추론 표본을 확인하며 CudaAsync의 timeout/busy도 TensorRT로 기록합니다.
+TensorRT 실행도 동일한 model_input·model_output·model_id 계약을 사용합니다. 엔진의 실제 입출력 이름·자료형·형상과 동적 프로파일 범위는 그대로 검증하며 모델별 배치 설정은 [TensorRT 엔진 안내](tensor_rt_inference.md)를 따릅니다. YAML 설정은 YoloInference 섹션에서 backend: tensorrt와 profile_index를 지정합니다. 전후처리는 유지하고 추론 backend만 바꿀 수 있습니다. YoloReport에서 전후처리·추론 표본을 확인하며 CudaAsync의 timeout/busy도 TensorRT로 기록합니다.
 
 
 ## 전후처리 구현 위치
@@ -215,6 +215,6 @@ TensorRT 실행도 동일한 model_input·model_output·model_id 계약을 사�
 
 ## 구현 위치와 설정 경계
 
-구현: `src/pipeworks/embedded/yolo_inference.py`. 생성자는 `YoloInference(model_path, *, batch=False, gpu_id=0, id=None, backend, profile_index=0)`입니다. model_path와 batch는 생성자 전용이고 backend는 필수입니다. YAML 섹션은 YoloInference이며 backend·gpu_id·id·profile_index를 적용합니다. batch는 bool, gpu_id와 profile_index는 bool을 제외한 음수가 아닌 정수여야 합니다.
+구현: `src/pipeworks/embedded/yolo_inference.py`. 생성자는 `YoloInference(model_path, *, batch=False, gpu_id=0, id=None, backend, profile_index=0)`입니다. model_path와 batch는 생성자 전용이고 backend는 필수입니다. 별도 모델 설정 경로는 받지 않습니다. YAML 섹션은 YoloInference이며 backend·gpu_id·id·profile_index를 적용합니다. batch는 bool, gpu_id와 profile_index는 bool을 제외한 음수가 아닌 정수여야 합니다.
 
 필수 입력은 model_input이며 cuda_stream은 선택 입력입니다. 같은 컨텍스트에 model_id와 model_output을 기록하고 cuda_stream이 없으면 지정 GPU의 현재 스트림을 추가합니다. 원본 frame·detections는 추론 단계가 생성하거나 정리하지 않습니다. 정상 입력마다 결과 하나를 출력하며 오류는 전파합니다. 공유 배치의 TensorRT 입력은 엔진과 배치 작업자의 검증 규칙을 함께 따릅니다.

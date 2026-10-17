@@ -50,7 +50,7 @@ pipeline.run()
 
 Batch 추론이 없는 파이프라인은 호출자 프로세스에서 실행합니다. 래퍼 내부를 포함해 `YoloInference(batch=True)`가 하나라도 있으면 전체 파이프라인을 중앙 프로세스에서 실행합니다. 두 경로는 같은 단계 실행기를 사용합니다.
 
-Batch 실행에서 운영과 개발의 중앙 프로세스를 분리하려면 `Pipeline("development", config=Path("stream.yml"), development=True)`로 생성하고 `pipeline.run()`으로 실행합니다. `development` 기본값은 `False`로 운영용입니다. 같은 모드끼리 프로세스와 모델 작업자를 공유합니다. 다른 모드에서는 모델을 따로 로드하고 같은 GPU의 자원은 공유합니다. [중앙 프로세스 그룹 안내](docs/pipeworks/main.md)를 참고하세요.
+Batch 실행의 중앙 프로세스를 분리하려면 `Pipeline("camera", config=Path("stream.yml"), batch_process="camera-a")`로 생성하고 `pipeline.run()`으로 실행합니다. `batch_process` 기본값은 `"production"`입니다. 같은 별칭끼리 프로세스와 모델 작업자를 공유하며, 다른 별칭에서는 모델을 따로 로드하고 같은 GPU의 자원은 공유합니다. 별칭은 대소문자를 구분하는 영문자·숫자·밑줄·하이픈 1~64자입니다. 기존 `development` 인자는 `batch_process="development"` 등으로 바꿉니다. [중앙 프로세스 그룹 안내](docs/pipeworks/main.md)를 참고하세요.
 
 ### config.yaml (YAML 설정)
 
@@ -201,7 +201,7 @@ YOLO와 TensorRT 전후처리 예제는 같은 옵션과 `image_transform` 계�
 
 - **입출력**: 단일 텐서 또는 입력 이름별 GPU 텐서 사전 → 출력 이름별 GPU 텐서 사전. 바인딩 이름은 엔진에서 읽습니다.
 - **사용**: `pipeline.step(YoloInference(Path("models/model.engine"), backend=Backend.TENSORRT))`
-- **설정**: 클래스명 YAML의 `gpu_id`, `profile_index`(기본 0); 모델 동명 `.yml`의 `plugins`(기본 빈 목록), 배치 수집용 `max_batch_size`·`timeout_ms`
+- **설정**: 클래스명 YAML의 `gpu_id`, `profile_index`(기본 0); 모델과 같은 위치의 동명 `.yml`에 배치 수집용 `max_batch_size`·`max_batch_wait_ms` 지정. 파일이 없으면 배치 크기 1·대기 0
 - **동작**: 전처리·후처리 없이 동기 추론하며 GPU 완료 후 결과를 전달합니다. 연속 입력은 복제하지 않고 오류는 전파합니다. 시간 제한·오류 통과는 공통 Async로 적용합니다.
 - **상세**: [TensorRT 엔진 안내](docs/pipeworks/embedded/tensor_rt_inference.md)
 
@@ -591,6 +591,6 @@ MIT License
 
 **다음 단계:** 특정 모듈에 대해 알아보려면 위의 "전체 모듈 문서" 섹션에서 링크를 클릭하세요.
 
-추론 단계는 `YoloInference`로 통합되었습니다. `Backend.ULTRALYTICS`, `Backend.TORCHSCRIPT`, `Backend.TENSORRT`로 실행 방식을 선택합니다. TensorRT의 `profile_index`와 공유 배치·플러그인·GPU 입출력 계약은 유지되며 `YoloReport`를 연결합니다.
+추론 단계는 `YoloInference`로 통합되었습니다. `Backend.ULTRALYTICS`, `Backend.TORCHSCRIPT`, `Backend.TENSORRT`로 실행 방식을 선택합니다. TensorRT의 `profile_index`와 공유 배치·GPU 입출력 계약을 사용하며 `YoloReport`를 연결합니다. 모델 YAML을 통한 외부 플러그인 로드는 지원하지 않습니다.
 
 `YoloReport`는 모든 추론 backend를 활성화하고 `YOLO`, `ULTRALYTICS`, `TORCHSCRIPT`, `TensorRT`별로 처리 시간과 상태를 구분하여 출력합니다. 공유 배치·전후처리·비동기 상태는 같은 보고 저장소로 연결됩니다.

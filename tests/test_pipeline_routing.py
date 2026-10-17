@@ -44,10 +44,10 @@ class PipelineRoutingTests(unittest.TestCase):
         self.assertEqual(seen, [os.getpid()])
 
     def test_empty_and_nonbatch_pipelines_use_local_runner(self):
-        for development in (False, True):
+        for batch_process in ("production", "camera-a"):
             for steps in ([], [self.inference()], [CudaAsync(self.inference())]):
-                with self.subTest(development=development, steps=steps):
-                    pipeline = Pipeline("local", config=self.config, development=development)
+                with self.subTest(batch_process=batch_process, steps=steps):
+                    pipeline = Pipeline("local", config=self.config, batch_process=batch_process)
                     for step in steps:
                         pipeline.step(step)
                     with patch.object(pipeline, "_run_local") as local, patch("pipeworks.main.run_remote") as remote:
@@ -65,10 +65,10 @@ class PipelineRoutingTests(unittest.TestCase):
             lambda step: EveryNFrames(CudaAsync(Hotswap(step, watch_code=False))),
             lambda step: TapSkipIfBusy(EveryNFrames(CudaAsync(step))),
         ]
-        for development in (False, True):
+        for batch_process in ("production", "camera-a"):
             for factory in factories:
-                with self.subTest(development=development, factory=factory):
-                    pipeline = Pipeline("batch", config=self.config, development=development)
+                with self.subTest(batch_process=batch_process, factory=factory):
+                    pipeline = Pipeline("batch", config=self.config, batch_process=batch_process)
                     pipeline.step(self.inference()).step(factory(self.inference(True)))
                     with patch.object(pipeline, "_run_local") as local, patch("pipeworks.main.run_remote") as remote:
                         pipeline.run()

@@ -112,8 +112,6 @@ class FakeTRT:
         self.entered, self.release = Event(), Event()
         self.pointers = {}
         self.allocations = []
-        self.loaded_plugins = []
-        self.plugin_ok = True
         self.plugins_initialized = False
         self.payload = None
         self.engine_host_code_allowed = False
@@ -160,13 +158,6 @@ class FakeTRT:
         class Runtime:
             engine_host_code_allowed = False
 
-            def get_plugin_registry(self):
-                return SimpleNamespace(load_library=self.load_library)
-
-            def load_library(self, path):
-                api.loaded_plugins.append(path)
-                return object() if api.plugin_ok else None
-
             def deserialize_cuda_engine(self, payload):
                 api.payload = payload
                 api.engine_host_code_allowed = self.engine_host_code_allowed
@@ -176,11 +167,12 @@ class FakeTRT:
 
 
 class SettingsTests(unittest.TestCase):
-    def test_profile_and_plugins_settings(self):
+    def test_profile_settings(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "model.engine"
+            path.with_suffix(".yml").write_text("{}", encoding="utf-8")
             step = YoloInference(path, backend=Backend.TENSORRT)
-            self.assertEqual(step._model_settings(), ())
+            self.assertEqual(list(step.process(iter(()))), [])
             self.assertEqual(step.profile_index, 0)
             step.configure(SimpleNamespace(profile_index=1))
             self.assertEqual(step.profile_index, 1)
@@ -200,20 +192,11 @@ class SettingsTests(unittest.TestCase):
                         ),
                         (0, 1),
                     )
-            path.with_suffix(".yml").write_text(
-                "plugins: [custom.dll]", encoding="utf-8"
-            )
-            self.assertEqual(step._model_settings(), (path.parent / "custom.dll",))
-            for text in (
-                "profile_index: 1",
-                "timeout: 20",
-                "plugins: [null]",
-                "plugins: ['']",
-            ):
+            for text in ("profile_index: 1", "timeout: 20", "timeout_ms: 20"):
                 with self.subTest(text=text):
                     path.with_suffix(".yml").write_text(text, encoding="utf-8")
                     with self.assertRaises(ValueError):
-                        step._model_settings()
+                        list(step.process(iter(())))
 
     def test_removed_interval_is_rejected_in_both_modes(self):
         for batch in (False, True):
@@ -241,14 +224,14 @@ class SettingsTests(unittest.TestCase):
         self.assertIs(exported, YoloInference)
         with TemporaryDirectory() as directory:
             path = Path(directory) / "model.engine"
+            path.with_suffix(".yml").write_text("{}", encoding="utf-8")
             step = YoloInference(path, backend=Backend.TENSORRT)
-            self.assertEqual(step._model_settings(), ())
+            self.assertEqual(list(step.process(iter(()))), [])
             path.with_suffix(".yml").write_text(
-                "timeout_ms: 25\nplugins: [custom.dll]\nmax_batch_size: 10",
+                "max_batch_wait_ms: 25\nmax_batch_size: 10",
                 encoding="utf-8",
             )
-            plugins = step._model_settings()
-            self.assertEqual(plugins, (Path(directory) / "custom.dll",))
+            self.assertEqual(list(step.process(iter(()))), [])
             step.configure(SimpleNamespace(gpu_id=1))
             self.assertEqual(step.gpu_id, 1)
 
@@ -257,13 +240,13 @@ class SettingsTests(unittest.TestCase):
             path = Path(directory) / "model.engine"
             for value in ("true", "-1", ".inf", ".nan", '"5"', "null"):
                 path.with_suffix(".yml").write_text(
-                    f"timeout_ms: {value}", encoding="utf-8"
+                    f"max_batch_wait_ms: {value}", encoding="utf-8"
                 )
-                self.assertEqual(YoloInference(path, backend=Backend.TENSORRT)._model_settings(), ())
-            for content in ("[]", "timeout_ms: [", "plugins: wrong", "plugins: [3]"):
+                self.assertEqual(list(YoloInference(path, backend=Backend.TENSORRT).process(iter(()))), [])
+            for content in ("[]", "max_batch_wait_ms: [", "timeout: 20", "timeout_ms: 20"):
                 path.with_suffix(".yml").write_text(content, encoding="utf-8")
                 with self.assertRaises(ValueError):
-                    YoloInference(path, backend=Backend.TENSORRT)._model_settings()
+                    list(YoloInference(path, backend=Backend.TENSORRT).process(iter(())))
         for config in (
             SimpleNamespace(gpu_id=True),
             SimpleNamespace(gpu_id=-1),
@@ -495,7 +478,7 @@ class YoloInferenceTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / "model.engine"
         self.path.write_bytes(b"serialized-engine")
-        self.path.with_suffix(".yml").write_text("timeout_ms: 2000", encoding="utf-8")
+        self.path.with_suffix(".yml").write_text("max_batch_wait_ms: 2000", encoding="utf-8")
         self.api = FakeTRT()
         module = patch.dict("sys.modules", {"tensorrt": self.api})
         module.start()
@@ -633,32 +616,18 @@ class YoloInferenceTests(unittest.TestCase):
         list(self.step.process(iter((second,))))
         self.assertEqual(tuple(second.model_output["raw_scores"].shape), (0, 2))
 
-    def test_plugin_libraries_and_metadata_header(self):
-        plugin = Path(self.directory.name) / "custom.dll"
-        plugin.write_bytes(b"plugin")
+    def test_metadata_header(self):
         metadata = b'{"description": "metadata"}'
         self.path.write_bytes(
             len(metadata).to_bytes(4, "little") + metadata + b"raw-engine"
         )
-        session = _EngineSession(self.path, (plugin,))
+        session = _EngineSession(self.path)
         self.assertEqual(self.api.payload, b"raw-engine")
-        self.assertEqual(self.api.loaded_plugins, [str(plugin)])
         self.assertTrue(session)
-        self.api.plugin_ok = False
-        with self.assertRaises(RuntimeError):
-            _EngineSession(self.path, (plugin,))
-        with self.assertRaises(FileNotFoundError):
-            _EngineSession(self.path, (plugin.with_name("missing.dll"),))
 
-    def test_model_yaml_passes_profile_and_plugins_to_session(self):
-        plugin = Path(self.directory.name) / "custom.dll"
-        plugin.write_bytes(b"plugin")
-        self.path.with_suffix(".yml").write_text(
-            "plugins: [custom.dll]", encoding="utf-8"
-        )
+    def test_model_config_keeps_step_profile_selection(self):
         self.step.configure(SimpleNamespace(profile_index=1))
         list(self.step.process(iter([self.item()])))
-        self.assertEqual(self.api.loaded_plugins, [str(plugin)])
         self.assertEqual(self.api.profile_selections[0][0], 1)
         self.assertEqual(self.api.calls[:2], ["profile", "shape"])
 
@@ -797,7 +766,7 @@ class RealTensorRTTests(unittest.TestCase):
             self.assertIsNotNone(serialized)
             path = Path(directory) / "profiles.engine"
             path.write_bytes(bytes(serialized))
-            path.with_suffix(".yml").write_text("plugins: []", encoding="utf-8")
+            path.with_suffix(".yml").write_text("{}", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "프로파일 0"):
                 item = PipelineContext(model_input=torch.ones((1, 4), device="cuda"))
                 list(YoloInference(path, backend=Backend.TENSORRT).process(iter([item])))
@@ -827,7 +796,7 @@ class RealTensorRTTests(unittest.TestCase):
             self.assertIsNotNone(serialized)
             path = Path(directory) / "model.engine"
             path.write_bytes(bytes(serialized))
-            path.with_suffix(".yml").write_text("timeout_ms: 10000", encoding="utf-8")
+            path.with_suffix(".yml").write_text("max_batch_wait_ms: 10000", encoding="utf-8")
             step = YoloInference(path, backend=Backend.TENSORRT)
             item = PipelineContext(model_input=torch.ones((2, 2), device="cuda"))
             list(step.process(iter((item,))))

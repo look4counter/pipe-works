@@ -212,9 +212,9 @@ def batch_settings(model_path):
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError(f"YOLO 배치 설정은 객체여야 합니다: {config_path}")  # noqa: TRY004 -- YAML 계약
-    if "timeout" in config:
-        raise ValueError("모델 YAML의 timeout 대신 timeout_ms를 사용하세요.")
-    size, timeout = config.get("max_batch_size"), config.get("timeout_ms")
+    if any(key in config for key in ("timeout", "timeout_ms", "batch_timeout_ms")):
+        raise ValueError("모델 YAML의 timeout·timeout_ms·batch_timeout_ms 대신 max_batch_wait_ms를 사용하세요.")
+    size, timeout = config.get("max_batch_size"), config.get("max_batch_wait_ms")
     if isinstance(size, bool) or not isinstance(size, int) or size < 1:
         raise ValueError("max_batch_size는 1 이상의 정수여야 합니다.")
     if (
@@ -223,5 +223,5 @@ def batch_settings(model_path):
         or not math.isfinite(timeout)
         or timeout < 0
     ):
-        raise ValueError("timeout_ms는 0 이상의 유한한 밀리초여야 합니다.")
+        raise ValueError("max_batch_wait_ms는 0 이상의 유한한 밀리초여야 합니다.")
     return size, timeout / 1000

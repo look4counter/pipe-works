@@ -2,6 +2,7 @@ from pathlib import Path
 from contextlib import closing
 from hashlib import sha256
 import logging
+import re
 from threading import Lock
 from time import monotonic
 from types import SimpleNamespace
@@ -131,11 +132,15 @@ class _LiveConfig:
 
 
 class Pipeline:
-    def __init__(self, name: str, *, config: Path, development: bool = False):
-        if not isinstance(development, bool):
-            raise TypeError("development는 bool이어야 합니다.")
+    def __init__(self, name: str, *, config: Path, batch_process: str = "production"):
+        if not isinstance(batch_process, str):
+            raise TypeError("batch_process는 문자열이어야 합니다.")
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", batch_process) is None:
+            raise ValueError(
+                "batch_process는 영문자·숫자·밑줄·하이픈으로 이루어진 1~64자여야 합니다."
+            )
         self.name = name
-        self.development = development
+        self.batch_process = batch_process
         self.config_path = config.resolve()
         source = config.read_bytes()
         loaded_config = _load_config(source)
