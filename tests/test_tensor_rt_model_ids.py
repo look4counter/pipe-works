@@ -12,10 +12,10 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 from pipeworks import Backend
 from pipeworks import Pipeline
 from pipeworks.embedded import CudaAsync, YoloInference
-from step.tensor_rt_pre_process import TensorRTPreProcess
+from step.yolo_pre_process import YoloPreProcess
 from pipeworks.models import PipelineContext, Step
 from step.box_overlay import BoxOverlay
-from step.tensor_rt_post_process import TensorRTPostProcess
+from step.yolo_post_process import YoloPostProcess
 
 
 class IdConfigurationTests(unittest.TestCase):
@@ -70,7 +70,7 @@ class ModelIdGpuTests(unittest.TestCase):
         )
 
     def prediction(self, item, model_id, score=0.9):
-        next(TensorRTPreProcess(size=(8, 8)).process(iter([item])))
+        next(YoloPreProcess(size=(8, 8)).process(iter([item])))
         with torch.cuda.stream(item.cuda_stream):
             prediction = torch.zeros((1, 84, 10), device="cuda")
             prediction[0, :4, 0] = prediction.new_tensor([3.0, 3.0, 2.0, 2.0])
@@ -81,7 +81,7 @@ class ModelIdGpuTests(unittest.TestCase):
 
     def test_results_preserved_replaced_skipped_and_isolated(self):
         item = self.frame()
-        post = TensorRTPostProcess()
+        post = YoloPostProcess()
         self.prediction(item, "vehicle")
         next(post.process(iter([item])))
         original_mapping = item.detections
@@ -113,7 +113,7 @@ class ModelIdGpuTests(unittest.TestCase):
         self.prediction(item, "vehicle")
         item.model_output = {"wrong": torch.zeros(1, device="cuda")}
         with self.assertRaises(ValueError):
-            next(TensorRTPostProcess().process(iter([item])))
+            next(YoloPostProcess().process(iter([item])))
         self.assertIs(item.detections["person"], prior)
         self.assertIsNone(item.detections["vehicle"])
         self.assertIs(shared["vehicle"], prior)
@@ -130,7 +130,7 @@ class ModelIdGpuTests(unittest.TestCase):
         self.prediction(item, "vehicle")
         del item.model_id
         with self.assertRaisesRegex(ValueError, "model_id"):
-            next(TensorRTPostProcess().process(iter([item])))
+            next(YoloPostProcess().process(iter([item])))
         self.assertFalse(hasattr(item, "model_output"))
 
     def test_batch_and_single_forward_ids_for_all_inputs(self):
@@ -154,7 +154,6 @@ class ModelIdGpuTests(unittest.TestCase):
                         pass
 
                 with (
-                    patch.object(step, "_model_settings", return_value=()),
                     patch(
                         "pipeworks.embedded.yolo_inference._EngineSession", Session
                     ),
@@ -177,10 +176,10 @@ class ModelIdGpuTests(unittest.TestCase):
         item.cuda_stream.synchronize()
         original = item.frame.clone()
         for model_id in ("vehicle", "person", "vehicle"):
-            next(TensorRTPreProcess().process(iter([item])))
+            next(YoloPreProcess().process(iter([item])))
             torch.testing.assert_close(item.frame, original)
             list(YoloInference(plan, backend=Backend.TENSORRT, id=model_id).process(iter([item])))
-            next(TensorRTPostProcess().process(iter([item])))
+            next(YoloPostProcess().process(iter([item])))
         self.assertEqual(set(item.detections), {"vehicle", "person"})
         for result in item.detections.values():
             self.assertEqual(result.orig_shape, (8, 8))
@@ -277,7 +276,7 @@ class ModelIdGpuTests(unittest.TestCase):
                     yield working
 
         wrapper = CudaAsync(
-            TensorRTPreProcess(), Slow(), TensorRTPostProcess(), timeout_ms=100
+            YoloPreProcess(), Slow(), YoloPostProcess(), timeout_ms=100
         )
         try:
             list(wrapper.process(iter([item])))
@@ -315,9 +314,9 @@ class ModelIdGpuTests(unittest.TestCase):
         original = item.frame.clone()
         for model_id in ("vehicle", "person"):
             wrapper = CudaAsync(
-                TensorRTPreProcess(size=(8, 8)),
+                YoloPreProcess(size=(8, 8)),
                 SyntheticInference(model_id),
-                TensorRTPostProcess(),
+                YoloPostProcess(),
                 timeout_ms=2000,
             )
             self.assertEqual(list(wrapper.process(iter([item]))), [item])

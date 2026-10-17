@@ -8,7 +8,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
-from step.tensor_rt_pre_process import TensorRTPreProcess
+from step.yolo_pre_process import YoloPreProcess
 from step.yolo_pre_process import ImageTransform
 
 
@@ -32,7 +32,7 @@ class ImageTransformTests(unittest.TestCase):
         for device in devices:
             for options, ratios, offsets in cases:
                 with self.subTest(device=device, options=options):
-                    step = TensorRTPreProcess(size=(12, 16), **options)
+                    step = YoloPreProcess(size=(12, 16), **options)
                     _, transform = step._resize(torch.zeros(3, 4, 8, device=device))
                     self.assertIsInstance(transform, ImageTransform)
                     expected = torch.tensor(

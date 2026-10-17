@@ -379,8 +379,8 @@ class CudaTests(unittest.TestCase):
             self.assertIs(result.model_input, tensor)
             self.assertFalse(hasattr(result, "detections"))
             sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
-            from step.tensor_rt_post_process import TensorRTPostProcess
-            from step.tensor_rt_pre_process import TensorRTPreProcess
+            from step.yolo_post_process import YoloPostProcess
+            from step.yolo_pre_process import YoloPreProcess
 
             with torch.cuda.stream(stream):
                 frame = torch.full((6, 8), 128, dtype=torch.uint8, device="cuda")
@@ -393,11 +393,11 @@ class CudaTests(unittest.TestCase):
                     codec_context=SimpleNamespace(height=4, width=8)
                 ),
             )
-            prepared = TensorRTPreProcess(size=(32, 32)).process(iter([context]))
+            prepared = YoloPreProcess(size=(32, 32)).process(iter([context]))
             predictions = YoloInference(
                 weights, backend=Backend.ULTRALYTICS, id="vehicle"
             ).process(prepared)
-            processed = next(TensorRTPostProcess().process(predictions))
+            processed = next(YoloPostProcess().process(predictions))
             self.assertIs(processed.frame, frame)
             self.assertIn("vehicle", processed.detections)
             self.assertEqual(processed.detections["vehicle"].orig_shape, (4, 8))

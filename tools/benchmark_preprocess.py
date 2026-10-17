@@ -10,7 +10,7 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "examples"))
-from step.tensor_rt_pre_process import TensorRTPreProcess
+from step.yolo_pre_process import YoloPreProcess
 
 
 def measure(step, frame, iterations, pixel_format):
@@ -49,6 +49,7 @@ def main():
         parser.error("CUDA is required")
     # 변경 전 구현을 그대로 보존해 독립적인 비교 기준으로 사용한다.
     for baseline_path in (
+        "examples/step/yolo_pre_process.py",
         "examples/step/tensor_rt_pre_process.py",
         "src/pipeworks/embedded/tensor_rt_pre_process.py",
         "src/pipeworks/embedded/tensor_rt_preprocess.py",
@@ -67,7 +68,7 @@ def main():
     ).decode("utf-8")
     scope = {"__name__": "preprocess_baseline"}
     exec(compile(source, "preprocess_baseline", "exec"), scope)
-    baseline_type = scope["TensorRTPreProcess"]
+    baseline_type = scope.get("YoloPreProcess") or scope["TensorRTPreProcess"]
     print(torch.cuda.get_device_name())
     for pixel_format in ("RGB", "NV12"):
         for options in (
@@ -81,7 +82,7 @@ def main():
                 baseline_type(**options), frame, args.iterations, pixel_format
             )
             new, new_gpu, new_wall = measure(
-                TensorRTPreProcess(**options), frame, args.iterations, pixel_format
+                YoloPreProcess(**options), frame, args.iterations, pixel_format
             )
             torch.testing.assert_close(new, old, rtol=1e-5, atol=1e-5)
             print(

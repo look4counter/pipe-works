@@ -12,8 +12,8 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 from pipeworks.models import PipelineContext
-from pipeworks.image_transform import ImageTransform
-from step.tensor_rt_post_process import TensorRTPostProcess
+from step.yolo_pre_process import ImageTransform
+from step.yolo_post_process import YoloPostProcess
 
 
 def run(step, prediction, stream):
@@ -74,8 +74,21 @@ def main():
         .decode()
         .strip()
     )
+    for baseline_path in (
+        "examples/step/yolo_post_process.py",
+        "examples/step/tensor_rt_post_process.py",
+    ):
+        exists = subprocess.run(
+            ["git", "cat-file", "-e", f"{revision}:{baseline_path}"],
+            cwd=ROOT,
+            capture_output=True,
+        )
+        if exists.returncode == 0:
+            break
+    else:
+        parser.error("No postprocessing baseline found")
     source = subprocess.check_output(
-        ["git", "show", f"{revision}:examples/step/tensor_rt_post_process.py"], cwd=ROOT
+        ["git", "show", f"{revision}:{baseline_path}"], cwd=ROOT
     ).decode("utf-8")
     scope = {"__name__": "postprocess_baseline"}
     exec(compile(source, "postprocess_baseline", "exec"), scope)
@@ -90,7 +103,8 @@ def main():
             prediction[:, 6, :100] = torch.linspace(0.3, 0.99, 100, device="cuda")
         torch.cuda.synchronize()
         for classes in ([2], None):
-            old, new = scope["TensorRTPostProcess"](), TensorRTPostProcess()
+            baseline_type = scope.get("YoloPostProcess") or scope["TensorRTPostProcess"]
+            old, new = baseline_type(), YoloPostProcess()
             for step in (old, new):
                 step.configure(SimpleNamespace(classes=classes))
             rounds = []

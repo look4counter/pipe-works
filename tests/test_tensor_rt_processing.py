@@ -8,8 +8,8 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from step.tensor_rt_pre_process import TensorRTPreProcess
-from step.tensor_rt_post_process import TensorRTPostProcess
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
 from pipeworks import Backend
 from pipeworks.models import PipelineContext
 
@@ -36,7 +36,7 @@ class ProcessingTests(unittest.TestCase):
         item.cuda_stream.synchronize()
         original = item.frame.clone()
         with patch.object(torch.Tensor, "cpu", side_effect=AssertionError("CPU copy")):
-            self.assertIs(next(TensorRTPreProcess().process(iter([item]))), item)
+            self.assertIs(next(YoloPreProcess().process(iter([item]))), item)
         item.cuda_stream.synchronize()
         self.assertEqual(tuple(item.model_input.shape), (1, 3, 640, 640))
         self.assertTrue(item.model_input.is_cuda)
@@ -73,7 +73,7 @@ class ProcessingTests(unittest.TestCase):
                     yield working
 
         wrapper = CudaAsync(
-            TensorRTPreProcess(), SlowInference(), TensorRTPostProcess(), timeout_ms=100
+            YoloPreProcess(), SlowInference(), YoloPostProcess(), timeout_ms=100
         )
         try:
             with patch.object(
@@ -95,7 +95,7 @@ class ProcessingTests(unittest.TestCase):
 
     def test_postprocess_filters_nms_restores_coordinates(self):
         item = self.frame()
-        next(TensorRTPreProcess().process(iter([item])))
+        next(YoloPreProcess().process(iter([item])))
         with torch.cuda.stream(item.cuda_stream):
             prediction = torch.zeros((1, 84, 10), device="cuda")
             prediction[0, :4, :3] = torch.tensor(
@@ -106,7 +106,7 @@ class ProcessingTests(unittest.TestCase):
             prediction[0, 6, 1] = 0.8
             prediction[0, 4, 2] = 0.95
         item.model_output = {"output0": prediction}
-        step = TensorRTPostProcess(classes=[2])
+        step = YoloPostProcess(classes=[2])
         with (
             patch.object(torch.Tensor, "cpu", side_effect=AssertionError("CPU copy")),
             patch.object(
@@ -154,7 +154,7 @@ class ProcessingTests(unittest.TestCase):
         self.assertIs(item.detections, detections)
         self.assertEqual(item.frame[1, 2].item(), 145)
         self.assertEqual(item.frame[2, 4].item(), 16)
-        next(TensorRTPreProcess().process(iter([item])))
+        next(YoloPreProcess().process(iter([item])))
         item.model_id = "test"
         item.model_output = {"output0": torch.zeros_like(prediction)}
         next(step.process(iter([item])))
@@ -166,10 +166,10 @@ class ProcessingTests(unittest.TestCase):
 
     def test_postprocess_failure_also_cleans_buffers(self):
         item = self.frame()
-        next(TensorRTPreProcess().process(iter([item])))
+        next(YoloPreProcess().process(iter([item])))
         item.model_output = {"wrong": torch.zeros(1, device="cuda")}
         with self.assertRaises(ValueError):
-            next(TensorRTPostProcess().process(iter([item])))
+            next(YoloPostProcess().process(iter([item])))
         self.assertFalse(
             any(
                 hasattr(item, name)
@@ -199,7 +199,7 @@ class ProcessingTests(unittest.TestCase):
             prediction[0, :4, 0] = 10
             prediction[0, 6, 0] = 0.9
         item.model_output = {"output0": prediction}
-        next(TensorRTPostProcess().process(iter([item])))
+        next(YoloPostProcess().process(iter([item])))
         self.assertEqual(len(called), 1)
         self.assertEqual(called[0].cuda_stream, item.cuda_stream.cuda_stream)
         torch.testing.assert_close(
@@ -216,12 +216,12 @@ class ProcessingTests(unittest.TestCase):
         if not plan.is_file():
             self.skipTest("예제 엔진이 없습니다.")
         item = self.frame()
-        next(TensorRTPreProcess().process(iter([item])))
+        next(YoloPreProcess().process(iter([item])))
         inference = YoloInference(plan, backend=Backend.TENSORRT)
         inference.configure(SimpleNamespace())
         list(inference.process(iter([item])))
         self.assertIsNotNone(item.model_output)
-        next(TensorRTPostProcess().process(iter([item])))
+        next(YoloPostProcess().process(iter([item])))
         item.cuda_stream.synchronize()
         self.assertEqual(item.detections[plan.name].orig_shape, (4, 8))
 
@@ -234,9 +234,9 @@ class ConfigurationTests(unittest.TestCase):
         config = Path(__file__).resolve().parents[1] / "examples/config/stream.yml"
         settings = yaml.safe_load(config.read_text(encoding="utf-8"))
         self.assertNotIn("BoxOverlay", settings)
-        self.assertNotIn("TensorRTPostProcess", settings)
-        step = TensorRTPostProcess()
-        other = TensorRTPostProcess()
+        self.assertNotIn("YoloPostProcess", settings)
+        step = YoloPostProcess()
+        other = YoloPostProcess()
         self.assertEqual(
             (step.classes, step.confidence, step.iou, step.max_det, step.output_name),
             (None, 0.25, 0.7, 300, "output0"),
@@ -261,4 +261,4 @@ class ConfigurationTests(unittest.TestCase):
             SimpleNamespace(output_name=""),
         ):
             with self.subTest(config=config), self.assertRaises(ValueError):
-                TensorRTPostProcess().configure(config)
+                YoloPostProcess().configure(config)

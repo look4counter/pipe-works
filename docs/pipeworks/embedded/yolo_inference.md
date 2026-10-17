@@ -125,11 +125,11 @@ max_batch_wait_ms: 10
 
 오류가 발생한 배치의 모든 요청은 오류를 받고 다음 요청에서 모델을 다시 준비합니다. 준비된 작업자는 기존 경로 캐시 규칙에 따라 재사용합니다. `CudaAsync`, `YoloReport`, `StreamReport`와 연결할 수 있습니다.
 
-두 계열의 전후처리는 공통 프로파일을 공유하고 실제 추론 백엔드에 연결합니다. `YoloReport`에서 전처리·추론·후처리와 전체 시간을 완료 표본 하나로 확인할 수 있습니다. 건너뜀·오류·비동기 부분 종료도 기록합니다. `YoloInference` 단독 사용은 자체 추론 보고 동작을 유지합니다. 전후처리 클래스 이름과 관계없이 모든 backend 실행은 YoloReport에 전처리·추론·후처리를 한 표본으로 기록합니다.
+YOLO 전후처리는 공통 프로파일을 공유하고 실제 추론 백엔드에 연결합니다. `YoloReport`에서 전처리·추론·후처리와 전체 시간을 완료 표본 하나로 확인할 수 있습니다. 건너뜀·오류·비동기 부분 종료도 기록합니다. `YoloInference` 단독 사용은 자체 추론 보고 동작을 유지합니다. 모든 backend 실행은 YoloReport에 전처리·추론·후처리를 한 표본으로 기록합니다.
 
 ## 공통 계약과 추론 교체
 
-두 계열의 전후처리는 같은 구현·생성자 옵션·기본값을 사용하고 각각 Step을 직접 상속합니다. 같은 YOLO 모델의 전처리 규칙과 출력 스키마라면 전후처리를 유지하고 추론 단계만 교체할 수 있습니다.
+전후처리는 YoloPreProcess와 YoloPostProcess로 통일하며 각각 Step을 직접 상속합니다. 같은 YOLO 모델의 전처리 규칙과 출력 스키마라면 전후처리를 유지하고 추론 단계만 교체할 수 있습니다.
 
 | 필드 | 공통 의미 |
 | --- | --- |
@@ -155,7 +155,7 @@ pipeline.step(CudaAsync(
 pipeline.step(YoloReport())
 ```
 
-TensorRTPreProcess와 TensorRTPostProcess를 사용해도 같은 계약으로 연결됩니다. 실제 입력 자료형·형상·입출력 이름은 모델 요구를 따라야 합니다. Ultralytics 주 감지 예측은 output0이고 이름 있는 실행부와 TensorRT는 실제 출력 이름을 사용하므로 필요한 경우 후처리 output_name을 맞춥니다. TensorRT와 YoloInference는 다중 입력을 전달할 수 있으며 선택한 실행부와 모델이 그 입력을 지원해야 합니다. Ultralytics 체크포인트 어댑터는 단일 이미지 입력만 지원합니다.
+YoloPreProcess와 YoloPostProcess를 사용해도 같은 계약으로 연결됩니다. 실제 입력 자료형·형상·입출력 이름은 모델 요구를 따라야 합니다. Ultralytics 주 감지 예측은 output0이고 이름 있는 실행부와 TensorRT는 실제 출력 이름을 사용하므로 필요한 경우 후처리 output_name을 맞춥니다. TensorRT와 YoloInference는 다중 입력을 전달할 수 있으며 선택한 실행부와 모델이 그 입력을 지원해야 합니다. Ultralytics 체크포인트 어댑터는 단일 이미지 입력만 지원합니다.
 
 두 후처리의 기본 classes는 None으로 모든 클래스입니다. 기존 TensorRT 예제의 차량 필터가 필요하면 classes=[2]를 명시합니다. 두 후처리는 FP16·사용자 names·end2end 옵션을 동일하게 지원합니다.
 

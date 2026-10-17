@@ -8,7 +8,7 @@ from ultralytics.utils.nms import non_max_suppression
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
-from step.tensor_rt_post_process import TensorRTPostProcess
+from step.yolo_post_process import YoloPostProcess
 from step.yolo_pre_process import ImageTransform
 
 
@@ -25,7 +25,7 @@ class NmsTests(unittest.TestCase):
                 prediction[:, 4:] *= 0.3
                 for classes in (None, [], [2], [2, 5, 2]):
                     with self.subTest(device=device, count=count, classes=classes):
-                        step = TensorRTPostProcess()
+                        step = YoloPostProcess()
                         step.configure(SimpleNamespace(classes=classes, max_det=15))
                         reference = prediction.clone()
                         if count == 6:
@@ -51,7 +51,7 @@ class NmsTests(unittest.TestCase):
         prediction[0, 5, 0] = 0.9
         prediction[0, 6, 1] = 0.25
         prediction[0, 6, 2] = 0.7
-        step = TensorRTPostProcess()
+        step = YoloPostProcess()
         step.configure(SimpleNamespace(classes=[2]))
         result = step._nms(prediction)
         self.assertEqual(result.shape, (1, 6))
@@ -75,7 +75,7 @@ class NmsTests(unittest.TestCase):
 
     def test_threshold_endpoints_ties_and_reconfiguration(self):
         devices = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
-        step = TensorRTPostProcess()
+        step = YoloPostProcess()
         for device in devices:
             prediction = torch.zeros((1, 84, 20), device=device)
             prediction[:, :4] = 10

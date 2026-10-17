@@ -433,11 +433,6 @@ class CudaAsync(Step):
                 "YoloInference", "YoloPreProcess", "YoloPostProcess"
             }:
                 kinds.add("YOLO")
-            elif names & {
-                "TensorRTPreProcess",
-                "TensorRTPostProcess",
-            }:
-                kinds.add("TensorRT")
         kinds = inference_kinds or kinds
 
         def consume():

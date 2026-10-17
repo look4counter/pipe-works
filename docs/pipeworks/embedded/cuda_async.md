@@ -44,16 +44,16 @@ release_frame은 단일·복수 Step에서 적용한다. 호출 이후 같은 Cu
 
 기존 release_input은 모든 공유 입력의 사용 종료를 뜻하고 단일 Step에서만 적용한다. 영상 종료와 다른 계약이다. 두 신호 모두 요청별로 격리되며 CudaAsync 밖에서는 아무 동작도 하지 않는다.
 
-YOLO 개별·배치 및 예제 TensorRTPreProcess는 RGB 생성 이후 release_frame을 호출한다. 별도 신호를 보내지 않는 일반 Step도 사용할 수 있지만 실행 중 타임아웃된 프레임은 폐기된다.
+YOLO 개별·배치 및 예제 YoloPreProcess는 RGB 생성 이후 release_frame을 호출한다. 별도 신호를 보내지 않는 일반 Step도 사용할 수 있지만 실행 중 타임아웃된 프레임은 폐기된다.
 
 ## 여러 Step과 설정
 
 ```python
 from pipeworks import Backend
 CudaAsync(
-    TensorRTPreProcess(),
+    YoloPreProcess(),
     YoloInference(model_path, backend=Backend.TENSORRT, batch=True),
-    TensorRTPostProcess(),
+    YoloPostProcess(),
     timeout_ms=20,
 )
 ```

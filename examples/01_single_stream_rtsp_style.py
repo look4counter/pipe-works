@@ -13,8 +13,8 @@ from pipeworks.embedded import (
     YoloReport,
     YoloInference,
 )
-from step.tensor_rt_pre_process import TensorRTPreProcess
-from step.tensor_rt_post_process import TensorRTPostProcess
+from step.yolo_pre_process import YoloPreProcess
+from step.yolo_post_process import YoloPostProcess
 from step.box_overlay import BoxOverlay
 
 
@@ -30,13 +30,13 @@ def build_pipeline() -> Pipeline:
         .step(
             EveryNFrames(
                 CudaAsync(
-                    TensorRTPreProcess(),
+                    YoloPreProcess(),
                     YoloInference(
                         Path(__file__).with_name("model") / "yolo11n.plan",
                         backend=Backend.TENSORRT,
                         batch=False,
                     ),
-                    TensorRTPostProcess(),
+                    YoloPostProcess(),
                     timeout_ms=20,
                 ),
             ),

@@ -10,8 +10,6 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
-from step.tensor_rt_post_process import TensorRTPostProcess
-from step.tensor_rt_pre_process import TensorRTPreProcess
 from step.yolo_post_process import YoloPostProcess
 from step.yolo_pre_process import YoloPreProcess
 
@@ -27,6 +25,10 @@ from pipeworks.models import PipelineContext, Step
 
 
 class ContractTests(unittest.TestCase):
+    def test_tensor_rt_example_wrappers_are_removed(self):
+        for name in ("tensor_rt_pre_process.py", "tensor_rt_post_process.py"):
+            self.assertFalse((ROOT / "examples/step" / name).exists())
+
     def test_preprocessing_constructor_and_step_contract_match(self):
         options = dict(
             size=(32, 32),
@@ -35,7 +37,7 @@ class ContractTests(unittest.TestCase):
             input_name="images",
             dtype="float16",
         )
-        for cls in (YoloPreProcess, TensorRTPreProcess):
+        for cls in (YoloPreProcess,):
             step = cls(**options)
             self.assertEqual(cls.__bases__, (Step,))
             self.assertEqual(
@@ -44,7 +46,7 @@ class ContractTests(unittest.TestCase):
             )
 
     def test_postprocessing_options_and_defaults_match(self):
-        for cls in (YoloPostProcess, TensorRTPostProcess):
+        for cls in (YoloPostProcess,):
             self.assertIsNone(cls().classes)
             step = cls(names=["car", "person"], classes=[1], end2end=True)
             self.assertEqual(step.names, {0: "car", 1: "person"})
@@ -61,7 +63,7 @@ class CudaContractTests(unittest.TestCase):
 
     def test_all_cross_processing_combinations_have_same_result(self):
         for pre_cls, post_cls in product(
-            (YoloPreProcess, TensorRTPreProcess), (YoloPostProcess, TensorRTPostProcess)
+            (YoloPreProcess,), (YoloPostProcess,)
         ):
             with self.subTest(pre=pre_cls.__name__, post=post_cls.__name__):
                 item = self.frame()
@@ -94,7 +96,7 @@ class CudaContractTests(unittest.TestCase):
         for batch in (False, True):
             item = self.frame()
             next(
-                TensorRTPreProcess(size=(32, 32), input_name="images").process(
+                YoloPreProcess(size=(32, 32), input_name="images").process(
                     iter([item])
                 )
             )
@@ -150,8 +152,8 @@ class CudaContractTests(unittest.TestCase):
                     )
                 )
             for pre_cls, post_cls, batch, backend, both_active in product(
-                (YoloPreProcess, TensorRTPreProcess),
-                (YoloPostProcess, TensorRTPostProcess),
+                (YoloPreProcess,),
+                (YoloPostProcess,),
                 (False, True),
                 backends,
                 (False, True),
@@ -197,8 +199,8 @@ class CudaContractTests(unittest.TestCase):
         for base, pre_cls, post_cls, kind, report, other_kind, other_report in (
             (
                 YoloInference,
-                TensorRTPreProcess,
-                TensorRTPostProcess,
+                YoloPreProcess,
+                YoloPostProcess,
                 "TORCHSCRIPT",
                 yolo_report,
                 "TensorRT",
@@ -266,14 +268,14 @@ class CudaContractTests(unittest.TestCase):
                 stats.activate("TORCHSCRIPT")
                 other.activate("TensorRT")
                 item = self.frame()
-                next(TensorRTPreProcess(size=(32, 32)).process(iter([item])))
+                next(YoloPreProcess(size=(32, 32)).process(iter([item])))
                 profile = vars(item).pop("_inference_profile")
                 setattr(item, legacy, profile)
                 prediction = {"output0": torch.zeros((1, 84, 10), device="cuda")}
                 with patch("pipeworks.embedded.yolo_inference._Session") as session:
                     session.return_value.infer.return_value = prediction
                     next(YoloInference("model.pt", backend=Backend.TORCHSCRIPT).process(iter([item])))
-                next(TensorRTPostProcess().process(iter([item])))
+                next(YoloPostProcess().process(iter([item])))
                 self.assertFalse(hasattr(item, legacy))
                 self.assertEqual(stats.snapshot("TORCHSCRIPT", 0)["states"]["completed"], 1)
                 self.assertEqual(
@@ -288,7 +290,7 @@ class CudaContractTests(unittest.TestCase):
     def test_legacy_transform_inputs_and_error_cleanup(self):
         for legacy, post_cls in product(
             ("yolo_transform", "tensor_rt_transform"),
-            (YoloPostProcess, TensorRTPostProcess),
+            (YoloPostProcess,),
         ):
             item = self.frame()
             next(YoloPreProcess(size=(32, 32)).process(iter([item])))

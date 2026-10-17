@@ -9,7 +9,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
-from step.tensor_rt_pre_process import TensorRTPreProcess
+from step.yolo_pre_process import YoloPreProcess
 
 
 class OptimizedTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class OptimizedTests(unittest.TestCase):
             ["float32", "float16"],
         ):
             with self.subTest(device=device, mode=mode, layout=layout, dtype=dtype):
-                step = TensorRTPreProcess(
+                step = YoloPreProcess(
                     size=(8, 10),
                     resize_mode=mode,
                     layout=layout,
@@ -47,16 +47,16 @@ class OptimizedTests(unittest.TestCase):
                 self.assertEqual(transform.output_shape, tuple(original.shape[-2:]))
 
     def test_same_size_does_not_interpolate(self):
-        step = TensorRTPreProcess(size=(4, 6), resize_mode="stretch")
+        step = YoloPreProcess(size=(4, 6), resize_mode="stretch")
         with patch(
-            "step.tensor_rt_pre_process.F.interpolate",
+            "step.yolo_pre_process.F.interpolate",
             side_effect=AssertionError("unnecessary resize"),
         ):
             result, _ = step._resize(torch.zeros(3, 4, 6))
         self.assertEqual(result.shape, (1, 3, 4, 6))
 
     def test_reconfigure_and_previous_output_independence(self):
-        step = TensorRTPreProcess(scale=1, mean=(1, 2, 3))
+        step = YoloPreProcess(scale=1, mean=(1, 2, 3))
         first = step._normalize(torch.full((1, 3, 2, 2), 10.0))
         saved = first.clone()
         step.configure(SimpleNamespace(scale=0, mean=(4, 5, 6)))

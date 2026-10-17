@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
 
 from pipeworks import Pipeline
-from step.tensor_rt_pre_process import TensorRTPreProcess
+from step.yolo_pre_process import YoloPreProcess
 from pipeworks.execution import _frame_scope
 from pipeworks.models import PipelineContext
 
@@ -19,12 +19,12 @@ from pipeworks.models import PipelineContext
 class ConfigurationTests(unittest.TestCase):
     def test_constructor_yaml_and_removal_restore_first_defaults(self):
         mean = [1, 2, 3]
-        step = TensorRTPreProcess(size=(32, 48), mean=mean, dtype="float16")
+        step = YoloPreProcess(size=(32, 48), mean=mean, dtype="float16")
         mean[0] = 99
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "stream.yml"
             config.write_text(
-                "TensorRTPreProcess:\n  size: [16, 24]\n  scale: 0\n", encoding="utf-8"
+                "YoloPreProcess:\n  size: [16, 24]\n  scale: 0\n", encoding="utf-8"
             )
             Pipeline("preprocess", config=config).step(step)
         self.assertEqual(step.size, (16, 24))
@@ -70,32 +70,32 @@ class ConfigurationTests(unittest.TestCase):
             {"resize_mode": "resize_center_crop", "crop_size": [641, 640]},
             {"unknown": 1},
         ]
-        step = TensorRTPreProcess(size=(32, 48))
+        step = YoloPreProcess(size=(32, 48))
         for options in invalid:
             with self.subTest(options=options), self.assertRaises(ValueError):
                 step.configure(SimpleNamespace(**options))
             self.assertEqual(step.size, (32, 48))
         with self.assertRaises(ValueError):
-            TensorRTPreProcess(std=(1, 0, 1))
+            YoloPreProcess(std=(1, 0, 1))
 
     def test_cpu_input_is_rejected(self):
         item = PipelineContext(
             frame=torch.zeros((2, 2, 3), dtype=torch.uint8), pixel_format="RGB"
         )
         with self.assertRaisesRegex(ValueError, "GPU"):
-            next(TensorRTPreProcess().process(iter([item])))
+            next(YoloPreProcess().process(iter([item])))
 
     def test_example_owns_implementation_without_embedded_export(self):
         import importlib.util
         import pipeworks.embedded as embedded
 
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
-        from step.tensor_rt_pre_process import TensorRTPreProcess as ExamplePreProcess
+        from step.yolo_pre_process import YoloPreProcess as ExamplePreProcess
 
-        self.assertEqual(ExamplePreProcess.__module__, "step.tensor_rt_pre_process")
-        self.assertIs(ExamplePreProcess, TensorRTPreProcess)
-        self.assertFalse(hasattr(embedded, "TensorRTPreProcess"))
-        self.assertNotIn("TensorRTPreProcess", embedded.__all__)
+        self.assertEqual(ExamplePreProcess.__module__, "step.yolo_pre_process")
+        self.assertIs(ExamplePreProcess, YoloPreProcess)
+        self.assertFalse(hasattr(embedded, "YoloPreProcess"))
+        self.assertNotIn("YoloPreProcess", embedded.__all__)
         self.assertIsNone(
             importlib.util.find_spec("pipeworks.embedded.tensor_rt_pre_process")
         )
@@ -105,8 +105,8 @@ class ConfigurationTests(unittest.TestCase):
 
         config = Path(__file__).resolve().parents[1] / "examples/config/stream.yml"
         settings = yaml.safe_load(config.read_text(encoding="utf-8"))
-        self.assertNotIn("TensorRTPreProcess", settings)
-        step = TensorRTPreProcess()
+        self.assertNotIn("YoloPreProcess", settings)
+        step = YoloPreProcess()
         Pipeline("preprocess", config=config).step(step)
         self.assertEqual(step.size, (640, 640))
         self.assertEqual(step.resize_mode, "letterbox")
@@ -137,7 +137,7 @@ class GpuTests(unittest.TestCase):
             ),
         ):
             self.assertIs(
-                next(TensorRTPreProcess(**options).process(iter([item]))), item
+                next(YoloPreProcess(**options).process(iter([item]))), item
             )
         self.assertTrue(
             item.model_input.is_cuda
@@ -301,12 +301,12 @@ class GpuTests(unittest.TestCase):
             else:
                 item.pixel_format = kind
             with self.subTest(kind=kind), self.assertRaises(ValueError):
-                next(TensorRTPreProcess().process(iter([item])))
+                next(YoloPreProcess().process(iter([item])))
         if torch.cuda.device_count() > 1:
             item = self.image()
             item.cuda_stream = torch.cuda.Stream(device=1)
             with self.assertRaises(ValueError):
-                next(TensorRTPreProcess().process(iter([item])))
+                next(YoloPreProcess().process(iter([item])))
 
 
 if __name__ == "__main__":

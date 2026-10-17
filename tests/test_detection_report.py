@@ -276,8 +276,8 @@ class DetectionCudaTests(unittest.TestCase):
         from pipeworks.embedded.yolo_report import store, _current
 
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
-        from step.tensor_rt_pre_process import TensorRTPreProcess
-        from step.tensor_rt_post_process import TensorRTPostProcess
+        from step.yolo_pre_process import YoloPreProcess
+        from step.yolo_post_process import YoloPostProcess
 
         path = Path(__file__).resolve().parents[1] / "examples/model/yolo11n.plan"
         if not path.is_file():
@@ -287,9 +287,9 @@ class DetectionCudaTests(unittest.TestCase):
                 stats = store()
                 stats.activate("TensorRT")
                 item = self.frame()
-                pre = TensorRTPreProcess().process(iter([item]))
+                pre = YoloPreProcess().process(iter([item]))
                 infer = YoloInference(path, backend=Backend.TENSORRT, batch=batch).process(pre)
-                results = list(TensorRTPostProcess().process(infer))
+                results = list(YoloPostProcess().process(infer))
                 self.assertIs(results[0], item)
                 self.assertIsNone(_current.get())
                 snapshot = stats.snapshot("TensorRT", 0)
@@ -319,7 +319,7 @@ class DetectionCudaTests(unittest.TestCase):
             path = Path(directory) / "model.plan"
             path.write_bytes(b"test")
             path.with_suffix(".yml").write_text(
-                "max_batch_size: 2\ntimeout_ms: 1000", encoding="utf-8"
+                "max_batch_size: 2\nmax_batch_wait_ms: 1000", encoding="utf-8"
             )
 
             def run(value):
@@ -350,20 +350,19 @@ class DetectionCudaTests(unittest.TestCase):
     def test_tensor_timeout_records_partial_work(self):
         from pipeworks.embedded import CudaAsync
         from pipeworks.embedded.yolo_report import store
-        from pipeworks.models import Step
+        from pipeworks.embedded import YoloInference
+        from pipeworks.inference_contract import bind_profile, inherited_profile
 
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
-        from step.tensor_rt_pre_process import TensorRTPreProcess
-        from step.tensor_rt_post_process import TensorRTPostProcess
+        from step.yolo_pre_process import YoloPreProcess
+        from step.yolo_post_process import YoloPostProcess
 
         entered, unblock = Event(), Event()
 
-        class Slow(Step):
-            def configure(self, config):
-                pass
-
+        class Slow(YoloInference):
             def process(self, inputs):
                 for item in inputs:
+                    bind_profile(inherited_profile(item), "TensorRT")
                     item.cuda_stream.synchronize()
                     entered.set()
                     unblock.wait(3)
@@ -371,7 +370,7 @@ class DetectionCudaTests(unittest.TestCase):
                     yield item
 
         wrapper = CudaAsync(
-            TensorRTPreProcess(), Slow(), TensorRTPostProcess(), timeout_ms=200
+            YoloPreProcess(), Slow("unused.plan", backend=Backend.TENSORRT), YoloPostProcess(), timeout_ms=200
         )
         with report_scope():
             stats = store()

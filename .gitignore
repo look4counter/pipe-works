@@ -7,5 +7,6 @@ venv/
 dist/
 build/
 *.engine
+*.plan
 *.onnx
 *.pt

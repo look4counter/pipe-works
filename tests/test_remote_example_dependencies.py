@@ -13,15 +13,15 @@ class RemoteExampleDependenciesTests(unittest.TestCase):
     def test_reused_example_methods_restore_without_step_package(self):
         from pipeworks import Pipeline, main
         from pipeworks.embedded import CudaAsync, EveryNFrames
-        from step.tensor_rt_pre_process import TensorRTPreProcess
-        from step.tensor_rt_post_process import TensorRTPostProcess
+        from step.yolo_pre_process import YoloPreProcess
+        from step.yolo_post_process import YoloPostProcess
 
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             config = directory / "config.yml"
             config.write_text("{}", encoding="utf-8")
             pipeline = Pipeline("reused-methods", config=config).step(
-                EveryNFrames(CudaAsync(TensorRTPreProcess(size=(8, 8)), TensorRTPostProcess(names=["object"])), interval_frames=3)
+                EveryNFrames(CudaAsync(YoloPreProcess(size=(8, 8)), YoloPostProcess(names=["object"])), interval_frames=3)
             )
             connection = Mock()
             connection.recv.return_value = ("ok", None)
