@@ -132,15 +132,15 @@ class _LiveConfig:
 
 
 class Pipeline:
-    def __init__(self, name: str, *, config: Path, batch_process: str = "production"):
-        if not isinstance(batch_process, str):
-            raise TypeError("batch_process는 문자열이어야 합니다.")
-        if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", batch_process) is None:
+    def __init__(self, name: str, *, config: Path, batch_server: str = "production"):
+        if not isinstance(batch_server, str):
+            raise TypeError("batch_server는 문자열이어야 합니다.")
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", batch_server) is None:
             raise ValueError(
-                "batch_process는 영문자·숫자·밑줄·하이픈으로 이루어진 1~64자여야 합니다."
+                "batch_server는 영문자·숫자·밑줄·하이픈으로 이루어진 1~64자여야 합니다."
             )
         self.name = name
-        self.batch_process = batch_process
+        self.batch_server = batch_server
         self.config_path = config.resolve()
         source = config.read_bytes()
         loaded_config = _load_config(source)

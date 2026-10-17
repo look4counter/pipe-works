@@ -204,7 +204,7 @@ def _start_server(server_group="production") -> None:
 
 
 def run_remote(pipeline) -> None:
-    server_group = pipeline.batch_process
+    server_group = pipeline.batch_server
     try:
         from pipeworks.hotswap import Hotswap
         from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
