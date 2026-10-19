@@ -13,7 +13,7 @@ import torch
 
 from pipeworks.models import PipelineContext, Step
 from pipeworks.execution import (
-    _input_scope, _frame_scope, _DroppedFrame, _can_signal_frame_drop,
+    _input_scope, _frame_scope, _DroppedFrame, _can_signal_frame_drop, _frame_drop_scope,
 )
 from pipeworks.hotswap import Hotswap, is_embedded_step
 from pipeworks.embedded.yolo_report import status as yolo_status
@@ -148,7 +148,11 @@ class _InputSlot(Iterator[PipelineContext]):
                 # 텐서 저장 공간 자체는 계속 공유한다.
                 request.result = (
                     PipelineContext(**vars(result))
-                    if borrowed_frame and result is not None
+                    if (
+                        borrowed_frame
+                        and result is not None
+                        and not isinstance(result, _DroppedFrame)
+                    )
                     else result
                 )
             if borrowed_frame and request.input_drained:
@@ -238,6 +242,8 @@ class _Stage(Iterator[PipelineContext]):
 
     def __next__(self):
         item = next(self.upstream)
+        if isinstance(item, _DroppedFrame):
+            return item
         request = self.slot.request
         if isinstance(self.upstream, _Stage) and (
             request.expired.is_set() or time.monotonic() >= request.deadline
@@ -356,6 +362,7 @@ class CudaAsync(Step):
                         with (
                             _input_scope(callback),
                             _frame_scope(frame_callback),
+                            _frame_drop_scope(),
                         ):
                             with (
                                 torch.cuda.stream(stream)
@@ -478,14 +485,17 @@ class CudaAsync(Step):
                     drop_frame = False
                     with slot.condition:
                         if request.done.is_set() and request.result is not None:
-                            fields = vars(request.result).copy()
-                            if "cuda_stream" in vars(item):
-                                fields["cuda_stream"] = item.cuda_stream
+                            if isinstance(request.result, _DroppedFrame):
+                                drop_frame = True
                             else:
-                                fields.pop("cuda_stream", None)
-                            vars(item).clear()
-                            vars(item).update(fields)
-                            del fields
+                                fields = vars(request.result).copy()
+                                if "cuda_stream" in vars(item):
+                                    fields["cuda_stream"] = item.cuda_stream
+                                else:
+                                    fields.pop("cuda_stream", None)
+                                vars(item).clear()
+                                vars(item).update(fields)
+                                del fields
                         else:
                             request.expired.set()
                             if (

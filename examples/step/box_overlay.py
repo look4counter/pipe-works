@@ -1,8 +1,13 @@
 from types import SimpleNamespace
 from pipeworks.models import Step, PipelineContext
 from typing import Iterator
+import logging
 import re
 import torch
+from pipeworks.execution import _DroppedFrame, _can_signal_frame_drop
+
+
+logger = logging.getLogger(__name__)
 
 
 class BoxOverlay(Step):
@@ -110,11 +115,40 @@ class BoxOverlay(Step):
             pixel_format = getattr(item.pixel_format, "name", item.pixel_format)
             if str(pixel_format).upper() != "NV12":
                 raise ValueError("BoxOverlay requires NV12 input.")
-            height = item.video_stream.codec_context.height
-            width = item.video_stream.codec_context.width
-            if height <= 0 or width <= 0 or height % 2 or width % 2:
-                raise ValueError("NV12 dimensions must be positive and even.")
+            codec = getattr(getattr(item, "video_stream", None), "codec_context", None)
+            height, width = getattr(codec, "height", 0), getattr(codec, "width", 0)
+            if any(
+                isinstance(v, bool) or not isinstance(v, int) or v <= 0 or v % 2
+                for v in (height, width)
+            ):
+                logger.warning(
+                    "NV12 크기 오류로 프레임을 폐기합니다: 높이=%r, 너비=%r",
+                    height, width,
+                )
+                if _can_signal_frame_drop():
+                    yield _DroppedFrame()
+                continue
             stream = item.cuda_stream
+            with torch.cuda.stream(stream):
+                frame = torch.from_dlpack(item.frame)
+            if (
+                not frame.is_cuda
+                or frame.device != stream.device
+                or frame.dtype != torch.uint8
+            ):
+                raise ValueError("BoxOverlay requires a GPU uint8 NV12 frame.")
+            if frame.ndim == 1 and frame.numel() == height * width * 3 // 2:
+                frame = frame.reshape(height * 3 // 2, width)
+            if (
+                frame.ndim != 2
+                or frame.shape[0] < height * 3 // 2
+                or frame.shape[1] < width
+            ):
+                logger.warning("NV12 버퍼 크기 오류로 프레임을 폐기합니다.")
+                del frame
+                if _can_signal_frame_drop():
+                    yield _DroppedFrame()
+                continue
             key = (width, height, stream.device, self.id)
             if previous_key != key:
                 previous = {}
@@ -174,18 +208,6 @@ class BoxOverlay(Step):
                 )
                 if boxes is not None and boxes.shape[0]:
                     boxes.record_stream(stream)
-                    frame = torch.from_dlpack(item.frame)
-                    if frame.ndim == 1 and frame.numel() == height * width * 3 // 2:
-                        frame = frame.reshape(height * 3 // 2, width)
-                    if (
-                        not frame.is_cuda
-                        or frame.device != stream.device
-                        or frame.dtype != torch.uint8
-                        or frame.ndim != 2
-                        or frame.shape[0] < height * 3 // 2
-                        or frame.shape[1] < width
-                    ):
-                        raise ValueError("BoxOverlay requires a GPU uint8 NV12 frame.")
                     mask = self._mask(boxes, height, width, self.line_width)
                     chroma = (
                         mask[0::2, 0::2]
@@ -201,6 +223,6 @@ class BoxOverlay(Step):
                     frame[height : height + height // 2, 1:width:2].masked_fill_(
                         chroma, v
                     )
-                    # 하위 GPU 작업이 끝날 때까지 입력이 저장 공간을 소유한다.
-                    del frame
+            # 하위 GPU 작업이 끝날 때까지 입력이 저장 공간을 소유한다.
+            del frame
             yield item

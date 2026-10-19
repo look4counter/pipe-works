@@ -1,4 +1,5 @@
 
+import logging
 import math
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -8,9 +9,16 @@ import torch
 import torch.nn.functional as F
 
 from pipeworks.embedded.yolo_report import span, use
-from pipeworks.execution import release_frame
+from pipeworks.execution import release_frame, _DroppedFrame, _can_signal_frame_drop
 from pipeworks.inference_contract import begin_preprocess
 from pipeworks.models import PipelineContext, Step
+
+
+logger = logging.getLogger(__name__)
+
+
+class _InvalidNV12Size(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -206,7 +214,7 @@ class YoloPreProcess(Step):
                 isinstance(v, bool) or not isinstance(v, int) or v <= 0 or v % 2
                 for v in (height, width)
             ):
-                raise ValueError("NV12 입력은 양의 짝수 높이·너비 정보가 필요합니다.")
+                raise _InvalidNV12Size("NV12 입력은 양의 짝수 높이·너비 정보가 필요합니다.")
             if frame.ndim == 1 and frame.numel() == height * width * 3 // 2:
                 frame = frame.reshape(height * 3 // 2, width)
             if (
@@ -214,7 +222,7 @@ class YoloPreProcess(Step):
                 or frame.shape[0] < height * 3 // 2
                 or frame.shape[1] < width
             ):
-                raise ValueError("NV12 입력 크기가 잘못되었습니다.")
+                raise _InvalidNV12Size("NV12 입력 크기가 잘못되었습니다.")
             frame = frame[: height * 3 // 2, :width]
         elif pixel_format in ("RGB", "BGR"):
             if frame.ndim != 3 or frame.shape[2] != 3 or min(frame.shape[:2]) <= 0:
@@ -339,6 +347,14 @@ class YoloPreProcess(Step):
                     output if self.input_name is None else {self.input_name: output}
                 )
                 item.image_transform = transform
+            except _InvalidNV12Size as error:
+                logger.warning("NV12 크기 오류로 프레임을 폐기합니다: %s", error)
+                if profile is not None:
+                    profile.finish("error")
+                vars(item).pop("_inference_profile", None)
+                if _can_signal_frame_drop():
+                    yield _DroppedFrame()
+                continue
             except Exception:
                 if stream is not None:
                     stream.synchronize()
