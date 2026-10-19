@@ -6,6 +6,10 @@ from types import SimpleNamespace
 from pipeworks.hotswap import Hotswap, is_embedded_step
 from pipeworks.models import PipelineContext, Step
 from pipeworks.execution import _DroppedFrame, _frame_drop_scope
+from pipeworks.embedded.recovery import is_fatal, close
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class _Input(Iterator[PipelineContext]):
@@ -24,9 +28,7 @@ class _Input(Iterator[PipelineContext]):
 
 
 def _close(iterator):
-    close = getattr(iterator, "close", None)
-    if callable(close):
-        close()
+    close(iterator)
 
 
 class EveryNFrames(Step):
@@ -68,7 +70,6 @@ class EveryNFrames(Step):
                     try:
                         if outputs[position] is None:
                             outputs[position] = iter(step.process(slot))
-                            cleanup.callback(_close, outputs[position])
                         try:
                             with _frame_drop_scope():
                                 result = next(outputs[position])
@@ -79,6 +80,14 @@ class EveryNFrames(Step):
                         if isinstance(result, _DroppedFrame):
                             break
                         item = result
+                    except Exception as error:
+                        if is_fatal(error):
+                            raise
+                        logger.warning("주기 실행 실패로 원본 영상을 전달합니다: %s", error)
+                        _close(outputs[position])
+                        outputs[position] = None
+                        result = item
+                        break
                     finally:
                         slot.item = None
                 if isinstance(result, _DroppedFrame):
@@ -93,10 +102,16 @@ class EveryNFrames(Step):
                         next(output)
                     except StopIteration:
                         pass
+                    except Exception as error:
+                        if is_fatal(error):
+                            raise
+                        logger.warning("주기 실행 종료 처리 실패: %s", error)
                     else:
-                        raise RuntimeError("EveryNFrames 내부 Step이 입력보다 많은 출력을 반환했습니다.")
+                        logger.warning("EveryNFrames 내부 Step의 초과 출력을 버립니다.")
         finally:
             for slot in slots:
                 slot.item = None
                 slot.closed = True
+            for output in outputs:
+                _close(output)
             cleanup.close()

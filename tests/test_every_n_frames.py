@@ -234,15 +234,15 @@ class EveryNFramesTests(unittest.TestCase):
         self.assertEqual(child.finished, 1)
         self.assertEqual(closed, [True])
 
-    def test_failure_closes_previous_stages(self):
+    def test_failure_keeps_video_and_closes_stages_at_end(self):
         first = RecordingStep()
         class Fails(RecordingStep):
             def process(self, inputs):
                 next(inputs)
                 raise ValueError("failure")
                 yield
-        with self.assertRaisesRegex(ValueError, "failure"):
-            list(EveryNFrames(first, Fails()).process(iter(self.items())))
+        items = self.items()
+        self.assertEqual(list(EveryNFrames(first, Fails()).process(iter(items))), items)
         self.assertEqual(first.finished, 1)
 
     def test_invalid_child_input_output_contracts(self):
@@ -266,10 +266,10 @@ class EveryNFramesTests(unittest.TestCase):
             with self.subTest(function=function.__name__):
                 child = RecordingStep()
                 child.process = function
-                with self.assertRaises(RuntimeError):
-                    wrapper = EveryNFrames(child)
-                    wrapper._hot_steps = (child,)
-                    list(wrapper.process(iter(self.items(1))))
+                wrapper = EveryNFrames(child)
+                wrapper._hot_steps = (child,)
+                items = self.items(1)
+                self.assertEqual(list(wrapper.process(iter(items))), items)
 
     def test_live_interval_change_uses_accumulated_input_index(self):
         child = RecordingStep()

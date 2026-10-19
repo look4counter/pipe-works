@@ -1,8 +1,9 @@
 import sys
 import unittest
+from threading import Event
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import av
 from fractions import Fraction
@@ -194,7 +195,7 @@ class RTSPSourceTests(unittest.TestCase):
         self.assertNotEqual(old.connection_id, new.connection_id)
         self.assertEqual(old.codec_context, new.codec_context)
 
-    def test_connection_error_retries_and_disabled_reconnect_raises(self):
+    def test_connection_error_retries_even_when_reconnect_disabled(self):
         container = Container()
         source = RTSPSource("rtsp://input")
         source.configure(SimpleNamespace(reconnect_interval_ms=0))
@@ -216,33 +217,155 @@ class RTSPSourceTests(unittest.TestCase):
         self.assertEqual(open_mock.call_count, 2)
         self.assertEqual(container.closed, 1)
 
-        stopped = RTSPSource("rtsp://input")
-        stopped.configure(SimpleNamespace(reconnect=False))
-        with patch("pipeworks.embedded.rtsp_source.av.open", side_effect=error):
-            with self.assertRaises(RuntimeError):
-                next(stopped.process(iter(())))
+        stopped = RTSPSource("rtsp://input", reconnect=False, reconnect_interval_ms=0)
+        with (
+            patch("pipeworks.embedded.rtsp_source.av.open", side_effect=[error, Container()]),
+            patch("pipeworks.embedded.rtsp_source.time.sleep"),
+        ):
+            iterator = stopped.process(iter(()))
+            next(iterator)
+            iterator.close()
 
-    def test_missing_video_stream_fails_and_closes(self):
-        container = Container()
-        container.streams.video = []
-        source = RTSPSource("rtsp://input")
-        source.configure(SimpleNamespace())
-        with patch("pipeworks.embedded.rtsp_source.av.open", return_value=container):
-            with self.assertRaises(RuntimeError):
-                next(source.process(iter(())))
-        self.assertEqual(container.closed, 1)
+    def test_invalid_metadata_reopens_before_delivering_packets(self):
+        cases = [
+            ("missing_video", None), ("missing_codec", None),
+            ("name", ""), ("name", "  "), ("name", None), ("name", 123),
+            ("width", 0), ("width", -1), ("height", 0), ("height", -1),
+            ("width", None), ("width", True), ("height", 64.5),
+            ("extradata", "invalid"),
+            ("time_base", 0), ("time_base", -1), ("time_base", "invalid"),
+            ("average_rate", 0), ("average_rate", -1),
+            ("index", -1), ("index", None),
+        ]
+        for reconnect in (True, False):
+            for field, value in cases:
+                with self.subTest(reconnect=reconnect, field=field, value=value):
+                    bad, good = Container(), Container()
+                    if field == "missing_video":
+                        bad.streams.video = []
+                    elif field == "missing_codec":
+                        bad.stream.codec_context = None
+                    else:
+                        target = (bad.stream if field in (
+                            "time_base", "average_rate", "index",
+                        ) else bad.stream.codec_context)
+                        setattr(target, field, value)
+                    bad.demux = Mock(side_effect=AssertionError("invalid packets"))
+                    source = RTSPSource("rtsp://input", reconnect=reconnect,
+                                        reconnect_interval_ms=250)
 
-    def test_stream_end_with_reconnect_disabled_stops_pipeline(self):
-        container = Container()
-        source = RTSPSource("rtsp://input")
-        source.configure(SimpleNamespace(reconnect=False))
-        with patch("pipeworks.embedded.rtsp_source.av.open", return_value=container):
+                    def opened(*args, **kwargs):
+                        if bad.closed:
+                            return good
+                        return bad
+
+                    def waited(seconds):
+                        self.assertEqual(seconds, 0.25)
+                        self.assertEqual(bad.closed, 1)
+
+                    with (
+                        patch("pipeworks.embedded.rtsp_source.av.open",
+                              side_effect=opened) as open_mock,
+                        patch("pipeworks.embedded.rtsp_source.time.sleep",
+                              side_effect=waited) as sleep,
+                        patch("pipeworks.embedded.rtsp_source.record_receive") as status,
+                        self.assertLogs("pipeworks.embedded.rtsp_source", "WARNING"),
+                    ):
+                        iterator = source.process(iter(()))
+                        try:
+                            first = next(iterator)
+                        finally:
+                            iterator.close()
+                    self.assertIs(first.packet, good.packets[0])
+                    self.assertEqual(first.video_stream.width, 640)
+                    self.assertEqual(open_mock.call_count, 2)
+                    sleep.assert_called_once_with(0.25)
+                    bad.demux.assert_not_called()
+                    self.assertEqual((bad.closed, good.closed), (1, 1))
+                    self.assertEqual([c.args[0] for c in status.call_args_list],
+                                     [False, True])
+
+    def test_repeated_invalid_connections_resume_with_new_metadata(self):
+        first, bad, bad_again, recovered = [Container() for _ in range(4)]
+        bad.stream.codec_context.width = 0
+        bad_again.stream.codec_context.name = ""
+        source = RTSPSource("rtsp://input", reconnect_interval_ms=0)
+        with (
+            patch("pipeworks.embedded.rtsp_source.av.open",
+                  side_effect=[first, bad, bad_again, recovered]) as opened,
+            patch("pipeworks.embedded.rtsp_source.time.sleep") as sleep,
+            self.assertLogs("pipeworks.embedded.rtsp_source", "WARNING"),
+        ):
             iterator = source.process(iter(()))
-            next(iterator)
-            next(iterator)
-            with self.assertRaises(RuntimeError):
+            try:
+                old = next(iterator).video_stream
                 next(iterator)
-        self.assertEqual(container.closed, 1)
+                new = next(iterator).video_stream
+            finally:
+                iterator.close()
+        self.assertNotEqual(old.connection_id, new.connection_id)
+        self.assertEqual(old.codec_context, new.codec_context)
+        self.assertEqual(opened.call_count, 4)
+        self.assertEqual(sleep.call_count, 3)
+        self.assertTrue(all(c.closed == 1 for c in (first, bad, bad_again, recovered)))
+
+    def test_metadata_retry_can_be_stopped_or_cancelled(self):
+        from pipeworks.execution import _source_cancel_scope
+
+        for signal_kind in ("stop", "cancel"):
+            with self.subTest(signal=signal_kind):
+                bad = Container()
+                bad.stream.codec_context.width = 0
+                source = RTSPSource("rtsp://input", reconnect_interval_ms=250)
+                signal = Event()
+                if signal_kind == "stop":
+                    source._pipeworks_stop_event = signal
+
+                def interrupt(seconds):
+                    self.assertEqual(bad.closed, 1)
+                    signal.set()
+                    return True
+
+                with (
+                    _source_cancel_scope(signal if signal_kind == "cancel" else None),
+                    patch("pipeworks.embedded.rtsp_source.av.open",
+                          return_value=bad) as opened,
+                    patch.object(signal, "wait", side_effect=interrupt) as wait,
+                    patch("pipeworks.embedded.rtsp_source.time.sleep") as sleep,
+                    self.assertLogs("pipeworks.embedded.rtsp_source", "WARNING"),
+                ):
+                    self.assertEqual(list(source.process(iter(()))), [])
+                opened.assert_called_once()
+                self.assertEqual(wait.call_count, 1)
+                self.assertEqual(bad.closed, 1)
+                sleep.assert_not_called()
+
+    def test_demux_value_error_reconnects(self):
+        bad, good = Container(), Container()
+        bad.demux = Mock(side_effect=ValueError("demux failed"))
+        with (
+            patch("pipeworks.embedded.rtsp_source.av.open", side_effect=[bad, good]),
+            patch("pipeworks.embedded.rtsp_source.time.sleep") as sleep,
+        ):
+            iterator = RTSPSource("rtsp://input").process(iter(()))
+            first = next(iterator)
+            iterator.close()
+        self.assertIs(first.packet, good.packets[0])
+        sleep.assert_called_once_with(3)
+        self.assertEqual(bad.closed, 1)
+
+    def test_stream_end_reconnects_even_when_reconnect_disabled(self):
+        first, second = Container(), Container()
+        with (
+            patch("pipeworks.embedded.rtsp_source.av.open", side_effect=[first, second]),
+            patch("pipeworks.embedded.rtsp_source.time.sleep"),
+        ):
+            iterator = RTSPSource("rtsp://input", reconnect=False).process(iter(()))
+            next(iterator)
+            next(iterator)
+            self.assertIs(next(iterator).packet, second.packets[0])
+            iterator.close()
+        self.assertEqual(first.closed, 1)
 
 
 if __name__ == "__main__":

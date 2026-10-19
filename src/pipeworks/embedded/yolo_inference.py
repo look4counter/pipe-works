@@ -1,5 +1,6 @@
 
 import time
+from pipeworks.embedded.recovery import inference_outputs, gpu_call
 from contextlib import nullcontext
 from contextvars import copy_context
 from collections.abc import Iterator
@@ -124,10 +125,13 @@ class YoloInference(Step):
         return tensor, ready
 
     def process(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
-        if self.backend == Backend.TENSORRT:
-            yield from self._process_tensor_rt_profiled(inputs)
-        else:
-            yield from self._process_yolo(inputs)
+        process = (
+            self._process_tensor_rt_profiled
+            if self.backend == Backend.TENSORRT else self._process_yolo
+        )
+        for item in inference_outputs(process, inputs):
+            item.model_id = self.id
+            yield item
 
     def _process_yolo(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         session = settings = stream = None
@@ -175,7 +179,7 @@ class YoloInference(Step):
                                     output = session.infer(tensor, stream)
                                 finally:
                                     with span("completion_wait"):
-                                        stream.synchronize()
+                                        gpu_call(stream.synchronize)
                                 record_inference(time.perf_counter() - started)
                                 item.model_output = output
                 except Exception:
@@ -188,7 +192,7 @@ class YoloInference(Step):
                 yield item
         finally:
             if stream is not None:
-                stream.synchronize()
+                gpu_call(stream.synchronize)
 
     def _process_tensor_rt_profiled(self, inputs: Iterator[PipelineContext]) -> Iterator[PipelineContext]:
         # 원래 생성기를 유지하여 엔진/스트림 수명을 바꾸지 않는다.
@@ -261,7 +265,7 @@ class YoloInference(Step):
                 settings = self.gpu_id, self.profile_index
                 if session_settings != settings:
                     if stream is not None:
-                        stream.synchronize()
+                        gpu_call(stream.synchronize)
                     if session is not None:
                         session.close()
                     session = None
@@ -290,10 +294,10 @@ class YoloInference(Step):
                         )
                     finally:
                         with span("completion_wait"):
-                            stream.synchronize()
+                            gpu_call(stream.synchronize)
                 yield item
         finally:
             if stream is not None:
-                stream.synchronize()
+                gpu_call(stream.synchronize)
             if session is not None:
                 session.close()

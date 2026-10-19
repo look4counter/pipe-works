@@ -1,4 +1,5 @@
 import logging
+from pipeworks.embedded.recovery import is_fatal
 import math
 import time
 import av
@@ -93,151 +94,174 @@ class RTSPPublish(Step):
 
         try:
             for input in inputs:
-                video_stream = getattr(input, "video_stream", None)
-                packet = getattr(input, "packet", None)
-                if packet is None or video_stream is None:
-                    raise ValueError(
-                        "RTSP 송출 입력에 패킷과 비디오 스트림이 필요합니다."
+                try:
+                    video_stream = getattr(input, "video_stream", None)
+                    packet = getattr(input, "packet", None)
+                    if packet is None or video_stream is None:
+                        raise ValueError(
+                            "RTSP 송출 입력에 패킷과 비디오 스트림이 필요합니다."
+                        )
+
+                    codec = video_stream.codec_context
+                    stream_key = (
+                        video_stream.connection_id,
+                        getattr(video_stream, "index", None),
+                        codec.name,
+                        video_stream.width,
+                        video_stream.height,
+                        bytes(codec.extradata or b""),
+                        video_stream.time_base,
                     )
 
-                codec = video_stream.codec_context
-                stream_key = (
-                    video_stream.connection_id,
-                    getattr(video_stream, "index", None),
-                    codec.name,
-                    video_stream.width,
-                    video_stream.height,
-                    bytes(codec.extradata or b""),
-                    video_stream.time_base,
-                )
-
-                if stream_key != active_stream:
-                    if output is not None:
-                        try:
-                            output.close()
-                        except Exception:
-                            logger.exception("RTSP 출력 연결을 닫지 못했습니다.")
-                    output = None
-                    output_stream = None
-                    active_stream = stream_key
-                    last_dts = None
-
-                if output is None:
-                    if time.monotonic() < retry_at:
-                        continue
-                    try:
-                        output = av.open(
-                            self.url,
-                            mode="w",
-                            format="rtsp",
-                            options={
-                                "rtsp_transport": self.transport,
-                                "pkt_size": str(self.packet_size),
-                                "timeout": str(int(self.timeout_ms * 1000)),
-                            },
-                        )
-                        output_stream = video_stream.add_to_output(output)
-                        output.start_encoding()
-                    except Exception as error:
-                        record_publish(False)
+                    if stream_key != active_stream:
                         if output is not None:
                             try:
                                 output.close()
-                            except Exception:
+                            except Exception as error:
+                                if is_fatal(error):
+                                    raise
                                 logger.exception("RTSP 출력 연결을 닫지 못했습니다.")
                         output = None
                         output_stream = None
-                        if not self.reconnect:
+                        active_stream = stream_key
+                        last_dts = None
+
+                    if output is None:
+                        if time.monotonic() < retry_at:
+                            continue
+                        try:
+                            output = av.open(
+                                self.url,
+                                mode="w",
+                                format="rtsp",
+                                options={
+                                    "rtsp_transport": self.transport,
+                                    "pkt_size": str(self.packet_size),
+                                    "timeout": str(int(self.timeout_ms * 1000)),
+                                },
+                            )
+                            output_stream = video_stream.add_to_output(output)
+                            output.start_encoding()
+                        except Exception as error:
+                            if is_fatal(error):
+                                raise
+                            record_publish(False)
+                            if output is not None:
+                                try:
+                                    output.close()
+                                except Exception as error:
+                                    if is_fatal(error):
+                                        raise
+                                    logger.exception("RTSP 출력 연결을 닫지 못했습니다.")
+                            output = None
+                            output_stream = None
+                            retry_at = time.monotonic() + self.reconnect_interval_ms / 1000
+                            logger.warning("RTSP 출력 연결 실패, 재시도 예정: %s", error)
+                            continue
+
+                    packet = _copy_packet_for_publish(packet)
+                    packet_time_base = (
+                        packet.time_base
+                        or video_stream.time_base
+                        or output_stream.time_base
+                    )
+                    if packet_time_base is None:
+                        raise ValueError("RTSP 패킷에 time_base가 없습니다.")
+                    packet_time_base = Fraction(packet_time_base)
+                    if packet_time_base <= 0:
+                        raise ValueError("RTSP 패킷의 time_base는 양수여야 합니다.")
+                    if packet.time_base is None:
+                        packet.time_base = packet_time_base
+
+                    dts = packet.dts
+                    if dts is None:
+                        if packet.pts is not None:
+                            dts = packet.pts
+                        elif last_dts is not None:
+                            previous_dts, previous_base = last_dts
+                            duration = (
+                                packet.duration
+                                if packet.duration and packet.duration > 0
+                                else 1
+                            )
+                            dts = (
+                                floor(
+                                    Fraction(previous_dts)
+                                    * previous_base
+                                    / packet_time_base
+                                )
+                                + duration
+                            )
+                        else:
+                            dts = 0
+                        packet.dts = dts
+                    if last_dts is not None:
+                        previous_dts, previous_base = last_dts
+                        if (
+                            Fraction(dts) * packet_time_base
+                            <= Fraction(previous_dts) * previous_base
+                        ):
+                            duration = (
+                                packet.duration
+                                if packet.duration and packet.duration > 0
+                                else 1
+                            )
+                            corrected = (
+                                floor(
+                                    Fraction(previous_dts)
+                                    * previous_base
+                                    / packet_time_base
+                                )
+                                + duration
+                            )
+                            if packet.pts is not None:
+                                packet.pts += corrected - dts
+                            packet.dts = dts = corrected
+                    packet.stream = output_stream
+
+                    try:
+                        publish_started_at = time.perf_counter()
+                        output.mux(packet)
+                        record_publish(True)
+                        record_stage("publish", time.perf_counter() - publish_started_at)
+                    except Exception as error:
+                        if is_fatal(error):
                             raise
+                        record_publish(False)
+                        try:
+                            output.close()
+                        except Exception as error:
+                            if is_fatal(error):
+                                raise
+                            logger.exception("RTSP 출력 연결을 닫지 못했습니다.")
+                        output = None
+                        output_stream = None
                         retry_at = time.monotonic() + self.reconnect_interval_ms / 1000
-                        logger.warning("RTSP 출력 연결 실패, 재시도 예정: %s", error)
+                        logger.warning("RTSP 패킷 송신 실패, 재시도 예정: %s", error)
                         continue
 
-                packet = _copy_packet_for_publish(packet)
-                packet_time_base = (
-                    packet.time_base
-                    or video_stream.time_base
-                    or output_stream.time_base
-                )
-                if packet_time_base is None:
-                    raise ValueError("RTSP 패킷에 time_base가 없습니다.")
-                packet_time_base = Fraction(packet_time_base)
-                if packet_time_base <= 0:
-                    raise ValueError("RTSP 패킷의 time_base는 양수여야 합니다.")
-                if packet.time_base is None:
-                    packet.time_base = packet_time_base
-
-                dts = packet.dts
-                if dts is None:
-                    if packet.pts is not None:
-                        dts = packet.pts
-                    elif last_dts is not None:
-                        previous_dts, previous_base = last_dts
-                        duration = (
-                            packet.duration
-                            if packet.duration and packet.duration > 0
-                            else 1
-                        )
-                        dts = (
-                            floor(
-                                Fraction(previous_dts)
-                                * previous_base
-                                / packet_time_base
-                            )
-                            + duration
-                        )
-                    else:
-                        dts = 0
-                    packet.dts = dts
-                if last_dts is not None:
-                    previous_dts, previous_base = last_dts
-                    if (
-                        Fraction(dts) * packet_time_base
-                        <= Fraction(previous_dts) * previous_base
-                    ):
-                        duration = (
-                            packet.duration
-                            if packet.duration and packet.duration > 0
-                            else 1
-                        )
-                        corrected = (
-                            floor(
-                                Fraction(previous_dts)
-                                * previous_base
-                                / packet_time_base
-                            )
-                            + duration
-                        )
-                        if packet.pts is not None:
-                            packet.pts += corrected - dts
-                        packet.dts = dts = corrected
-                packet.stream = output_stream
-
-                try:
-                    publish_started_at = time.perf_counter()
-                    output.mux(packet)
-                    record_publish(True)
-                    record_stage("publish", time.perf_counter() - publish_started_at)
+                    last_dts = (dts, packet_time_base)
                 except Exception as error:
-                    record_publish(False)
-                    try:
-                        output.close()
-                    except Exception:
-                        logger.exception("RTSP 출력 연결을 닫지 못했습니다.")
-                    output = None
-                    output_stream = None
-                    if not self.reconnect:
+                    if is_fatal(error):
                         raise
+                    record_publish(False)
+                    logger.warning("잘못된 송출 입력을 버리고 연결을 재생성합니다: %s", error)
+                    if output is not None:
+                        try:
+                            output.close()
+                        except Exception as cleanup_error:
+                            if is_fatal(cleanup_error):
+                                raise
+                            logger.warning("송출 연결 정리 실패: %s", cleanup_error)
+                    output = output_stream = active_stream = last_dts = None
                     retry_at = time.monotonic() + self.reconnect_interval_ms / 1000
-                    logger.warning("RTSP 패킷 송신 실패, 재시도 예정: %s", error)
-                    continue
-
-                last_dts = (dts, packet_time_base)
         finally:
             if output is not None:
                 try:
                     output.close()
-                except Exception:
+                except Exception as error:
+                    if is_fatal(error):
+                        raise
                     logger.exception("RTSP 출력 연결을 닫지 못했습니다.")
 
         yield from ()

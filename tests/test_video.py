@@ -11,11 +11,22 @@ from pipeworks.video import CodecInfo, VideoStreamInfo, encoded_stream_info
 
 
 class VideoInfoTests(unittest.TestCase):
-    def test_invalid_dimensions_are_rejected(self):
-        with self.assertRaises(ValueError):
-            CodecInfo("h264", 0, 64)
-        with self.assertRaises(ValueError):
-            CodecInfo("", 64, 64)
+    def test_incomplete_codec_values_are_preserved(self):
+        for name, width, height in (
+            ("", 64, 64), ("h264", 0, 64), ("h264", 64, 0),
+            ("h264", -1, 64), ("h264", 64, -1), ("", 0, 0),
+        ):
+            with self.subTest(name=name, width=width, height=height):
+                info = CodecInfo(name, width, height)
+                self.assertEqual((info.name, info.width, info.height),
+                                 (name, width, height))
+                stream = SimpleNamespace(
+                    codec_context=info, time_base=None, index=0,
+                )
+                snapshot = VideoStreamInfo.from_stream(stream)
+                self.assertEqual(snapshot.codec_context, info)
+
+    def test_extradata_is_copied(self):
         data = bytearray(b"header")
         info = CodecInfo("h264", 64, 64, data)
         data[0] = 0

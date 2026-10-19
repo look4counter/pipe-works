@@ -53,3 +53,7 @@ logging.getLogger("pipeworks.embedded.yolo_report").setLevel(logging.DEBUG)
 구현: `src/pipeworks/embedded/yolo_report.py`. 가져오기는 `from pipeworks.embedded import YoloReport`입니다. `YoloReport()`는 생성자 옵션이 없으며 configure는 설정을 사용하지 않습니다. 별도의 필수 컨텍스트 필드나 새 출력 필드가 없고 같은 입력 객체를 그대로 전달합니다.
 
 process가 시작되면 실행 문맥의 모든 backend 측정을 활성화합니다. 약 1초마다 보고하고 종료 시 작업 스레드를 정리한 뒤 마지막 결과를 출력하고 활성화를 해제합니다. 일반 사용자 Step의 모든 코드 구간을 자동으로 측정하지는 않으며 프로파일·span 기록에 참여한 구간을 집계합니다. 모델 실행 시간에는 추론 Step이 추가하는 NMS가 없고 모델 자체에 포함된 연산은 포함됩니다.
+
+## 일반 보고 오류
+
+부가 통계·마지막 로그 출력 실패는 경고를 남기고 생략하여 영상 전달을 종료하지 않습니다.

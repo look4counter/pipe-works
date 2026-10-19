@@ -8,6 +8,7 @@ import logging
 import time
 
 import torch
+from pipeworks.embedded.recovery import report_call
 
 from pipeworks.models import Step
 from pipeworks.backend import Backend
@@ -281,7 +282,7 @@ class YoloReport(Step):
         def worker():
             with _use_output_writer(output_writer):
                 while not done.wait(1):
-                    context.run(report)
+                    report_call(context.run, report)
 
         thread = Thread(
             target=worker, name=f"pipeworks-{self.kind}-report", daemon=True
@@ -294,6 +295,6 @@ class YoloReport(Step):
             thread.join()
             # 짧은 실행도 마지막 표본을 볼 수 있게 남은 구간을 출력한다.
             try:
-                report()
+                report_call(report)
             finally:
                 stats.activate("*", -1)

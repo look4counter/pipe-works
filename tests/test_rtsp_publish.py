@@ -231,12 +231,9 @@ class RTSPPublishTests(unittest.TestCase):
 
         failed = Output(fail_mux=True)
         with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=failed):
-            with self.assertRaises(OSError):
-                list(
-                    self.publisher(reconnect=False).process(
-                        iter([self.bypass_input(0)])
-                    )
-                )
+            self.assertEqual(list(
+                self.publisher(reconnect=False).process(iter([self.bypass_input(0)]))
+            ), [])
         self.assertEqual(failed.closed, 1)
 
     def test_stream_configuration_change_reopens_output(self):
@@ -274,14 +271,12 @@ class RTSPPublishTests(unittest.TestCase):
             "pipeworks.embedded.rtsp_publish.av.open",
             side_effect=OSError("open failed"),
         ):
-            with self.assertRaises(OSError):
-                list(publisher.process(iter([self.bypass_input(0)])))
+            self.assertEqual(list(publisher.process(iter([self.bypass_input(0)]))), [])
 
         input = self.bypass_input(0)
         input.packet.time_base = Fraction(-1)
         with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=Output()):
-            with self.assertRaises(ValueError):
-                list(self.publisher().process(iter([input])))
+            self.assertEqual(list(self.publisher().process(iter([input]))), [])
 
     def test_encoded_bytes_without_packet_are_rejected(self):
         input = PipelineContext(
@@ -292,8 +287,7 @@ class RTSPPublishTests(unittest.TestCase):
             time_base=Fraction(1, 90000),
             fps=30,
         )
-        with self.assertRaises(ValueError):
-            list(self.publisher().process(iter([input])))
+        self.assertEqual(list(self.publisher().process(iter([input]))), [])
 
     def test_input_error_closes_open_output(self):
         output = Output()

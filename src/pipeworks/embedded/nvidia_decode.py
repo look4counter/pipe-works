@@ -1,6 +1,7 @@
 from contextvars import copy_context
 from collections import deque
 import logging
+from pipeworks.embedded.recovery import is_fatal, gpu_call, ResourceSafetyError
 from threading import Condition, Event, Thread
 import time
 from types import SimpleNamespace
@@ -67,6 +68,8 @@ class _DecoderBuffers:
         }
         if name not in layouts:
             raise ValueError(f"무복사 디코딩에서 지원하지 않는 픽셀 형식: {name}")
+        if width <= 0 or height <= 0 or size <= 0:
+            raise ValueError("디코더 출력 크기는 양수여야 합니다.")
         rows, self.typestr, element_size = layouts[name]
         pitch, remainder = divmod(size, rows)
         if remainder or pitch < width * element_size or pitch % element_size:
@@ -90,11 +93,11 @@ class _DecoderBuffers:
                 pointer, event = self.retired[index]
                 try:
                     if wait:
-                        event.synchronize()
-                    elif not event.query():
+                        gpu_call(event.synchronize)
+                    elif not gpu_call(event.query):
                         index += 1
                         continue
-                    self.decoder.UnlockFrame(pointer)
+                    gpu_call(self.decoder.UnlockFrame, pointer)
                     self.locked.remove(pointer)
                 except BaseException:
                     # 네이티브 반환의 성공 여부가 불명확하므로 재시도하지 않는다.
@@ -107,7 +110,7 @@ class _DecoderBuffers:
     def available(self, stopped):
         while not stopped():
             if self._cleanup_failed:
-                raise RuntimeError("정리에 실패한 디코더 버퍼 풀은 재사용할 수 없습니다.")
+                raise ResourceSafetyError("정리에 실패한 디코더 버퍼 풀은 재사용할 수 없습니다.")
             self.reap()
             with self.condition:
                 if len(self.locked) < self.limit:
@@ -117,14 +120,14 @@ class _DecoderBuffers:
 
     def acquire(self, native_call=None):
         if self._cleanup_failed:
-            raise RuntimeError("정리에 실패한 디코더 버퍼 풀은 재사용할 수 없습니다.")
+            raise ResourceSafetyError("정리에 실패한 디코더 버퍼 풀은 재사용할 수 없습니다.")
         call = native_call or (lambda method: method())
         pointer = call(self.decoder.GetLockedFrame)
         ready = torch.cuda.Event()
         ready.record(self.stream)
         with self.condition:
             if pointer in self.locked:
-                raise RuntimeError("디코더가 이미 잠긴 버퍼를 다시 반환했습니다.")
+                raise ResourceSafetyError("디코더가 이미 잠긴 버퍼를 다시 반환했습니다.")
             self.locked.add(pointer)
         owner = _LockedBuffer(self, pointer, ready)
         # as_tensor는 소유자 참조를 유지하며, DLPack 별칭은 같은 텐서 저장 공간을 유지한다.
@@ -216,13 +219,12 @@ class NvidiaDecode(Step):
         native_errors = (RuntimeError,)
         if isinstance(getattr(nvc, "PyNvVCException", None), type):
             native_errors += (nvc.PyNvVCException,)
-        unsupported = getattr(nvc, "PyNvVCExceptionUnsupported", ())
 
         def native_call(method, *args, **kwargs):
             try:
                 return method(*args, **kwargs)
             except native_errors as error:
-                if isinstance(error, unsupported):
+                if is_fatal(error):
                     raise
                 message = str(error)
             # 복구 예외가 이전 디코더와 패킷의 수명을 연장하지 않게 한다.
@@ -237,7 +239,7 @@ class NvidiaDecode(Step):
                 return
             try:
                 if decode_stream is not None:
-                    decode_stream.synchronize()
+                    gpu_call(decode_stream.synchronize)
                 if discard:
                     slot.discard()
                 if slot.buffers is not None:
@@ -317,12 +319,12 @@ class NvidiaDecode(Step):
             for item in inputs:
                 if stopped():
                     return
-                if video_stream is not None and item.video_stream is not video_stream:
+                if video_stream is not None and getattr(item, "video_stream", None) is not video_stream:
                     logger.warning("입력 스트림이 변경되어 디코더를 초기화하고 키프레임을 기다립니다.")
                     reset()
                     waiting_keyframe = recovering = True
-                video_stream = item.video_stream
-                packet = item.packet
+                video_stream = getattr(item, "video_stream", None)
+                packet = getattr(item, "packet", None)
                 try:
                     if waiting_keyframe and not getattr(packet, "is_keyframe", False):
                         continue
@@ -334,9 +336,9 @@ class NvidiaDecode(Step):
                                 "h265": nvc.cudaVideoCodec.HEVC,
                             }
                             codec = codec_ids[video_stream.codec.name.lower()]
-                            decode_stream = torch.cuda.Stream(device=self.gpu_id)
+                            decode_stream = gpu_call(torch.cuda.Stream, device=self.gpu_id)
                             if consumer_stream is None:
-                                consumer_stream = torch.cuda.Stream(device=self.gpu_id)
+                                consumer_stream = gpu_call(torch.cuda.Stream, device=self.gpu_id)
                             decoder = native_call(
                                 nvc.CreateDecoder,
                                 gpuid=self.gpu_id,
@@ -360,7 +362,9 @@ class NvidiaDecode(Step):
                         with torch.cuda.stream(decode_stream):
                             decode(packet_data)
                         waiting_keyframe = False
-                    except _DecodeError as error:
+                    except Exception as error:
+                        if is_fatal(error):
+                            raise
                         logger.warning(
                             "디코더 오류로 자동 복구를 시도합니다. 다음 키프레임을 기다립니다: %s",
                             error,
@@ -377,7 +381,9 @@ class NvidiaDecode(Step):
                             decode(nvc.PacketData())
                         else:
                             publish(native_call(decoder.Flush))
-                except _DecodeError as error:
+                except Exception as error:
+                    if is_fatal(error):
+                        raise
                     logger.warning("디코더 종료 처리 오류로 지연 프레임을 버립니다: %s", error)
         finally:
             reset(discard=False)

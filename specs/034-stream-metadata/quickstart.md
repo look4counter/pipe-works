@@ -13,3 +13,28 @@
 - 기존 실패는 test_box_overlay의 예제 단계 구성 1개, test_multiple_stream_example의 누락된 예제 파일 2개, test_remote_example_dependencies의 예제 반환 형식 1개, test_yolo_processing의 예제 구성 1개다. HEAD 소스를 별도 임시 디렉터리에 추출하여 이 5개가 모두 동일하게 실패함을 확인했다.
 - 초기 연구에서 PyNvVideoCodec 단독 가져오기는 DLL 오류가 있었으나 기존 테스트의 DLL 디렉터리 설정을 사용한 실제 GPU 테스트는 성공했다.
 - 실제 RTSP 서버를 통한 SDP·네트워크 재연결 종단 간 검증은 수행하지 않았다.
+
+## 2026-10-20 생성 검증 제거 확인
+
+기존 가상 환경과 의존성으로 다음 세 명령을 실행한다. 빈 이름·0 및 음수 크기 보존, 독립 복사·불변성, 실제 영상 송출과 RTSP 회귀를 검증한다.
+
+```powershell
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_video.py -v
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_rtsp_source.py -v
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_rtsp_publish.py -v
+```
+
+검증 결과: 2026-10-20 비디오 5개, RTSP 소스 11개, RTSP 송출 19개로 총 35개 테스트가 모두 통과했다. 변경 전 새 수락 검증의 6가지 입력에서 기존 ValueError를 확인했고 변경 후 모두 통과했다. 실제 RTSP 서버나 GPU 전체 파이프라인 실험은 이번 검증에 포함하지 않았다.
+
+## RTSP 메타정보 복구 검증
+
+기존 가상 환경에서 아래 명령을 실행한다. 비정상 연결의 패킷 차단·닫힘·대기 후 정상 재개, 메타정보 연속 실패, reconnect=False, 중단·취소, 무관한 오류 전파와 기존 공유 계약을 검증한다.
+
+```powershell
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_rtsp_source.py -v
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_video.py -v
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_rtsp_publish.py -v
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_nvidia_decode.py -v
+```
+
+2026-10-20 복구 검증 결과: RTSP 소스 14개, 비디오 5개, RTSP 송출 19개, 디코더 30개로 총 68개 테스트가 모두 통과했다. 소스 테스트에는 21종 비정상 입력을 reconnect=True/False 각각으로 검증하는 42개 하위 사례가 포함된다. 변경 전 복구 테스트 실패를 확인했고 변경 후 모두 통과했다. 디코더 테스트에는 실제 GPU 잠금 버퍼·복구 검증도 포함되며 실제 RTSP 서버를 통한 네트워크 종단 간 검증은 수행하지 않았다.

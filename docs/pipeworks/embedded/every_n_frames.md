@@ -20,7 +20,7 @@ pipeline.step(EveryNFrames(
 pipeline.step(EveryNFrames(MyProcessingStep(), interval_frames=30))
 ```
 
-직접 가져오기는 `from pipeworks.embedded.every_n_frames import EveryNFrames`를 사용합니다. 일반 내부 Step은 입력 하나를 소비하고 PipelineContext 하나를 출력해야 합니다. CudaAsync가 원본 안전 판단으로 프레임을 폐기한 경우만 예외로 허용합니다. Source, 출력 없는 Sink, 여러 입력을 모으거나 출력 개수를 바꾸는 단계는 지원하지 않습니다. 입력 재소비·출력 누락·잘못된 타입·입력 없는 추가 출력은 오류로 전파됩니다. 마지막 입력 뒤 추가 출력은 정상 입력 종료 시 검사합니다.
+직접 가져오기는 `from pipeworks.embedded.every_n_frames import EveryNFrames`를 사용합니다. 일반 내부 Step은 입력 하나를 소비하고 PipelineContext 하나를 출력해야 합니다. CudaAsync가 원본 안전 판단으로 프레임을 폐기한 경우만 예외로 허용합니다. Source, 출력 없는 Sink, 여러 입력을 모으거나 출력 개수를 바꾸는 단계는 지원하지 않습니다. 입력 재소비·출력 누락·잘못된 타입·추가 출력과 일반 내부 오류는 기록하고 실패 반복자를 정리합니다. 실패 입력의 영상을 전달하고 다음 선택 입력에서 내부 반복자를 재생성합니다. 명시적인 GPU·자원 안전성 오류는 전파합니다. 마지막 입력 뒤 추가 출력은 정상 입력 종료 시 검사합니다.
 
 ## 설정과 수명
 
@@ -53,7 +53,7 @@ pipeline.step(EveryNFrames(
 ))
 ```
 
-EveryNFrames를 바깥에 두면 간격은 전체 입력 프레임 기준이며 생략 프레임은 비동기 준비도 하지 않습니다. 내부 CudaAsync가 원본을 계속 사용하는 프레임을 폐기하면 해당 프레임을 후속 내부 단계와 외부 출력에 전달하지 않고 다음 입력으로 진행합니다. 폐기된 입력도 간격 카운터에 포함되며 일반 단계의 입력 재소비·출력 누락은 계속 오류입니다. 원본 사용이 끝난 timeout과 busy는 기존처럼 원본을 전달합니다. GPU 작업과 입력 참조는 기존 CudaAsync의 안전한 수명 계약을 유지합니다.
+EveryNFrames를 바깥에 두면 간격은 전체 입력 프레임 기준이며 생략 프레임은 비동기 준비도 하지 않습니다. 내부 CudaAsync가 원본을 계속 사용하는 프레임을 폐기하면 해당 프레임을 후속 내부 단계와 외부 출력에 전달하지 않고 다음 입력으로 진행합니다. 폐기된 입력도 간격 카운터에 포함되며 일반 단계의 입력 재소비·출력 누락은 경고와 원본 통과 후 반복자 재생성으로 처리합니다. 원본 사용이 끝난 timeout과 busy는 기존처럼 원본을 전달합니다. GPU 작업과 입력 참조는 기존 CudaAsync의 안전한 수명 계약을 유지합니다.
 
 반대로 CudaAsync(EveryNFrames(...))도 사용할 수 있지만 간격은 비동기 작업자가 실제 받은 입력을 기준으로 계산하고 생략 입력에도 비동기 준비 비용이 듭니다.
 

@@ -196,7 +196,7 @@ class ProcessTests(unittest.TestCase):
             self.assertIs(items[1].model_output, output)
             self.assertEqual(items[1].model_id, "model.pt")
 
-    def test_failure_propagates_and_clears_stale_output(self):
+    def test_failure_passes_original_and_clears_stale_output(self):
         for batch in (False, True):
             step, stream = YoloInference("model.pt", backend=Backend.TORCHSCRIPT, batch=batch), self.stream()
             item = PipelineContext(cuda_stream=stream, model_output="stale")
@@ -212,8 +212,7 @@ class ProcessTests(unittest.TestCase):
                 patch("torch.cuda.stream", side_effect=lambda s: nullcontext()),
             ):
                 session.return_value.infer.side_effect = RuntimeError("failed")
-                with self.assertRaisesRegex(RuntimeError, "failed"):
-                    list(step.process(iter([item])))
+                self.assertEqual(list(step.process(iter([item]))), [item])
             self.assertIsNone(item.model_output)
 
     def test_empty_input_does_not_load_model(self):

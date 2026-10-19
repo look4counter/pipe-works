@@ -2,6 +2,7 @@ from typing import Iterator
 from types import SimpleNamespace
 from fractions import Fraction
 import logging
+from pipeworks.embedded.recovery import is_fatal, gpu_call
 import time
 
 import av
@@ -48,13 +49,12 @@ class NvidiaEncode(Step):
         native_errors = (RuntimeError,)
         if isinstance(getattr(nvc, "PyNvVCException", None), type):
             native_errors += (nvc.PyNvVCException,)
-        unsupported = getattr(nvc, "PyNvVCExceptionUnsupported", ())
 
         def native_call(method, *args, **kwargs):
             try:
                 return method(*args, **kwargs)
             except native_errors as error:
-                if isinstance(error, unsupported):
+                if is_fatal(error):
                     raise
                 message = str(error)
             # 복구 예외가 bound method·원본 traceback·프레임을 붙잡지 않게 한다.
@@ -67,7 +67,7 @@ class NvidiaEncode(Step):
                 return
             try:
                 if cuda_stream is not None:
-                    cuda_stream.synchronize()
+                    gpu_call(cuda_stream.synchronize)
             except BaseException:
                 cleanup_failed = True
                 raise
@@ -89,20 +89,48 @@ class NvidiaEncode(Step):
             ):
                 encoded_packets = (encoded_packets,)
 
-            for encoded_packet in encoded_packets:
-                data = encoded_bytes(encoded_packet)
+            try:
+                packets = iter(encoded_packets)
+            except Exception as error:
+                if is_fatal(error):
+                    raise
+                logger.warning("잘못된 인코더 출력 묶음을 버립니다: %s", error)
+                return
+            while True:
+                try:
+                    encoded_packet = next(packets)
+                except StopIteration:
+                    return
+                except Exception as error:
+                    if is_fatal(error):
+                        raise
+                    logger.warning("인코더 출력 읽기 실패로 나머지 패킷을 버립니다: %s", error)
+                    return
+                try:
+                    data = encoded_bytes(encoded_packet)
+                except Exception as error:
+                    if is_fatal(error):
+                        raise
+                    logger.warning("잘못된 인코더 패킷을 버립니다: %s", error)
+                    continue
                 if not data:
                     continue
 
-                if output_info is None:
-                    output_info = encoded_stream_info(codec_info, data, time_base)
+                try:
+                    if output_info is None:
+                        output_info = encoded_stream_info(codec_info, data, time_base)
 
-                packet = av.Packet(data)
-                packet.pts = next_pts
-                packet.dts = next_pts
-                packet.time_base = time_base
-                packet.duration = 1
-                next_pts += 1
+                    packet = av.Packet(data)
+                    packet.pts = next_pts
+                    packet.dts = next_pts
+                    packet.time_base = time_base
+                    packet.duration = 1
+                    next_pts += 1
+                except Exception as error:
+                    if is_fatal(error):
+                        raise
+                    logger.warning("인코더 출력 패킷 생성 실패로 폐기합니다: %s", error)
+                    continue
                 if recovering:
                     logger.info("인코더 복구 후 영상 출력을 재개했습니다.")
                     recovering = False
@@ -112,7 +140,9 @@ class NvidiaEncode(Step):
             try:
                 with torch.cuda.stream(cuda_stream):
                     packets = native_call(encoder.EndEncode)
-            except _EncodeError as error:
+            except Exception as error:
+                if is_fatal(error):
+                    raise
                 logger.warning("인코더 종료 처리 오류로 지연 패킷을 버립니다: %s", error)
                 return
             yield from output_packet(packets)
@@ -121,12 +151,20 @@ class NvidiaEncode(Step):
             for input in inputs:
                 if stopped():
                     return
-                codec = input.video_stream.codec_context
-                pixel_format = getattr(input.pixel_format, "name", input.pixel_format)
-                stream_key = (
-                    codec.name.lower(), codec.width, codec.height,
-                    pixel_format, input.cuda_stream.cuda_stream,
-                )
+                try:
+                    codec = input.video_stream.codec_context
+                    pixel_format = getattr(input.pixel_format, "name", input.pixel_format)
+                    stream_key = (
+                        codec.name.lower(), codec.width, codec.height,
+                        pixel_format, input.cuda_stream.cuda_stream,
+                    )
+                    if not codec.name or codec.width <= 0 or codec.height <= 0:
+                        raise ValueError("인코더 코덱 이름과 양수 크기가 필요합니다.")
+                except Exception as error:
+                    if is_fatal(error):
+                        raise
+                    logger.warning("잘못된 인코딩 입력을 버립니다: %s", error)
+                    continue
                 if encoder is not None and (
                     input.video_stream is not video_stream or stream_key != active_key
                 ):
@@ -170,7 +208,9 @@ class NvidiaEncode(Step):
                     last_input = input
                     with torch.cuda.stream(input.cuda_stream):
                         encoded_packets = native_call(encoder.Encode, input.frame)
-                except _EncodeError as error:
+                except Exception as error:
+                    if is_fatal(error):
+                        raise
                     logger.warning(
                         "인코더 오류로 자동 복구를 시도합니다. 1초 후 새 프레임에서 재시도합니다: %s",
                         error,
@@ -179,11 +219,15 @@ class NvidiaEncode(Step):
                     retry_at = time.monotonic() + 1.0
                     recovering = True
                     continue
-                record_stage("encode", time.perf_counter() - encode_started_at)
-
-                started_at = getattr(input, "processing_started_at", None)
-                if started_at is not None:
-                    record_frame(time.perf_counter() - started_at)
+                try:
+                    record_stage("encode", time.perf_counter() - encode_started_at)
+                    started_at = getattr(input, "processing_started_at", None)
+                    if started_at is not None:
+                        record_frame(time.perf_counter() - started_at)
+                except Exception as error:
+                    if is_fatal(error):
+                        raise
+                    logger.warning("인코딩 보고 실패: %s", error)
                 yield from output_packet(encoded_packets)
 
             if encoder is not None and not stopped():

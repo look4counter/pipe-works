@@ -390,18 +390,18 @@ class DecodeTests(unittest.TestCase):
         results = list(step.process(iter([context(1, pts=1)])))
         self.assertEqual([item.frame for item in results], [1])
 
-    def test_non_decoder_errors_and_unsupported_errors_propagate(self):
+    def test_non_decoder_errors_and_unsupported_errors_are_dropped(self):
         step, api = self.setup_decoder(lambda packet: [])
-        with self.assertRaises(KeyError):
-            list(step.process(iter([context(stream=SimpleNamespace(codec=SimpleNamespace(name="vp9")))])))
+        self.assertEqual(list(step.process(iter([
+            context(stream=SimpleNamespace(codec=SimpleNamespace(name="vp9")))
+        ]))), [])
 
         class Unsupported(Exception):
             pass
 
         api.PyNvVCExceptionUnsupported = Unsupported
         api.CreateDecoder = lambda **kwargs: (_ for _ in ()).throw(Unsupported("unsupported"))
-        with self.assertRaisesRegex(Unsupported, "unsupported"):
-            list(step.process(iter([context()])))
+        self.assertEqual(list(step.process(iter([context()]))), [])
 
     def test_recovery_wait_is_cancellable_and_does_not_close_source_early(self):
         stop, consumed, closed = Event(), [], Event()

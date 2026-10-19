@@ -200,23 +200,20 @@ class EncodeTests(unittest.TestCase):
         self.assertIn(b"sps", info.codec_context.extradata)
         self.assertIn(b"pps", info.codec_context.extradata)
 
-    def test_unsupported_and_non_native_errors_propagate(self):
+    def test_unsupported_and_non_native_errors_recover(self):
         class Unsupported(RuntimeError):
             pass
 
         self.api.PyNvVCExceptionUnsupported = Unsupported
         self.api.CreateEncoder = Mock(side_effect=Unsupported("unsupported"))
-        with self.assertRaisesRegex(Unsupported, "unsupported"):
-            list(self.step.process(iter([self.item()])))
+        self.assertEqual(list(self.step.process(iter([self.item()]))), [])
         self.api.CreateEncoder = lambda *args, **kwargs: Encoder()
         with patch("pipeworks.embedded.nvidia_encode.record_stage", side_effect=RuntimeError("report failed")):
-            with self.assertRaisesRegex(RuntimeError, "report failed"):
-                list(self.step.process(iter([self.item()])))
+            self.assertEqual(len(list(self.step.process(iter([self.item()])))), 1)
         encoder = Encoder()
         encoder.Encode = lambda frame: object()
         self.api.CreateEncoder = lambda *args, **kwargs: encoder
-        with self.assertRaises(TypeError):
-            list(self.step.process(iter([self.item()])))
+        self.assertEqual(list(self.step.process(iter([self.item()]))), [])
 
     def test_source_and_downstream_errors_propagate_and_release_encoder(self):
         refs = []

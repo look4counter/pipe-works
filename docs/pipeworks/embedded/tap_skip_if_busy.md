@@ -34,3 +34,7 @@ pipeline.step(TapSkipIfBusy(my_read_only_step))
 ```
 
 관련 문서: [Step 계약](../models.md), [Hotswap](../hotswap.md), [전체 Step 목록](../README.md)
+
+## 실행 중 오류 정책
+
+일반 처리 오류에도 원본 영상 전달을 유지합니다. 실패한 내부 처리는 재생성하며 명시적인 GPU·메모리·동기화·자원 안전성 오류는 작업 스레드에서 호출자에게 전달합니다. 실행 전 설정 검증은 유지합니다.

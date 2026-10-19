@@ -3,6 +3,7 @@ from contextlib import nullcontext
 from contextvars import Context, copy_context
 from dataclasses import dataclass, field
 import logging
+from pipeworks.embedded.recovery import is_fatal, gpu_call
 import math
 from threading import Condition, Event, Lock, Thread
 import time
@@ -96,6 +97,7 @@ class _InputSlot(Iterator[PipelineContext]):
     def __init__(self):
         self.condition = Condition()
         self.request: _Request | None = None
+        self.fatal_error = None
         self.closed = False
 
     def offer(self, request):
@@ -199,7 +201,9 @@ class _InputSlot(Iterator[PipelineContext]):
             return True
         try:
             return bool(event.query())
-        except Exception:
+        except Exception as error:
+            if is_fatal(error):
+                raise
             logger.exception(
                 "CudaAsync 원본 사용 종료 이벤트를 확인하지 못해 해당 프레임을 폐기합니다."
             )
@@ -216,7 +220,9 @@ def _close(outputs):
     if callable(close):
         try:
             close()
-        except Exception:
+        except Exception as error:
+            if is_fatal(error):
+                raise
             logger.exception("CudaAsync 처리 스트림 정리에 실패했습니다.")
 
 
@@ -327,7 +333,7 @@ class CudaAsync(Step):
                 def execute():
                     nonlocal outputs
                     for event in request.ready_events:
-                        event.synchronize()
+                        gpu_call(event.synchronize)
                     if request.error is not None:
                         request.input_drained = True
                         return None
@@ -381,10 +387,10 @@ class CudaAsync(Step):
                                 output = next(outputs)
                     finally:
                         if stream is not None:
-                            stream.synchronize()
+                            gpu_call(stream.synchronize)
                         for tensor in request.input_tensors:
                             if tensor.is_cuda:
-                                torch.cuda.current_stream(tensor.device).synchronize()
+                                gpu_call(torch.cuda.current_stream(tensor.device).synchronize)
                         request.input_drained = True
                     if not request.consumed or not isinstance(output, PipelineContext):
                         raise RuntimeError(
@@ -396,7 +402,9 @@ class CudaAsync(Step):
 
                 try:
                     result = request.context.run(execute)
-                except Exception:
+                except Exception as error:
+                    if is_fatal(error):
+                        slot.fatal_error = error
                     logger.exception("CudaAsync 처리에 실패하여 원본을 전달합니다.")
                     request.context.run(_close, outputs)
                     outputs = None
@@ -446,11 +454,18 @@ class CudaAsync(Step):
             try:
                 with _use_output_writer(output_writer):
                     self._consume(slot)
+            except Exception as error:
+                if is_fatal(error):
+                    slot.fatal_error = error
+                else:
+                    logger.exception("CudaAsync 작업자를 종료하고 원본 처리를 유지합니다.")
             finally:
                 self._session_lock.release()
 
         try:
             for item in inputs:
+                if slot.fatal_error is not None:
+                    raise slot.fatal_error
                 if not acquired:
                     acquired = self._session_lock.acquire(blocking=False)
                     if not acquired:
@@ -465,6 +480,8 @@ class CudaAsync(Step):
                         _prepare(request)
                     except Exception as error:
                         request.error = error
+                        if is_fatal(error):
+                            raise
                         for kind in kinds:
                             yolo_status(kind, "error")
                         logger.exception(
@@ -477,11 +494,22 @@ class CudaAsync(Step):
                         )
                         try:
                             worker.start()
-                        except Exception:
+                        except Exception as error:
                             worker = None
-                            raise
+                            if is_fatal(error):
+                                raise
+                            logger.warning("CudaAsync 작업자 생성 실패로 원본을 전달합니다: %s", error)
+                            self._session_lock.release()
+                            acquired = False
+                            slot.close()
+                            slot = _InputSlot()
+                            yield item
+                            request = None
+                            continue
                     slot.publish()
                     request.done.wait(max(0, request.deadline - time.monotonic()))
+                    if slot.fatal_error is not None:
+                        raise slot.fatal_error
                     drop_frame = False
                     with slot.condition:
                         if request.done.is_set() and request.result is not None:

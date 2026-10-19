@@ -217,4 +217,4 @@ TensorRT 실행도 동일한 model_input·model_output·model_id 계약을 사�
 
 구현: `src/pipeworks/embedded/yolo_inference.py`. 생성자는 `YoloInference(model_path, *, batch=False, gpu_id=0, id=None, backend, profile_index=0)`입니다. model_path와 batch는 생성자 전용이고 backend는 필수입니다. 별도 모델 설정 경로는 받지 않습니다. YAML 섹션은 YoloInference이며 backend·gpu_id·id·profile_index를 적용합니다. batch는 bool, gpu_id와 profile_index는 bool을 제외한 음수가 아닌 정수여야 합니다.
 
-필수 입력은 model_input이며 cuda_stream은 선택 입력입니다. 같은 컨텍스트에 model_id와 model_output을 기록하고 cuda_stream이 없으면 지정 GPU의 현재 스트림을 추가합니다. 원본 frame·detections는 추론 단계가 생성하거나 정리하지 않습니다. 정상 입력마다 결과 하나를 출력하며 오류는 전파합니다. 공유 배치의 TensorRT 입력은 엔진과 배치 작업자의 검증 규칙을 함께 따릅니다.
+필수 입력은 model_input이며 cuda_stream은 선택 입력입니다. 같은 컨텍스트에 model_id와 model_output을 기록하고 cuda_stream이 없으면 지정 GPU의 현재 스트림을 추가합니다. 원본 frame·detections는 추론 단계가 생성하거나 정리하지 않습니다. 정상 입력마다 결과 하나를 출력합니다. 일반 추론 오류는 경고를 기록하고 model_output=None인 원본 컨텍스트를 전달하며 다음 입력에서 세션을 재생성합니다. 직접·배치·모든 백엔드에 적용되며 명시적인 GPU·동기화 오류와 실행 전 설정 검증은 전파합니다. 공유 배치의 TensorRT 입력은 엔진과 배치 작업자의 검증 규칙을 함께 따릅니다.

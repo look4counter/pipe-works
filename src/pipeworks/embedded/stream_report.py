@@ -103,9 +103,10 @@ class _Publisher:
         )
 
     def run(self):
+        from pipeworks.embedded.recovery import report_call
         while not self.done.wait(0.1):
             for stats in self.stats:
-                stats.publish()
+                report_call(stats.publish)
 
 
 _publisher_lock = Lock()
@@ -382,9 +383,10 @@ class StreamReport(Step):
             logger.debug("%s\n%s", " | ".join(parts), detail)
 
         def worker() -> None:
+            from pipeworks.embedded.recovery import report_call
             with _use_output_writer(output_writer):
                 while not done.wait(1.0):
-                    context.run(report_once)
+                    report_call(context.run, report_once)
 
         thread = Thread(target=worker, name="pipeworks-stream-report", daemon=True)
         thread.start()

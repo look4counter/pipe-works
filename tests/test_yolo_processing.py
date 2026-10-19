@@ -389,9 +389,9 @@ class ProcessingTests(unittest.TestCase):
                     "pipeworks.embedded.yolo_inference._Session",
                     side_effect=RuntimeError("failed"),
                 ),
-                self.assertRaisesRegex(RuntimeError, "failed"),
             ):
-                list(YoloInference("model.pt", backend=Backend.TORCHSCRIPT).process(prepared))
+                self.assertEqual(list(YoloInference("model.pt", backend=Backend.TORCHSCRIPT).process(prepared)), [item])
+                self.assertIsNone(item.model_output)
             self.assertEqual(stats.snapshot("TORCHSCRIPT", 0)["states"]["error"], 1)
 
     def test_async_timeout_records_partial_profile_and_preserves_frame(self):

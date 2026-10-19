@@ -9,7 +9,36 @@ from pipeworks.models import PipelineContext, Step
 from pipeworks.video import VideoStreamInfo
 from pipeworks.execution import current_source_cancel
 
+from pipeworks.embedded.recovery import is_fatal
+
 logger = logging.getLogger(__name__)
+
+
+class _InvalidStreamMetadata(Exception):
+    pass
+
+
+def _read_stream_info(stream):
+    try:
+        codec = stream.codec_context
+        if not isinstance(codec.name, str) or not codec.name.strip():
+            raise _InvalidStreamMetadata("코덱 이름이 없거나 잘못되었습니다.")
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            for value in (codec.width, codec.height)
+        ):
+            raise _InvalidStreamMetadata("너비·높이는 양의 정수여야 합니다.")
+        info = VideoStreamInfo.from_stream(stream)
+        if any(
+            value is not None and value <= 0
+            for value in (info.time_base, info.average_rate)
+        ):
+            raise _InvalidStreamMetadata("시간 기준·평균 프레임률은 양수여야 합니다.")
+        if info.index < 0:
+            raise _InvalidStreamMetadata("스트림 인덱스는 0 이상이어야 합니다.")
+        return info
+    except (AttributeError, TypeError, ValueError, OverflowError, ZeroDivisionError) as error:
+        raise _InvalidStreamMetadata("메타정보를 읽거나 복사할 수 없습니다.") from error
 
 
 class RTSPSource(Step):
@@ -76,11 +105,10 @@ class RTSPSource(Step):
                 )
                 video_streams = container.streams.video
                 if not video_streams:
-                    record_receive(False)
-                    raise RuntimeError("RTSP 입력에 비디오 스트림이 없습니다.")
+                    raise _InvalidStreamMetadata("비디오 스트림이 없습니다.")
 
                 video_stream = video_streams[0]
-                stream_info = VideoStreamInfo.from_stream(video_stream)
+                stream_info = _read_stream_info(video_stream)
                 for packet in container.demux(video_stream):
                     if (stop is not None and stop.is_set()) or (
                         cancel is not None and cancel.is_set()
@@ -91,30 +119,32 @@ class RTSPSource(Step):
                         yield PipelineContext(video_stream=stream_info, packet=packet)
 
                 record_receive(False)
-                if not self.reconnect:
-                    raise RuntimeError(
-                        "RTSP 입력 스트림이 종료되어 파이프라인 실행을 중단합니다."
-                    )
                 logger.warning(
                     "RTSP 입력 스트림이 종료되었습니다. %gms 후 재연결을 시도합니다.",
                     self.reconnect_interval_ms,
                 )
-            except av.error.FFmpegError as error:
+            except _InvalidStreamMetadata as error:
                 record_receive(False)
-                if self.reconnect:
-                    logger.warning(
-                        "RTSP 입력 연결 또는 패킷 수신에 실패했습니다. %gms 후 재연결을 시도합니다.",
-                        self.reconnect_interval_ms,
-                    )
-                else:
-                    raise RuntimeError(
-                        "RTSP 입력 연결 또는 패킷 수신에 실패하여 파이프라인 실행을 중단합니다."
-                    ) from error
+                logger.warning(
+                    "RTSP 스트림 메타정보가 잘못되어 연결을 재생성합니다. "
+                    "%gms 후 재연결을 시도합니다: %s",
+                    self.reconnect_interval_ms, error,
+                )
+            except Exception as error:
+                if is_fatal(error):
+                    raise
+                record_receive(False)
+                logger.warning(
+                    "RTSP 입력 처리 실패로 연결을 재생성합니다. %gms 후 재시도합니다: %s",
+                    self.reconnect_interval_ms, error,
+                )
             finally:
                 if container is not None:
                     try:
                         container.close()
-                    except av.error.FFmpegError:
+                    except Exception as error:
+                        if is_fatal(error):
+                            raise
                         logger.error(
                             "RTSP 입력 컨테이너 정리 중 FFmpeg 오류가 발생했습니다."
                         )

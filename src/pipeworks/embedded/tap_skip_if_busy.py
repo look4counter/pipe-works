@@ -1,4 +1,5 @@
 import logging
+from pipeworks.embedded.recovery import is_fatal, close
 from contextvars import copy_context
 from threading import Condition, Thread
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ class _InputSlot(Iterator[PipelineContext]):
         self._pending: PipelineContext | object = _EMPTY
         self._busy = False
         self._closed = False
+        self.consumed = 0
 
     def offer(self, item: PipelineContext) -> bool:
         with self._condition:
@@ -37,6 +39,7 @@ class _InputSlot(Iterator[PipelineContext]):
                 if self._closed:
                     raise StopIteration
                 self._condition.wait()
+            self.consumed += 1
             item = self._pending
             self._pending = _EMPTY
             return item
@@ -52,7 +55,7 @@ class TapSkipIfBusy(Step):
         self.step = (
             step
             if isinstance(step, Hotswap) or is_embedded_step(step)
-            else Hotswap(step)
+            else Hotswap(step, recover_errors=False)
         )
 
     def configure(self, config: SimpleNamespace) -> None:
@@ -64,22 +67,37 @@ class TapSkipIfBusy(Step):
         slot = _InputSlot()
         output_writer = _current_output_writer()
         context = copy_context()
+        failures = []
 
         def consume() -> None:
             with _use_output_writer(output_writer):
-                try:
-                    outputs = iter(self.step.process(slot))
+                while not slot._closed:
+                    consumed = slot.consumed
+                    outputs = None
                     try:
+                        outputs = iter(self.step.process(slot))
                         for completed in outputs:
                             del completed
+                    except Exception as error:
+                        if is_fatal(error):
+                            failures.append(error)
+                            slot.close()
+                            return
+                        logger.warning("TapSkipIfBusy 작업을 재생성합니다: %s", error)
+                        if consumed == slot.consumed:
+                            try:
+                                next(slot)
+                            except StopIteration:
+                                return
+                    else:
+                        return
                     finally:
-                        close = getattr(outputs, "close", None)
-                        if callable(close):
-                            close()
-                except Exception:
-                    logger.exception("TapSkipIfBusy 작업이 실패했습니다.")
-                finally:
-                    slot.close()
+                        try:
+                            close(outputs)
+                        except Exception as error:
+                            failures.append(error)
+                            slot.close()
+
 
         worker = Thread(
             target=context.run, args=(consume,), name="pipeworks-tap-skip-if-busy", daemon=True
@@ -88,6 +106,8 @@ class TapSkipIfBusy(Step):
         exhausted = False
         try:
             for item in inputs:
+                if failures:
+                    raise failures[0]
                 slot.offer(item)
                 yield item
             exhausted = True
@@ -95,3 +115,5 @@ class TapSkipIfBusy(Step):
             slot.close()
             if exhausted:
                 worker.join()
+                if failures:
+                    raise failures[0]

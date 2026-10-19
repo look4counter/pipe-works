@@ -17,8 +17,6 @@ class CodecInfo:
     pix_fmt: str | None = None
 
     def __post_init__(self):
-        if not self.name or self.width <= 0 or self.height <= 0:
-            raise ValueError("비디오 코덱 이름과 양수 너비·높이가 필요합니다.")
         object.__setattr__(self, "extradata", bytes(self.extradata or b""))
 
 

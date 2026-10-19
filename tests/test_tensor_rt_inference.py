@@ -195,8 +195,7 @@ class SettingsTests(unittest.TestCase):
             for text in ("profile_index: 1", "timeout: 20", "timeout_ms: 20"):
                 with self.subTest(text=text):
                     path.with_suffix(".yml").write_text(text, encoding="utf-8")
-                    with self.assertRaises(ValueError):
-                        list(step.process(iter(())))
+                    self.assertEqual(list(step.process(iter(()))), [])
 
     def test_removed_interval_is_rejected_in_both_modes(self):
         for batch in (False, True):
@@ -245,8 +244,7 @@ class SettingsTests(unittest.TestCase):
                 self.assertEqual(list(YoloInference(path, backend=Backend.TENSORRT).process(iter(()))), [])
             for content in ("[]", "max_batch_wait_ms: [", "timeout: 20", "timeout_ms: 20"):
                 path.with_suffix(".yml").write_text(content, encoding="utf-8")
-                with self.assertRaises(ValueError):
-                    list(YoloInference(path, backend=Backend.TENSORRT).process(iter(())))
+                self.assertEqual(list(YoloInference(path, backend=Backend.TENSORRT).process(iter(()))), [])
         for config in (
             SimpleNamespace(gpu_id=True),
             SimpleNamespace(gpu_id=-1),
@@ -470,8 +468,9 @@ class YoloInferenceTests(unittest.TestCase):
         with patch(
             "pipeworks.local_yolo_inference.infer", side_effect=RuntimeError("batch failed")
         ):
-            with self.assertRaisesRegex(RuntimeError, "batch failed"):
-                list(step.process(iter([self.item()])))
+            failed = self.item()
+            self.assertEqual(list(step.process(iter([failed]))), [failed])
+            self.assertIsNone(failed.model_output)
 
     def setUp(self):
         self.directory = TemporaryDirectory()
@@ -679,8 +678,8 @@ class YoloInferenceTests(unittest.TestCase):
                         return context
 
                     self.api.engine.create_execution_context = create
-                with self.assertRaises((ValueError, RuntimeError)):
-                    list(self.step.process(iter((first,))))
+                self.assertEqual(list(self.step.process(iter((first,)))), [first])
+                self.assertIsNone(first.model_output)
                 self.api.host = self.api.vectorized = False
                 if invalid == "execution":
                     self.api.engine.create_execution_context = original_create
@@ -767,9 +766,9 @@ class RealTensorRTTests(unittest.TestCase):
             path = Path(directory) / "profiles.engine"
             path.write_bytes(bytes(serialized))
             path.with_suffix(".yml").write_text("{}", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "프로파일 0"):
-                item = PipelineContext(model_input=torch.ones((1, 4), device="cuda"))
-                list(YoloInference(path, backend=Backend.TENSORRT).process(iter([item])))
+            item = PipelineContext(model_input=torch.ones((1, 4), device="cuda"))
+            self.assertEqual(list(YoloInference(path, backend=Backend.TENSORRT).process(iter([item]))), [item])
+            self.assertIsNone(item.model_output)
             for batch in (False, True):
                 with self.subTest(batch=batch):
                     source = torch.ones((1, 4), device="cuda")
