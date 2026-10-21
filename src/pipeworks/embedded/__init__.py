@@ -10,6 +10,7 @@ from pipeworks.embedded.yolo_inference import YoloInference
 from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
 from pipeworks.embedded.stream_report import StreamReport
 from pipeworks.embedded.yolo_report import YoloReport
+from pipeworks.embedded.run_once import RunOnce
 
 __all__ = [
     "Backend",
@@ -24,4 +25,5 @@ __all__ = [
     "TapSkipIfBusy",
     "StreamReport",
     "YoloReport",
+    "RunOnce",
 ]

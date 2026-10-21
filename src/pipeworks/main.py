@@ -208,15 +208,15 @@ def run_remote(pipeline) -> None:
     try:
         from pipeworks.hotswap import Hotswap
         from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
-        from pipeworks.embedded import CudaAsync, EveryNFrames
+        from pipeworks.embedded import CudaAsync, EveryNFrames, RunOnce
 
         def register_step(step) -> None:
             if isinstance(step, Hotswap):
                 register_step(step.wrapped_step)
             if isinstance(step, TapSkipIfBusy):
                 register_step(step.step)
-            if isinstance(step, (CudaAsync, EveryNFrames)):
-                for inner in step.steps:
+            if isinstance(step, (CudaAsync, EveryNFrames, RunOnce)):
+                for inner in step._hot_steps:
                     register_step(inner)
             module_names = {type(step).__module__}
             # 재사용한 메서드는 Step과 다른 사용자 모듈에 속할 수 있다.

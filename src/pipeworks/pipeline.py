@@ -21,6 +21,7 @@ def _iter_steps(steps):
     from pipeworks.embedded.tap_skip_if_busy import TapSkipIfBusy
     from pipeworks.embedded.cuda_async import CudaAsync
     from pipeworks.embedded.every_n_frames import EveryNFrames
+    from pipeworks.embedded.run_once import RunOnce
 
     pending, visited = list(steps), set()
     while pending:
@@ -33,7 +34,7 @@ def _iter_steps(steps):
             pending.append(step.wrapped_step)
         elif isinstance(step, TapSkipIfBusy):
             pending.append(step.step)
-        elif isinstance(step, (CudaAsync, EveryNFrames)):
+        elif isinstance(step, (CudaAsync, EveryNFrames, RunOnce)):
             pending.extend(step._hot_steps)
 
 
@@ -55,9 +56,10 @@ def _has_batch_inference(steps):
 def _configure_async_children(step, sections):
     from pipeworks.embedded.cuda_async import CudaAsync
     from pipeworks.embedded.every_n_frames import EveryNFrames
+    from pipeworks.embedded.run_once import RunOnce
 
     original = step.wrapped_step if isinstance(step, Hotswap) else step
-    if isinstance(original, (CudaAsync, EveryNFrames)):
+    if isinstance(original, (CudaAsync, EveryNFrames, RunOnce)):
         for inner in original._hot_steps:
             child = inner.wrapped_step if isinstance(inner, Hotswap) else inner
             inner.configure(SimpleNamespace(**sections.get(type(child).__name__, {})))
@@ -67,9 +69,10 @@ def _configure_async_children(step, sections):
 def _watch_async_children(step, watcher, sections):
     from pipeworks.embedded.cuda_async import CudaAsync
     from pipeworks.embedded.every_n_frames import EveryNFrames
+    from pipeworks.embedded.run_once import RunOnce
 
     original = step.wrapped_step if isinstance(step, Hotswap) else step
-    if isinstance(original, (CudaAsync, EveryNFrames)):
+    if isinstance(original, (CudaAsync, EveryNFrames, RunOnce)):
         running = []
         for inner in original._hot_steps:
             child = inner.wrapped_step if isinstance(inner, Hotswap) else inner
