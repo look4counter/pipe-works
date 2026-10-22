@@ -7,6 +7,7 @@
 | Backend.TENSORRT | tensorrt | 직렬화 TensorRT 엔진 |
 | Backend.TORCHSCRIPT | torchscript | torch.jit.save로 저장한 TorchScript |
 | Backend.ULTRALYTICS | ultralytics | Ultralytics PyTorch .pt 체크포인트 |
+| Backend.PATCHCORE | patchcore | ResNet18 기반 patchcore-v1 result.pt |
 
 ```python
 from pathlib import Path

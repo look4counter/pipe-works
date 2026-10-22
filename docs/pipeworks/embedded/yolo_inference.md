@@ -95,7 +95,7 @@ YoloInference(
 
 | 설정 | 기본값 | 의미 |
 | --- | --- | --- |
-| `backend` | 필수 | `Backend.TENSORRT`, `Backend.TORCHSCRIPT`, `Backend.ULTRALYTICS` 또는 사용자 모듈:클래스 경로 |
+| `backend` | 필수 | `Backend.TENSORRT`, `Backend.TORCHSCRIPT`, `Backend.ULTRALYTICS`, `Backend.PATCHCORE` 또는 사용자 모듈:클래스 경로 |
 | `profile_index` | `0` | TensorRT 최적화 프로파일 번호. 다른 실행부는 0만 허용 |
 | `batch` | `False` | 생성자에서만 지정하는 공유 배치 모드 |
 | `gpu_id` | `0` | 음수가 아닌 GPU 번호 |
@@ -190,7 +190,7 @@ pipeline.step(YoloInference(
 
 TorchScript는 단일 텐서를 위치 인자로, 입력 사전을 이름 있는 인자로 전달합니다. 추론 단계는 리사이즈·정규화·출력 형식 변환·NMS를 추가하지 않습니다. 분할·포즈·특수 출력 해석은 해당 모델의 후처리가 담당합니다. 모든 출력의 첫 축이 결합 배치 수와 같을 때만 공유 배치를 사용합니다.
 
-`Backend`는 `pipeworks`와 `pipeworks.embedded`에서 가져올 수 있는 문자열 enum입니다. 생성자에서 `backend`는 반드시 지정해야 하며 생략하면 `TypeError`가 발생합니다. YAML에서는 `torchscript`, `ultralytics`, `tensorrt` 또는 사용자 실행부 경로 문자열을 사용하며 설정을 제거하면 생성자 선택으로 복원됩니다.
+`Backend`는 `pipeworks`와 `pipeworks.embedded`에서 가져올 수 있는 문자열 enum입니다. 생성자에서 `backend`는 반드시 지정해야 하며 생략하면 `TypeError`가 발생합니다. YAML에서는 `torchscript`, `ultralytics`, `tensorrt`, `patchcore` 또는 사용자 실행부 경로 문자열을 사용하며 설정을 제거하면 생성자 선택으로 복원됩니다. PatchCore의 파일·입출력 계약은 [실행부 문서](../yolo_backends/patchcore.md)를 참고하세요.
 
 ## TensorRT 실행 통합
 

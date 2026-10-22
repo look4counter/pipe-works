@@ -17,11 +17,11 @@ class YoloBackend(Protocol):
 
 def validate_backend(backend):
     if not isinstance(backend, str) or not (
-        backend in ("torchscript", "ultralytics", "tensorrt")
+        backend in ("torchscript", "ultralytics", "tensorrt", "patchcore")
         or re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*", backend)
     ):
         raise ValueError(
-            "backend는 torchscript, ultralytics, tensorrt 또는 모듈:클래스여야 합니다."
+            "backend는 torchscript, ultralytics, tensorrt, patchcore 또는 모듈:클래스여야 합니다."
         )
 
 
@@ -40,6 +40,7 @@ def load_backend(model_path, gpu_id, backend):
         "tensorrt": "pipeworks.yolo_backends.tensorrt:TensorRTBackend",
         "torchscript": "pipeworks.yolo_backends.torchscript:TorchScriptBackend",
         "ultralytics": "pipeworks.yolo_backends.ultralytics:UltralyticsBackend",
+        "patchcore": "pipeworks.yolo_backends.patchcore:PatchCoreBackend",
     }.get(backend, backend)
     module, name = target.split(":")
     instance = getattr(import_module(module), name)(model_path, gpu_id)
