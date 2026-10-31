@@ -1,0 +1,39 @@
+FFMPEG Libraries present in this package were built using the following configure options
+
+win32:  ./configure --enable-shared --disable-encoders --disable-decoders --enable-decoder=vp9 --toolchain=msvc --arch=x86
+aarch64: LDSOFLAGS=-Wl,-rpath,\''$$$$ORIGIN'\'  ./configure --enable-shared --disable-encoders --disable-decoders --enable-decoder=vp9  --arch=aarch64
+
+x64 (FFmpeg 8.1.2, demux/mux only):
+    ./configure \
+        --prefix=<prefix> --toolchain=msvc \
+        --enable-static --disable-shared --enable-pic --disable-x86asm \
+        --disable-everything --disable-programs --disable-doc --disable-libdrm \
+        --disable-encoders --disable-decoders --disable-hwaccels \
+        --disable-swresample --disable-swscale --disable-avfilter --disable-avdevice \
+        --enable-demuxers --enable-muxers --enable-protocols --enable-parsers --enable-bsfs \
+        --enable-avformat --enable-avcodec --enable-avutil
+
+    After building the static archives, avutil-60.dll and avformat-62.dll were
+    produced from the .lib archives via `link.exe -DLL -WHOLEARCHIVE:...` (the MSVC
+    analog of `gcc -shared -Wl,--whole-archive`). libavcodec is STATICALLY EMBEDDED
+    inside avformat-62.dll (no separate avcodec-*.dll is shipped). avutil.def is
+    extended via `dumpbin -symbols libavutil.lib` to also export internal ff_*
+    symbols, since MSVC otherwise hides them.
+
+x86_64 (FFmpeg 8.1.2, demux/mux only):
+    ./configure \
+        --prefix=<prefix> \
+        --enable-static --disable-shared --enable-pic --disable-x86asm \
+        --disable-everything --disable-programs --disable-doc --disable-libdrm \
+        --disable-encoders --disable-decoders --disable-hwaccels \
+        --disable-swresample --disable-swscale --disable-avfilter --disable-avdevice \
+        --enable-demuxers --enable-muxers --enable-protocols --enable-parsers --enable-bsfs \
+        --enable-avformat --enable-avcodec --enable-avutil
+
+    After building the static archives, libavutil.so.60 and libavformat.so.62 were
+    produced from the .a archives via `gcc -shared -Wl,--whole-archive ...`. libavcodec
+    is STATICALLY EMBEDDED inside libavformat.so (no separate libavcodec.so is shipped).
+    Only libavformat / libavutil headers + libavcodec headers are provided; swresample,
+    swscale, avfilter, avdevice are not built into this distribution.
+
+Only header files and libraries that are required for compiling the sample applications inside the package have been included.

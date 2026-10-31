@@ -9,6 +9,12 @@
   </head>
   <body>
     <main data-step="NvidiaDecode">
+      <section aria-labelledby="NvidiaDecode-timestamps">
+        <h3 id="NvidiaDecode-timestamps">원본 시간 전달</h3>
+        <p>수정 PyNvVideoCodec 2.2.2+pipeworks.1의 GetLockedFrameWithPTS로 잠긴 GPU 버퍼와 PTS를 함께 얻습니다.
+          영상 복사 없이 출력 컨텍스트에 pts와 PyAV time_base를 전달합니다. 공식 wheel에서는 pts가 None입니다.</p>
+        <p><a href="../pynvvideocodec-build.md">수정 wheel 빌드·설치 안내</a></p>
+      </section>
       <section aria-labelledby="NvidiaDecode-recovery">
         <h3 id="NvidiaDecode-recovery">자동 복구</h3>
         <p>복구 가능한 디코더 오류가 발생하면 오류 패킷과 대기 프레임을 버리고 다음 키프레임에서 디코더를 재생성합니다. 연속 실패에도 사용자 개입 없이 다음 키프레임에서 재시도합니다. RTSP 입력 스트림 교체도 감지하여 초기화합니다.</p>

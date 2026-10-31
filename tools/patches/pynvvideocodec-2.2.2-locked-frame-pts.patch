@@ -1,0 +1,29 @@
+--- a/src/PyNvVideoCodec/src/PyNvDecoder.cpp
++++ b/src/PyNvVideoCodec/src/PyNvDecoder.cpp
+@@ -828,6 +828,26 @@
+     )pbdoc"
+                                                 )
+                                         .def(
++                                            "GetLockedFrameWithPTS",
++                                            [](std::shared_ptr<PyNvDecoder>& dec)
++                                            {
++                                                int64_t timestamp = 0;
++                                                uint8_t* pFrame = dec->GetLockedFrame(&timestamp);
++                                                if (!pFrame)
++                                                    throw py::value_error("No decoded frame is available");
++                                                try
++                                                {
++                                                    return py::make_tuple((CUdeviceptr)pFrame, timestamp);
++                                                }
++                                                catch (...)
++                                                {
++                                                    dec->UnlockFrame(pFrame);
++                                                    throw;
++                                                }
++                                            },
++                                            "Return a locked GPU pointer and its signed PTS; release with UnlockFrame."
++                                        )
++                                        .def(
+                                             "GetLockedFrame",
+                                             [](std::shared_ptr<PyNvDecoder>& dec)
+                                             {

@@ -1,5 +1,13 @@
 # 작업 목록: 실행별 프레임 처리 보고
 
+## 단계 10: 최근 송신 PTS
+
+- [x] T045 tests/test_report.py와 tests/test_rtsp_publish.py에 최근 PTS의 출력·미정·0·음수·격리·실패·폐기·mux 시간 단위 변경 검증을 추가하고 실패를 확인한다. FR-029~031, SC-014.
+- [x] T046 src/pipeworks/embedded/stream_report.py에 최근 PTS의 실행별 수집·불변 발행·무잠금 표시를 구현하고 rtsp_publish.py의 실제 송신 성공에 연결한다. FR-029~031.
+- [x] T047 docs/pipeworks/embedded/stream_report.md에 출력 예시와 값의 의미를 기록하고 보고·송출·복구·핫스왑 회귀 검사 및 수렴 점검 결과를 specs/010-stream-report/quickstart.md에 추가한다. SC-014.
+
+의존성: T045 → T046 → T047. 새 요구사항과 계획·작업의 대응을 분석한 결과 누락·충돌·미해결 질문은 없다.
+
 ## 단계 9: 기록 비용 절감
 
 - [x] T040 명세·명확화·계획과 조사 자료를 갱신하고 FR-026~028, SC-013의 일관성을 분석한다.

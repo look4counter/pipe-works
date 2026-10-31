@@ -102,7 +102,8 @@ class StepConfigDefaultsTests(unittest.TestCase):
                 {"packet_size": 1400},
             ),
             (NvidiaDecode, (), {"gpu_id": 2}, {"gpu_id": 0}),
-            (NvidiaEncode, (), {"gpu_id": 2, "fps": 15}, {"fps": 25}),
+            (NvidiaEncode, (), {"gpu_id": 2, "fps": 15, "preserve_timestamps": True},
+             {"fps": 25, "preserve_timestamps": False}),
             (
                 YoloInference,
                 (Path("model.engine"),),

@@ -1,0 +1,21 @@
+{
+  "wheel": "pynvvideocodec-2.2.2+pipeworks.1-cp311-cp311-win_amd64.whl",
+  "wheel_sha256": "4ea783158cd2143cfa09ed312f493270ef0a2703a5e06dc78e5d1f90fac2edac",
+  "version": "2.2.2+pipeworks.1",
+  "ffmpeg_source": "ffmpeg-8.1.2.tar.xz",
+  "ffmpeg_source_sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+  "ffmpeg_binary_license": "LGPL version 2.1 or later",
+  "bundled_ffmpeg_binaries": [
+    {
+      "file": "PyNvVideoCodec/avformat-62.dll",
+      "sha256": "9e5a4a5d6f2718783268b4df719828d124b34b8dabb807412a31f48ec0245298"
+    },
+    {
+      "file": "PyNvVideoCodec/avutil-60.dll",
+      "sha256": "5ff46fc98a9a547648d38ab0d3183a8dd398f6180ec62c22b86118455cc92a40"
+    }
+  ],
+  "pybind11_version": "2.10.0",
+  "dlpack_version": "0.8",
+  "patch": "tools/patches/pynvvideocodec-2.2.2-locked-frame-pts.patch"
+}

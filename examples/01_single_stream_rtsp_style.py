@@ -43,7 +43,7 @@ def build_pipeline() -> Pipeline:
                 ),
             ),
         )
-        .step(YoloReport())
+        # .step(YoloReport())
         .step(BoxOverlay())
         .step(NvidiaEncode())
         .step(RTSPPublish("rtsp://localhost:8554/cctv001"))

@@ -1,5 +1,13 @@
 # 구현 계획: 실행별 프레임 처리 보고
 
+## 최근 송신 PTS 표시 설계 (2026-10-31)
+
+stream_report.py의 _ReportStats와 _Snapshot에 latest_publish_pts와 latest_publish_time_base를 추가한다. record_publish(success, *, pts=None, time_base=None)는 기존 성공 상태 기록 잠금 안에서 두 값을 함께 갱신한다. 실패 시 최근 성공 PTS를 유지하며 성공 시 PTS가 None이면 명시적으로 비운다. Fraction 시간 기준과 정수만 보관한다.
+
+_ReportView에 기본값이 있는 두 필드를 추가하고 _ReportReader는 기존 불변 스냅샷에서 잠금 없이 읽는다. StreamReport는 첫 줄에 '최근 송신 PTS 값 (time_base=값)' 또는 '최근 송신 PTS 없음'을 추가한다. 주기·두 줄 형식·기존 평균과 상태는 유지한다.
+
+rtsp_publish.py에서 mux 전에 pts와 packet_time_base를 지역 값으로 보관하고 성공 시 record_publish에 전달한다. 송신 실패나 중복·역행 패킷은 갱신하지 않는다. 송신용 패킷을 바꾸는 mux 모의로 입력 시간 기준을 보고하는지 검증한다. tests/test_report.py와 tests/test_rtsp_publish.py를 갱신하고 docs/pipeworks/embedded/stream_report.md에 값의 의미와 예시를 기록한다. 외부 의존성이나 PyNvVideoCodec wheel 변경은 없다. 기존 한글 문서·speckit 절차와 읽기 전용 보고 원칙을 유지한다.
+
 ## 기록 비용 절감 설계
 
 수집기는 기록 잠금 아래 가변 누적값·단계별 두 값 리스트 사전·연결 시각·최근 표본 deque를 갱신한다. 매번 replace와 불변 노드를 만들지 않는다. 발행할 때만 이력·단계를 tuple로 만들어 스냅샷 참조를 교체한다. 기록 시에도 만료 표본을 정리해 발행 없는 직접 수집의 메모리를 제한한다.

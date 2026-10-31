@@ -50,7 +50,13 @@ NvidiaDecode:
 
 압축 패킷은 순서대로 디코딩합니다. PyAV 패킷의 원본 버퍼 주소와 크기를 직접 전달하여 Python 바이트 및 ctypes 중간 버퍼 복사를 하지 않습니다. 디코더 호출이 반환될 때까지 패킷 객체를 유지합니다. RTSPSource에서 RTSPPublish로 직접 전달하는 패킷 계약도 유지됩니다. 디코딩 자체가 입력 속도보다 느리거나 수신 이전에 지연이 생긴 경우에는 이 슬롯만으로 지연을 제거할 수 없습니다.
 
-`GetLockedFrame()`으로 디코더 출력 버퍼를 잠그고 같은 GPU 주소의 CUDA `torch.Tensor`를 전달합니다. 이 단계에서는 영상 데이터를 복사하거나 별도 영상 버퍼를 할당하지 않습니다. `Decode()` 결과를 단순히 보관하는 방식은 출력 풀의 재사용을 막지 못하므로 사용하지 않습니다. 텐서는 DLPack으로 재공유할 수 있습니다.
+수정 wheel에서는 `GetLockedFrameWithPTS()`로 잠긴 버퍼와 PTS를 함께 얻고, 공식 wheel에서는 기존 `GetLockedFrame()`을 사용합니다. 같은 GPU 주소의 CUDA `torch.Tensor`를 전달하며 영상 데이터를 복사하거나 별도 영상 버퍼를 할당하지 않습니다. `Decode()` 결과를 단순히 보관하는 방식은 출력 풀의 재사용을 막지 못하므로 사용하지 않습니다. 텐서는 DLPack으로 재공유할 수 있습니다.
+
+## 원본 시간 전달
+
+[수정 wheel 빌드·설치](../../pynvvideocodec-build.md) 후에는 출력 컨텍스트의 `pts`가 디코더 잠금 API의 실제 출력 PTS이고 `time_base`는 PyAV에서 얻은 시간 기준입니다. 지연·재정렬·종료 출력과 큐 드롭에도 영상과 시간이 같은 컨텍스트로 이동합니다. `NvidiaEncode(preserve_timestamps=True)`로 연결하면 원본 프레임 간격을 유지합니다. 이 변경은 추론 완료 대기를 추가하지 않습니다.
+
+디코더 세션의 시간 기준은 첫 입력 패킷의 `time_base`이며 없으면 `video_stream.time_base`를 사용합니다. 이후 입력 패킷의 시간 기준이 다르면 제출 PTS를 세션 기준의 가장 가까운 정수로 환산합니다. 스트림 교체·오류 복구 시 시간 기준도 다시 선택합니다. 원본 PTS가 미정이면 출력은 `None`이며 FPS로 추정하지 않습니다. 공식 wheel에는 새 바인딩이 없으므로 `pts=None`을 전달합니다. `duration`은 디코더에서 추정하지 않습니다.
 
 별도 소비 CUDA 스트림이 준비 이벤트를 기다립니다. 후속 처리 뒤 완료 이벤트를 기록하고, 마지막 텐서 참조가 해제되고 GPU 이벤트가 끝난 버퍼만 `UnlockFrame()`으로 반환합니다. 일반 전달 경로에서 CPU가 스트림 전체를 동기화하지 않습니다. 종료 시에는 안전하게 남은 이벤트를 기다립니다.
 
@@ -64,6 +70,8 @@ CudaAsync는 GPU 작업 완료 후 내부 작업 컨텍스트의 원본 프레�
 
 | 속성 | 의미 |
 |---|---|
+| `pts` | 수정 wheel의 잠금 API에서 얻은 프레임 PTS. 미정이거나 API가 없으면 None |
+| `time_base` | 디코더 세션에서 선택한 PyAV 시간 기준. 원본 시간이 없으면 None |
 | `decoded_at` | 디코딩 출력 게시 시점의 `time.perf_counter()` 값 (GPU 완료 시각은 아님) |
 | `processing_started_at` | 후속 단계에 전달하는 시점의 같은 시계 값 |
 | `decode_dropped_frames` | 이번 입력 구간에서 소비 전에 교체하거나 건너뛴 프레임의 누적 개수 |
@@ -96,7 +104,7 @@ RTSP 재연결 등으로 입력 video_stream 객체가 교체되어도 기존 �
 
 필수 입력은 packet과 video_stream입니다. 현재 코덱 매핑은 h264와 hevc/h265입니다. 첫 입력에서 디코더와 스트림을 만듭니다. 이후 video_stream 객체 교체를 감지하면 디코더를 재생성합니다. 자동 복구 및 스트림 교체 후 재개에는 packet.is_keyframe 값이 필요하며, 이 값이 없는 입력은 키프레임으로 간주하지 않습니다.
 
-출력은 새 PipelineContext이며 frame·video_stream·cuda_stream·pixel_format·decoded_at·processing_started_at·decode_dropped_frames를 제공합니다. 입력 packet이나 사용자 속성을 그대로 복사하지 않습니다. 패킷 하나에서 출력 프레임이 없거나 여러 개일 수 있습니다. pixel_format은 디코더의 실제 NATIVE 출력 형식이며 NV12로 고정하지 않습니다. 잠금 API 경로의 _decode_buffer는 내부 수명 관리용입니다.
+출력은 새 PipelineContext이며 frame·video_stream·cuda_stream·pixel_format·pts·time_base·decoded_at·processing_started_at·decode_dropped_frames를 제공합니다. 입력 packet이나 사용자 속성을 그대로 복사하지 않습니다. 패킷 하나에서 출력 프레임이 없거나 여러 개일 수 있습니다. pixel_format은 디코더의 실제 NATIVE 출력 형식이며 NV12로 고정하지 않습니다. 잠금 API 경로의 _decode_buffer는 내부 수명 관리용입니다.
 
 ## 비디오 메타데이터
 

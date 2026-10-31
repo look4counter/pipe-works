@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
 from collections import deque
 from dataclasses import dataclass, field
+from fractions import Fraction
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
 from typing import Iterator
@@ -43,6 +44,8 @@ class _Snapshot:
     receive_failure_at: float | None = None
     publish_success_at: float | None = None
     publish_failure_at: float | None = None
+    latest_publish_pts: int | None = None
+    latest_publish_time_base: Fraction | None = None
 
 
 @dataclass
@@ -63,6 +66,8 @@ class _ReportStats:
     receive_failure_at: float | None = None
     publish_success_at: float | None = None
     publish_failure_at: float | None = None
+    latest_publish_pts: int | None = None
+    latest_publish_time_base: Fraction | None = None
 
     def publish(self, *, now: float | None = None) -> None:
         with self.lock:
@@ -85,6 +90,8 @@ class _ReportStats:
                 receive_failure_at=self.receive_failure_at,
                 publish_success_at=self.publish_success_at,
                 publish_failure_at=self.publish_failure_at,
+                latest_publish_pts=self.latest_publish_pts,
+                latest_publish_time_base=self.latest_publish_time_base,
             )
 
 
@@ -151,6 +158,8 @@ class _ReportView:
     metrics: tuple
     stages: tuple[tuple[str, float], ...]
     connections: tuple[str, str]
+    latest_publish_pts: int | None = None
+    latest_publish_time_base: Fraction | None = None
 
 
 _default_stats = _ReportStats(enabled=False)
@@ -196,7 +205,9 @@ def record_receive(success: bool) -> None:
             stats.receive_failure_at = now
 
 
-def record_publish(success: bool) -> None:
+def record_publish(
+    success: bool, *, pts: int | None = None, time_base: Fraction | None = None
+) -> None:
     stats = _stats()
     if not stats.enabled:
         return
@@ -204,6 +215,8 @@ def record_publish(success: bool) -> None:
         now = time.perf_counter()
         if success:
             stats.publish_success_at = now
+            stats.latest_publish_pts = pts
+            stats.latest_publish_time_base = time_base
         else:
             stats.publish_failure_at = now
 
@@ -311,6 +324,8 @@ class _ReportReader:
             ),
             tuple(stages),
             _connection_status(now, snapshot),
+            snapshot.latest_publish_pts,
+            snapshot.latest_publish_time_base,
         )
         self.previous = snapshot
         self.started_at = now
@@ -360,9 +375,15 @@ class StreamReport(Step):
                 if recent_inference_ms is None
                 else f"{recent_inference_ms:.1f}ms"
             )
+            latest_pts = (
+                "없음" if snapshot.latest_publish_pts is None else str(snapshot.latest_publish_pts)
+            )
+            if snapshot.latest_publish_pts is not None and snapshot.latest_publish_time_base is not None:
+                latest_pts += f" (time_base={snapshot.latest_publish_time_base})"
             parts = [
                 f"수신 {receive_status}",
                 f"송신 {publish_status}",
+                f"최근 송신 PTS {latest_pts}",
                 f"FPS {fps:.1f}",
                 f"프레임처리 {average_ms:.1f}ms/1s, {recent_frame}/10s",
                 f"추론 {inference}/1s, {recent_inference}/10s"

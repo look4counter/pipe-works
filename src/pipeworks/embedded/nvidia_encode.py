@@ -1,6 +1,9 @@
 from typing import Iterator
 from types import SimpleNamespace
 from fractions import Fraction
+from collections import deque
+from dataclasses import replace
+from operator import index
 import logging
 from pipeworks.embedded.recovery import is_fatal, gpu_call
 import time
@@ -20,13 +23,19 @@ class _EncodeError(Exception):
 
 
 class NvidiaEncode(Step):
-    def __init__(self, *, gpu_id: int = 0, fps: float = 30) -> None:
-        self._set_config_defaults(gpu_id=gpu_id, fps=fps)
+    def __init__(self, *, gpu_id: int = 0, fps: float = 30,
+                 preserve_timestamps: bool = False) -> None:
+        self._set_config_defaults(
+            gpu_id=gpu_id, fps=fps, preserve_timestamps=preserve_timestamps,
+        )
 
     def configure(self, config: SimpleNamespace) -> None:
         config = self._resolve_config(config)
         self.gpu_id = getattr(config, "gpu_id", 0)
         self.fps = getattr(config, "fps", 30)
+        self.preserve_timestamps = config.preserve_timestamps
+        if not isinstance(self.preserve_timestamps, bool):
+            raise ValueError("preserve_timestamps는 불리언이어야 합니다.")
         if self.fps <= 0:
             raise ValueError("NVIDIA 인코딩 fps는 양수여야 합니다.")
 
@@ -39,7 +48,9 @@ class NvidiaEncode(Step):
         cuda_stream = None
         last_input = None
         fps, gpu_id = self.fps, self.gpu_id
-        time_base = Fraction(1, fps)
+        preserve_timestamps = self.preserve_timestamps
+        time_base = None if preserve_timestamps else Fraction(1, fps)
+        pending_timestamps = deque()
         next_pts = 0
         active_key = None
         retry_at = 0.0
@@ -74,6 +85,7 @@ class NvidiaEncode(Step):
             encoder = None
             last_input = None
             cuda_stream = None
+            pending_timestamps.clear()
 
         def stopped():
             return stop is not None and stop.is_set()
@@ -116,16 +128,28 @@ class NvidiaEncode(Step):
                 if not data:
                     continue
 
+                if preserve_timestamps:
+                    if not pending_timestamps:
+                        logger.warning("대응하는 원본 시각이 없는 인코딩 패킷을 버립니다.")
+                        continue
+                    pts, packet_base, duration = pending_timestamps.popleft()
+                else:
+                    pts, packet_base, duration = next_pts, time_base, 1
                 try:
                     if output_info is None:
-                        output_info = encoded_stream_info(codec_info, data, time_base)
+                        output_info = encoded_stream_info(codec_info, data, packet_base)
+                        if preserve_timestamps:
+                            output_info = replace(output_info, average_rate=Fraction(fps))
+                    elif output_info.time_base != packet_base:
+                        output_info = replace(output_info, time_base=packet_base)
 
                     packet = av.Packet(data)
-                    packet.pts = next_pts
-                    packet.dts = next_pts
-                    packet.time_base = time_base
-                    packet.duration = 1
-                    next_pts += 1
+                    packet.pts = pts
+                    packet.dts = pts
+                    packet.time_base = packet_base
+                    packet.duration = duration
+                    if not preserve_timestamps:
+                        next_pts += 1
                 except Exception as error:
                     if is_fatal(error):
                         raise
@@ -160,6 +184,18 @@ class NvidiaEncode(Step):
                     )
                     if not codec.name or codec.width <= 0 or codec.height <= 0:
                         raise ValueError("인코더 코덱 이름과 양수 크기가 필요합니다.")
+                    if preserve_timestamps:
+                        pts = index(input.pts)
+                        if not -(2 ** 63) < pts < 2 ** 63:
+                            raise ValueError("원본 PTS는 유효한 64비트 정수여야 합니다.")
+                        source_base = getattr(input, "time_base", None)
+                        if source_base is None:
+                            source_base = getattr(input.video_stream, "time_base", None)
+                        source_base = Fraction(source_base)
+                        duration = index(getattr(input, "duration", 0))
+                        if source_base <= 0 or not 0 <= duration < 2 ** 63:
+                            raise ValueError("원본 시간 기준은 양수, duration은 0 이상이어야 합니다.")
+                        source_timestamp = (pts, source_base, duration)
                 except Exception as error:
                     if is_fatal(error):
                         raise
@@ -206,6 +242,8 @@ class NvidiaEncode(Step):
                         active_key = stream_key
                     encode_started_at = time.perf_counter()
                     last_input = input
+                    if preserve_timestamps:
+                        pending_timestamps.append(source_timestamp)
                     with torch.cuda.stream(input.cuda_stream):
                         encoded_packets = native_call(encoder.Encode, input.frame)
                 except Exception as error:

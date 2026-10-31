@@ -45,6 +45,111 @@ def context(value=1, codec="h264", pts=None, *, keyframe=True, stream=None):
 
 
 class DecodeTests(unittest.TestCase):
+    def timestamp_outputs(self, items, decode=None, legacy=False):
+        from pipeworks.embedded.nvidia_decode import _FrameQueue
+
+        pending, submitted, unlocked = [], [], []
+        step, api = self.setup_decoder(lambda packet: [])
+
+        def submit(packet):
+            if getattr(packet, "bsl", 0):
+                submitted.append(packet.pts)
+            pending.extend(decode(packet) if decode else (
+                [(1000 + packet.pts, packet.pts)] if getattr(packet, "bsl", 0) else []
+            ))
+            return len(pending)
+
+        decoder = SimpleNamespace(
+            GetPixelFormat=lambda: "NV12", GetNumDecodedFrame=submit,
+            GetLockedFrame=lambda: pending.pop(0)[0], UnlockFrame=unlocked.append,
+            GetWidth=lambda: 8, GetHeight=lambda: 4, GetFrameSize=lambda: 48,
+        )
+        if not legacy:
+            decoder.GetLockedFrameWithPTS = lambda: pending.pop(0)
+        api.CreateDecoder = lambda **kwargs: decoder
+        api.PacketData = lambda: SimpleNamespace(bsl=0)
+        slot = _FrameQueue()
+        event = lambda: SimpleNamespace(record=lambda stream: None, query=lambda: True,
+                                        synchronize=lambda: None)
+        stream = SimpleNamespace(cuda_stream=0, device="cpu", synchronize=lambda: None)
+        with (
+            patch("pipeworks.embedded.nvidia_decode.torch.cuda.Stream", return_value=stream),
+            patch("pipeworks.embedded.nvidia_decode.torch.cuda.Event", side_effect=event),
+            patch("pipeworks.embedded.nvidia_decode.torch.as_tensor",
+                  new=lambda owner, **kwargs: SimpleNamespace(owner=owner)),
+        ):
+            step._produce(iter(items), slot, Event())
+        return list(slot.pending), submitted, unlocked
+
+    def test_locked_api_pts_and_av_time_base_reach_encoder(self):
+        from pipeworks.embedded.nvidia_encode import NvidiaEncode
+
+        items = [context(i + 1, pts=pts) for i, pts in enumerate([0, 3000, 12000])]
+        for item in items:
+            item.packet.time_base = Fraction(1, 90000)
+        decoded, submitted, _ = self.timestamp_outputs(items)
+        self.assertEqual([item.pts for item in decoded], submitted)
+        self.assertEqual([item.time_base for item in decoded], [Fraction(1, 90000)] * 3)
+        encoder = SimpleNamespace(Encode=lambda frame: b"a", EndEncode=lambda: [])
+        for item in decoded:
+            item.video_stream = SimpleNamespace(
+                codec_context=SimpleNamespace(name="h264", width=8, height=4),
+            )
+        step = NvidiaEncode(preserve_timestamps=True)
+        step.configure(SimpleNamespace())
+        with (
+            patch.dict(sys.modules, {"PyNvVideoCodec": SimpleNamespace(CreateEncoder=lambda *a, **k: encoder)}),
+            patch("pipeworks.embedded.nvidia_encode.torch.cuda.stream", return_value=nullcontext()),
+        ):
+            encoded = list(step.process(iter(decoded)))
+        self.assertEqual([item.packet.pts for item in encoded], [0, 3000, 12000])
+
+    def test_locked_pts_comes_from_output_api_with_reordering_and_flush(self):
+        items = [context(1, pts=300), context(2, pts=100)]
+        for item in items:
+            item.packet.time_base = Fraction(1, 90000)
+        calls = []
+
+        def delayed(packet):
+            calls.append(packet)
+            return {1: [], 2: [(1, 100)], 3: [(2, 300)]}[len(calls)]
+
+        decoded, _, _ = self.timestamp_outputs(items, delayed)
+        self.assertEqual([item.pts for item in decoded], [100, 300])
+
+    def test_decoder_rescales_packet_pts_to_session_base(self):
+        first, second = context(1, pts=9000), context(2, pts=200)
+        first.packet.time_base, second.packet.time_base = Fraction(1, 90000), Fraction(1, 1000)
+        decoded, submitted, _ = self.timestamp_outputs([first, second])
+        self.assertEqual(submitted, [9000, 18000])
+        self.assertEqual([item.pts for item in decoded], submitted)
+        self.assertEqual([item.time_base for item in decoded], [Fraction(1, 90000)] * 2)
+
+    def test_legacy_lock_api_has_no_invented_pts(self):
+        decoded, _, _ = self.timestamp_outputs([context(1, pts=100)], legacy=True)
+        self.assertIsNone(decoded[0].pts)
+
+    def test_locked_pts_preserves_negative_and_unknown_values(self):
+        items = [context(1, pts=-7), context(2)]
+        for item in items:
+            item.packet.time_base = Fraction(1, 90000)
+        decoded, _, _ = self.timestamp_outputs(items)
+        self.assertEqual([item.pts for item in decoded], [-7, None])
+
+    def test_locked_pts_uses_av_stream_time_base_when_packet_base_is_absent(self):
+        stream = SimpleNamespace(codec=SimpleNamespace(name="h264"), time_base=Fraction(1, 1000))
+        decoded, _, _ = self.timestamp_outputs([context(1, pts=100, stream=stream)])
+        self.assertEqual(decoded[0].time_base, Fraction(1, 1000))
+        self.assertEqual(decoded[0].pts, 100)
+
+    def test_queue_drop_keeps_frame_and_pts_together(self):
+        items = [context(1, pts=i) for i in range(40)]
+        for item in items:
+            item.packet.time_base = Fraction(1, 90000)
+        decoded, _, _ = self.timestamp_outputs(items)
+        self.assertEqual([item.pts for item in decoded], list(range(10, 40)))
+        self.assertTrue(all(item._decode_buffer.pointer == 1000 + item.pts for item in decoded))
+
     def test_stream_replacement_and_producer_exit_wait_before_decoder_release(self):
         from pipeworks.embedded.nvidia_decode import _FrameQueue
 
@@ -706,6 +811,35 @@ class BufferLifetimeTests(unittest.TestCase):
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA가 필요합니다.")
 class NativeDecodeTests(unittest.TestCase):
+    def test_native_patched_locked_pts_survive_decode_and_reach_encoder(self):
+        from pipeworks.embedded.nvidia_encode import NvidiaEncode
+
+        if not hasattr(self.nvc.PyNvDecoder, "GetLockedFrameWithPTS"):
+            self.skipTest("PTS 바인딩을 포함한 수정 wheel이 필요합니다.")
+        packets = self.packets(12)
+        for i, packet in enumerate(packets):
+            packet.pts = packet.dts = i * 2
+        video = SimpleNamespace(
+            codec=SimpleNamespace(name="h264"),
+            codec_context=SimpleNamespace(name="h264", width=256, height=256),
+            time_base=Fraction(1, 30),
+        )
+        step = NvidiaDecode()
+        step.configure(SimpleNamespace())
+        decoded = list(step.process(iter(
+            PipelineContext(packet=packet, video_stream=video) for packet in packets
+        )))
+        self.assertEqual([item.pts for item in decoded], list(range(0, 24, 2)))
+        self.assertTrue(all(item.time_base == Fraction(1, 30) for item in decoded))
+        for item in decoded:
+            self.assertEqual(item.frame.data_ptr(), item._decode_buffer.pointer)
+        self.assertEqual(len({item.frame.data_ptr() for item in decoded}), len(decoded))
+        self.assertTrue(torch.all(decoded[0].frame[:256] == 20).item())
+        encoder = NvidiaEncode(preserve_timestamps=True)
+        encoder.configure(SimpleNamespace())
+        encoded = list(encoder.process(iter(decoded)))
+        self.assertEqual([item.packet.pts for item in encoded], list(range(0, 24, 2)))
+
     def setUp(self):
         self.dll_handles = []
         if os.name == "nt":

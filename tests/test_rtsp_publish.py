@@ -43,6 +43,27 @@ class Output:
 
 
 class RTSPPublishTests(unittest.TestCase):
+    def test_publish_records_input_pts_before_mux_changes_and_skips_duplicates(self):
+        class RescalingOutput(Output):
+            def mux(self, packet):
+                packet.pts = packet.dts = 1
+                packet.time_base = Fraction(1, 1000)
+                self.sent.append(packet)
+
+        output = RescalingOutput()
+        items = [self.bypass_input(dts, dts) for dts in [9000, 9000, 12000]]
+        for item in items:
+            item.video_stream = items[0].video_stream
+        with (
+            patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output),
+            patch("pipeworks.embedded.rtsp_publish.record_publish") as status,
+        ):
+            list(self.publisher().process(iter(items)))
+        self.assertEqual(len(status.call_args_list), 2)
+        self.assertEqual([call.kwargs["pts"] for call in status.call_args_list], [9000, 12000])
+        self.assertTrue(all(call.kwargs["time_base"] == Fraction(1, 90000)
+                            for call in status.call_args_list))
+
     def test_reconnect_interval_ms_retry_boundary(self):
         for failure in ["open", "mux"]:
             with self.subTest(failure=failure):
@@ -143,7 +164,7 @@ class RTSPPublishTests(unittest.TestCase):
         packet.time_base = Fraction(1, 90000)
         return PipelineContext(packet=packet, video_stream=stream)
 
-    def test_bypass_repairs_dts_and_consumes_input(self):
+    def test_bypass_ignores_duplicate_dts_and_consumes_input(self):
         output = Output()
         first = self.bypass_input(3000, 3000)
         second = self.bypass_input(3000, 3000)
@@ -153,15 +174,55 @@ class RTSPPublishTests(unittest.TestCase):
             patch("pipeworks.embedded.rtsp_publish.record_publish") as status,
         ):
             result = list(self.publisher().process(iter([first, second])))
-        self.assertEqual([call.args[0] for call in status.call_args_list], [True, True])
+        self.assertEqual([call.args[0] for call in status.call_args_list], [True])
         self.assertEqual(result, [])
-        self.assertEqual(len(output.sent), 2)
-        self.assertEqual(output.sent[1].dts, 6000)
-        self.assertEqual(output.sent[1].pts, 6000)
+        self.assertEqual(len(output.sent), 1)
+        self.assertEqual(output.sent[0].dts, 3000)
+        self.assertEqual(output.sent[0].pts, 3000)
         self.assertEqual(second.packet.dts, 3000)
         self.assertEqual(second.packet.pts, 3000)
         self.assertIsNone(second.packet.stream)
         self.assertEqual(output.closed, 1)
+
+    def test_duplicate_and_backwards_dts_do_not_shift_later_packets_or_reconnect(self):
+        output = Output()
+        items = [self.bypass_input(dts, dts + 100) for dts in [9000, 9000, 6000, 8000, 12000]]
+        for item in items:
+            item.video_stream = items[0].video_stream
+            item.packet.duration = 0
+        with (
+            patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output) as opened,
+            patch("pipeworks.embedded.rtsp_publish.record_publish") as status,
+        ):
+            list(self.publisher().process(iter(items)))
+        self.assertEqual([packet.dts for packet in output.sent], [9000, 12000])
+        self.assertEqual([packet.pts for packet in output.sent], [9100, 12100])
+        self.assertEqual([item.packet.dts for item in items], [9000, 9000, 6000, 8000, 12000])
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(output.closed, 1)
+        self.assertEqual([call.args[0] for call in status.call_args_list], [True, True])
+
+    def test_nonincreasing_dts_compares_actual_time_across_time_bases(self):
+        output = Output()
+        items = [self.bypass_input(dts, dts) for dts in [9000, 100, 99, 101]]
+        for item in items:
+            item.video_stream = items[0].video_stream
+        for item in items[1:]:
+            item.packet.time_base = Fraction(1, 1000)
+        with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output):
+            list(self.publisher().process(iter(items)))
+        self.assertEqual([packet.dts for packet in output.sent], [9000, 101])
+        self.assertEqual([packet.pts for packet in output.sent], [9000, 101])
+
+    def test_reordered_pts_are_kept_when_dts_increases(self):
+        output = Output()
+        items = [self.bypass_input(dts, pts) for dts, pts in [(0, 6000), (3000, 3000), (6000, 9000)]]
+        for item in items:
+            item.video_stream = items[0].video_stream
+        with patch("pipeworks.embedded.rtsp_publish.av.open", return_value=output):
+            list(self.publisher().process(iter(items)))
+        self.assertEqual([packet.dts for packet in output.sent], [0, 3000, 6000])
+        self.assertEqual([packet.pts for packet in output.sent], [6000, 3000, 9000])
 
     def test_bypass_fills_missing_dts(self):
         output = Output()
@@ -222,11 +283,11 @@ class RTSPPublishTests(unittest.TestCase):
                 )
             )
         self.assertEqual(
-            [call.args[0] for call in status.call_args_list], [False, True, True]
+            [call.args[0] for call in status.call_args_list], [False, True]
         )
         self.assertEqual(result, [])
         self.assertEqual(failed.closed, 1)
-        self.assertEqual(len(recovered.sent), 2)
+        self.assertEqual(len(recovered.sent), 1)
         self.assertEqual(recovered.closed, 1)
 
         failed = Output(fail_mux=True)

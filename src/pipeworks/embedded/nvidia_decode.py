@@ -1,5 +1,6 @@
 from contextvars import copy_context
 from collections import deque
+from fractions import Fraction
 import logging
 from pipeworks.embedded.recovery import is_fatal, gpu_call, ResourceSafetyError
 from threading import Condition, Event, Thread
@@ -22,8 +23,9 @@ class _DecodeError(Exception):
 
 class _LockedBuffer:
 
-    def __init__(self, pool, pointer, ready):
+    def __init__(self, pool, pointer, ready, pts=None):
         self.pool, self.pointer, self.completion = pool, pointer, ready
+        self.pts = pts
         self.ready = ready
         self.__cuda_array_interface__ = {
             "version": 3,
@@ -122,14 +124,20 @@ class _DecoderBuffers:
         if self._cleanup_failed:
             raise ResourceSafetyError("정리에 실패한 디코더 버퍼 풀은 재사용할 수 없습니다.")
         call = native_call or (lambda method: method())
-        pointer = call(self.decoder.GetLockedFrame)
+        timestamp_api = getattr(self.decoder, "GetLockedFrameWithPTS", None)
+        if callable(timestamp_api):
+            pointer, pts = call(timestamp_api)
+            if pts == -(2 ** 63):
+                pts = None
+        else:
+            pointer, pts = call(self.decoder.GetLockedFrame), None
         ready = torch.cuda.Event()
         ready.record(self.stream)
         with self.condition:
             if pointer in self.locked:
                 raise ResourceSafetyError("디코더가 이미 잠긴 버퍼를 다시 반환했습니다.")
             self.locked.add(pointer)
-        owner = _LockedBuffer(self, pointer, ready)
+        owner = _LockedBuffer(self, pointer, ready, pts)
         # as_tensor는 소유자 참조를 유지하며, DLPack 별칭은 같은 텐서 저장 공간을 유지한다.
         with torch.cuda.stream(self.stream):
             frame = torch.as_tensor(owner, device=self.stream.device)
@@ -213,6 +221,8 @@ class NvidiaDecode(Step):
 
         decoder = None
         decode_stream = consumer_stream = video_stream = pixel_format = None
+        decoder_time_base = None
+        time_base_initialized = False
         stop = getattr(self, "_pipeworks_stop_event", None)
         waiting_keyframe = recovering = False
         cleanup_failed = False
@@ -232,7 +242,8 @@ class NvidiaDecode(Step):
             raise _DecodeError(message)
 
         def reset(*, discard=True):
-            nonlocal decoder, decode_stream, pixel_format, cleanup_failed
+            nonlocal decoder, decode_stream, pixel_format, cleanup_failed, decoder_time_base
+            nonlocal time_base_initialized
             if cleanup_failed or (
                 slot.buffers is not None and slot.buffers._cleanup_failed
             ):
@@ -253,6 +264,8 @@ class NvidiaDecode(Step):
                 raise
             # 외부 프레임 owner가 기존 풀과 디코더의 수명을 보장한다.
             decoder = decode_stream = pixel_format = None
+            decoder_time_base = None
+            time_base_initialized = False
 
         def resumed():
             nonlocal recovering
@@ -277,6 +290,8 @@ class NvidiaDecode(Step):
                         video_stream=video_stream,
                         cuda_stream=consumer_stream,
                         pixel_format=pixel_format,
+                        pts=getattr(frame, "timestamp", None),
+                        time_base=decoder_time_base,
                         decoded_at=time.perf_counter(),
                     )
                 )
@@ -308,6 +323,8 @@ class NvidiaDecode(Step):
                         video_stream=video_stream,
                         cuda_stream=consumer_stream,
                         pixel_format=pixel_format,
+                        pts=owner.pts,
+                        time_base=decoder_time_base,
                         decoded_at=time.perf_counter(),
                     )
                 )
@@ -351,14 +368,32 @@ class NvidiaDecode(Step):
                             pixel_format = native_call(decoder.GetPixelFormat)
                             locked_decoder = all(
                                 callable(getattr(decoder, name, None))
-                                for name in ("GetNumDecodedFrame", "GetLockedFrame", "UnlockFrame")
-                            )
+                                for name in ("GetNumDecodedFrame", "UnlockFrame")
+                            ) and any(callable(getattr(decoder, name, None)) for name in (
+                                "GetLockedFrameWithPTS", "GetLockedFrame",
+                            ))
+                        source_base = getattr(packet, "time_base", None)
+                        if source_base is None:
+                            source_base = getattr(video_stream, "time_base", None)
+                        if source_base is not None:
+                            source_base = Fraction(source_base)
+                            if source_base <= 0:
+                                raise ValueError("입력 패킷 시간 기준은 양수여야 합니다.")
+                        if not time_base_initialized:
+                            decoder_time_base = source_base
+                            time_base_initialized = True
                         packet_data = nvc.PacketData()
                         # 디코더가 비트스트림을 소비할 때까지 패킷 소유자를 유지한다.
                         packet_data.bsl_data = packet.buffer_ptr
                         packet_data.bsl = packet.size
                         if packet.pts is not None:
-                            packet_data.pts = int(packet.pts)
+                            packet_data.pts = (
+                                round(packet.pts * source_base / decoder_time_base)
+                                if source_base is not None and decoder_time_base is not None
+                                else int(packet.pts)
+                            )
+                        elif callable(getattr(decoder, "GetLockedFrameWithPTS", None)):
+                            packet_data.pts = -(2 ** 63)
                         with torch.cuda.stream(decode_stream):
                             decode(packet_data)
                         waiting_keyframe = False

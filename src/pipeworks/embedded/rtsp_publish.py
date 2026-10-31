@@ -201,28 +201,14 @@ class RTSPPublish(Step):
                             Fraction(dts) * packet_time_base
                             <= Fraction(previous_dts) * previous_base
                         ):
-                            duration = (
-                                packet.duration
-                                if packet.duration and packet.duration > 0
-                                else 1
-                            )
-                            corrected = (
-                                floor(
-                                    Fraction(previous_dts)
-                                    * previous_base
-                                    / packet_time_base
-                                )
-                                + duration
-                            )
-                            if packet.pts is not None:
-                                packet.pts += corrected - dts
-                            packet.dts = dts = corrected
+                            continue
                     packet.stream = output_stream
 
                     try:
+                        published_pts = packet.pts
                         publish_started_at = time.perf_counter()
                         output.mux(packet)
-                        record_publish(True)
+                        record_publish(True, pts=published_pts, time_base=packet_time_base)
                         record_stage("publish", time.perf_counter() - publish_started_at)
                     except Exception as error:
                         if is_fatal(error):

@@ -1,5 +1,6 @@
 from contextlib import contextmanager, nullcontext
 from io import StringIO
+from fractions import Fraction
 from threading import Event, Thread
 import time
 import logging
@@ -47,10 +48,69 @@ class ReportTests(unittest.TestCase):
                 report.record_stage("encode", 0.1)
                 report.record_receive(True)
                 report.record_publish(False)
+                report.record_publish(True, pts=123, time_base=Fraction(1, 90000))
             self.assertEqual(stats.completed_frames, 0)
             self.assertEqual(stats.completed_inferences, 0)
             self.assertEqual(stats.stages, {})
             self.assertEqual(len(stats.frame_history), 0)
+
+    def test_latest_publish_pts_snapshot_keeps_pair_and_success_semantics(self):
+        with report.report_scope():
+            stats = report._stats()
+            report.record_publish(True, pts=0, time_base=Fraction(1, 90000))
+            stats.publish(now=1)
+            first = stats.snapshot
+            report.record_publish(False, pts=99, time_base=Fraction(1, 1000))
+            stats.publish(now=2)
+            self.assertEqual(stats.snapshot.latest_publish_pts, 0)
+            self.assertEqual(stats.snapshot.latest_publish_time_base, Fraction(1, 90000))
+            report.record_publish(True, pts=-7, time_base=Fraction(1, 1000))
+            stats.publish(now=3)
+            self.assertEqual(first.latest_publish_pts, 0)
+            reader = report._ReportReader(stats)
+            reader.started_at = reader.observed_at = 0
+            with patch.object(stats, "lock") as lock:
+                lock.__enter__.side_effect = AssertionError("reader lock")
+                view = reader.read(now=3)
+            self.assertEqual(view.latest_publish_pts, -7)
+            self.assertEqual(view.latest_publish_time_base, Fraction(1, 1000))
+            report.record_publish(True)
+            stats.publish(now=4)
+            self.assertIsNone(stats.snapshot.latest_publish_pts)
+            self.assertIsNone(stats.snapshot.latest_publish_time_base)
+
+    def test_latest_publish_pts_is_isolated_between_run_scopes(self):
+        with report.report_scope():
+            outer = report._stats()
+            report.record_publish(True, pts=100, time_base=Fraction(1, 90000))
+            with report.report_scope():
+                report.record_publish(True, pts=200, time_base=Fraction(1, 1000))
+                report._stats().publish(now=1)
+                self.assertEqual(report._stats().snapshot.latest_publish_pts, 200)
+            outer.publish(now=1)
+            self.assertEqual(outer.snapshot.latest_publish_pts, 100)
+
+    def test_latest_publish_pts_formats_zero_negative_and_missing_values(self):
+        for pts, base, expected in (
+            (0, Fraction(1, 90000), "최근 송신 PTS 0 (time_base=1/90000)"),
+            (-7, Fraction(1, 1000), "최근 송신 PTS -7 (time_base=1/1000)"),
+            (None, None, "최근 송신 PTS 없음"),
+            (123, None, "최근 송신 PTS 123"),
+        ):
+            with self.subTest(pts=pts):
+                output, done = StringIO(), Mock()
+                done.wait.side_effect = [False, True]
+                view = report._ReportView(
+                    (0, 0, 0, None, None, None), (), ("대기", "성공"), pts, base,
+                )
+                with (
+                    capture_report(output),
+                    patch.object(report, "Event", return_value=done),
+                    patch.object(report._ReportReader, "read", return_value=view),
+                ):
+                    list(StreamReport()._process(iter(())))
+                self.assertIn(expected, output.getvalue())
+                self.assertEqual(output.getvalue().count("\n"), 2)
 
     def test_publisher_is_shared_and_stops_after_last_subscription(self):
         first, second = report._ReportStats(), report._ReportStats()
@@ -300,6 +360,7 @@ class ReportTests(unittest.TestCase):
             self.assertIn("수신 대기", output.getvalue())
             self.assertIn("송신 대기", output.getvalue())
             self.assertIn("FPS 0.0", output.getvalue())
+            self.assertIn("최근 송신 PTS 없음", output.getvalue())
         finally:
             release.set()
             runner.join(timeout=3)
@@ -322,6 +383,7 @@ class ReportTests(unittest.TestCase):
                 report.record_frame(0.02)
                 report.record_inference(0.005)
                 report.record_stage("encode", 0.01)
+                report.record_publish(True, pts=12000, time_base=Fraction(1, 90000))
                 from threading import current_thread
 
                 original_lock = report._stats().lock
@@ -351,6 +413,7 @@ class ReportTests(unittest.TestCase):
             self.assertIn("프레임처리 20.0ms/1s, 20.0ms/10s", output.getvalue())
             self.assertIn("추론 5.0ms/1s, 5.0ms/10s (1건)", output.getvalue())
             self.assertIn("인코딩 10.0ms", output.getvalue())
+            self.assertIn("최근 송신 PTS 12000 (time_base=1/90000)", output.getvalue())
             self.assertEqual(output.getvalue().count("\n"), 2)
         finally:
             release.set()

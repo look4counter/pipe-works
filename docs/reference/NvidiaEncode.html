@@ -40,9 +40,20 @@
                 <td>생성자 / YAML</td>
                 <td>
                   출력 프레임률입니다. 양수여야 하며 GOP·IDR 주기와 패킷 시간
-                  기준에도 사용합니다. 현재 패킷 시간 기준 계산은 정수 fps를
+                  기준에도 기본 모드에서 사용합니다. 기본 모드 시간 기준 계산은 정수 fps를
                   전제로 합니다.
                 </td>
+              </tr>
+              <tr>
+                <th scope="row"><code>preserve_timestamps</code></th>
+                <td><code>False</code></td>
+                <td>생성자 / YAML</td>
+                <td>True이면 입력 컨텍스트의 pts·time_base·선택적 duration을 보존합니다.
+                  DTS는 PTS와 같습니다. time_base 생략 시 video_stream.time_base를 사용합니다.
+                  원본 시간이 없거나 유효하지 않으면 입력을 폐기합니다.
+                  수정 PyNvVideoCodec wheel에서는 NvidiaDecode가 잠금 API의 PTS를 전달합니다.
+                  공식 wheel에서는 pts가 None이므로 보존 모드 입력을 폐기합니다.
+                  fps는 인코더 설정에 계속 사용하며 RTSPPublish는 중복·역행 DTS 패킷을 보정하지 않고 건너뜁니다.</td>
               </tr>
             </tbody>
           </table>

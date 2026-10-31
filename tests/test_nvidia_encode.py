@@ -73,6 +73,114 @@ class EncodeTests(unittest.TestCase):
         self.assertEqual(result[0].video_stream.time_base, Fraction(1, 30))
         self.assertTrue(all(not hasattr(item, "frame") for item in result))
 
+    def timed_item(self, value, pts, base=Fraction(1, 90000), duration=3000):
+        item = self.item(value)
+        item.pts, item.time_base, item.duration = pts, base, duration
+        return item
+
+    def preserve(self):
+        self.step = NvidiaEncode(preserve_timestamps=True)
+        self.step.configure(SimpleNamespace())
+
+    def test_preserve_source_timestamps_and_gaps(self):
+        self.preserve()
+        result = list(self.step.process(iter([
+            self.timed_item(1, -3000), self.timed_item(2, 0),
+            self.timed_item(3, 9000),
+        ])))
+        self.assertEqual([x.packet.pts for x in result], [-3000, 0, 9000])
+        self.assertEqual([x.packet.dts for x in result], [-3000, 0, 9000])
+        self.assertTrue(all(x.packet.time_base == Fraction(1, 90000) for x in result))
+        self.assertTrue(all(x.packet.duration == 3000 for x in result))
+        self.assertEqual(result[0].video_stream.time_base, Fraction(1, 90000))
+        self.assertEqual(result[0].video_stream.average_rate, 30)
+        self.assertEqual(self.created[0][1]["fps"], 30)
+
+    def test_preserve_delayed_and_flush_output(self):
+        self.preserve()
+        encoder = Encoder()
+        encoder.Encode = Mock(side_effect=[b"", b"a"])
+        encoder.EndEncode = lambda: b"b"
+        self.api.CreateEncoder = lambda *args, **kwargs: encoder
+        result = list(self.step.process(iter([
+            self.timed_item(1, 100), self.timed_item(2, 400),
+        ])))
+        self.assertEqual([x.packet.pts for x in result], [100, 400])
+
+    def test_preserve_invalid_timestamps_are_not_encoded(self):
+        self.preserve()
+        missing = self.item()
+        invalid = [self.timed_item(1, None), self.timed_item(1, 2, base=0),
+                   self.timed_item(1, 2, duration=-1), self.timed_item(1, 1.5)]
+        with self.assertLogs("pipeworks.embedded.nvidia_encode", level="WARNING"):
+            result = list(self.step.process(iter([missing, *invalid, self.timed_item(2, 9000)])))
+        self.assertEqual([x.packet.pts for x in result], [9000])
+
+    def test_preserve_stream_base_and_changing_time_base(self):
+        self.preserve()
+        self.video.time_base = Fraction(1, 90000)
+        first = self.timed_item(1, 9000)
+        del first.time_base, first.duration
+        result = list(self.step.process(iter([
+            first, self.timed_item(2, 200, Fraction(1, 1000)),
+        ])))
+        self.assertEqual(result[0].packet.duration, 0)
+        self.assertEqual(result[0].packet.time_base, Fraction(1, 90000))
+        self.assertEqual(result[1].packet.time_base, Fraction(1, 1000))
+        self.assertEqual(result[1].video_stream.time_base, Fraction(1, 1000))
+        self.assertEqual(result[0].video_stream.time_base, Fraction(1, 90000))
+
+    def test_preserve_recovery_discards_pending_timestamps(self):
+        self.preserve()
+        failed = Encoder()
+        failed.Encode = Mock(side_effect=[b"", RuntimeError("failed")])
+        self.api.CreateEncoder = Mock(side_effect=[failed, Encoder()])
+
+        def inputs():
+            yield self.timed_item(1, 100)
+            yield self.timed_item(2, 200)
+            self.clock = 1.0
+            yield self.timed_item(3, 9000)
+
+        result = list(self.step.process(inputs()))
+        self.assertEqual([x.packet.pts for x in result], [9000])
+
+    def test_preserve_excess_packets_are_discarded(self):
+        self.preserve()
+        encoder = Encoder()
+        encoder.Encode = lambda frame: [b"a", b"b"]
+        self.api.CreateEncoder = lambda *args, **kwargs: encoder
+        with self.assertLogs("pipeworks.embedded.nvidia_encode", level="WARNING"):
+            result = list(self.step.process(iter([self.timed_item(1, 100)])))
+        self.assertEqual([x.packet.pts for x in result], [100])
+
+    def test_preserve_stream_replacement_flushes_old_timestamps(self):
+        self.preserve()
+        first_encoder = Encoder()
+        first_encoder.Encode = lambda frame: b""
+        first_encoder.EndEncode = lambda: b"a"
+        self.api.CreateEncoder = Mock(side_effect=[first_encoder, Encoder()])
+        old = self.timed_item(1, 9000)
+        new = self.timed_item(2, 200, Fraction(1, 1000))
+        new.video_stream = SimpleNamespace(
+            codec_context=SimpleNamespace(name="h264", width=512, height=256),
+        )
+        result = list(self.step.process(iter([old, new])))
+        self.assertEqual([x.packet.pts for x in result], [9000, 200])
+        self.assertEqual([x.video_stream.width for x in result], [256, 512])
+        self.assertEqual([x.packet.time_base for x in result],
+                         [Fraction(1, 90000), Fraction(1, 1000)])
+
+    def test_preserve_configuration_precedence_and_validation(self):
+        self.preserve()
+        self.step.configure(SimpleNamespace(preserve_timestamps=False))
+        self.assertFalse(self.step.preserve_timestamps)
+        self.step.configure(SimpleNamespace())
+        self.assertTrue(self.step.preserve_timestamps)
+        for value in ("true", 1, None):
+            with self.assertRaises(ValueError):
+                self.step.configure(SimpleNamespace(preserve_timestamps=value))
+
     def test_encode_failure_recreates_after_one_second_and_preserves_timestamps(self):
         first = Encoder()
         first.EndEncode = Mock(side_effect=AssertionError("실패 인코더 종료 호출 금지"))
