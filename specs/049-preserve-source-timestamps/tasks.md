@@ -1,4 +1,4 @@
-# 작업 목록: 원본 타임스탬프 보존
+﻿# 작업 목록: 원본 타임스탬프 보존
 
 ## 1단계: 준비
 
@@ -57,3 +57,28 @@ T001 → T002 → T003 → T004 → T005 → T006 순서다. 같은 소스와 �
 - [X] T017 docs/pipeworks/embedded/rtsp_publish.md와 nvidia_encode.md 및 docs/reference/NvidiaEncode.html을 갱신하고 송출·보고·복구·핫스왑 회귀 검사와 수렴 점검 결과를 validation.md에 기록한다. FR-006, FR-014.
 
 실행 순서: T015 → T016 → T017.
+
+## 12단계: v141·CUDA 12.0 패치 비교 빌드
+
+- [X] T018 build/pynvvideocodec-patched-v141-cuda120에 기존 tools/build_pynvvideocodec.py로 원본 검증·패치·버전을 준비하고 원본 비교 빌드와 동일한 실행 조건을 기록한다. FR-015.
+- [X] T019 [US1] build/pynvvideocodec-patched-v141-cuda120/run-build.cmd로 수정 wheel을 dist/pynvvideocodec-patched-v141-cuda120에 생성한다. FR-007, FR-015.
+- [X] T020 [US1] 별도 설치 경로에서 두 모듈과 잠금 API, 링커·PTX 및 tests/test_nvidia_decode.py의 기존 GPU 통합 검사를 확인한다. FR-008, FR-016.
+- [X] T021 docs/pynvvideocodec-build.md와 specs/049-preserve-source-timestamps/validation.md에 산출물·해시·검증·대상 서버 확인 한계를 기록하고 수렴 점검한다. FR-006, FR-016.
+
+의존성은 T018 → T019 → T020 → T021이다. 동일 빌드·설치 경로를 사용하므로 순차 실행한다. 별도 프로세스의 모듈 로드는 독립 검증할 수 있다. 새 동작 구현 없이 기존 패치의 빌드 조건만 변경한다.
+
+## 13단계: 영구 진입점과 자동 다운로드 및 정리
+
+- [X] T022 tests/test_pynvvideocodec_build.py에서 자동 다운로드·캐시 재사용·해시 불일치·통신 중단을 검증한다. FR-018, FR-020.
+- [X] T023 [US1] tools/build_pynvvideocodec.py에 검증된 원본 캐시 자동 다운로드를 구현한다. FR-018.
+- [X] T024 [US1] build-pynvvideocodec-v141-cuda120.ps1에 도구 선택·검증·환경 복원을 구현하고 구식 build-pynvvideocodec.ps1을 제거한다. FR-017.
+- [ ] T025 명시된 실패 산출물만 build와 dist에서 경로 확인 후 삭제한다. FR-019.
+- [X] T026 [US1] 새 진입점으로 wheel을 빌드하고 두 모듈의 기존 GPU 통합 검증을 실행하여 build/pynvvideocodec-patched-v141-cuda120에 기록한다. FR-017, FR-020.
+- [X] T027 docs/pynvvideocodec-build.md와 specs/049-preserve-source-timestamps/quickstart.md 및 validation.md를 갱신하고 수렴 점검한다. FR-020.
+
+순서는 T022 → T023 → T024 → T025 → T026 → T027이다. 다운로드 모의 검증은 GPU 없이 독립 실행하며 네이티브 검증은 빌드 성공 후 수행한다. 기존 인터페이스와 정상 wheel을 유지하면서 진입점 교체와 캐시 제공을 먼저 완성한다.
+
+
+## 14단계: 수렴 점검의 남은 정리 작업
+
+- [ ] T028 FR-019와 T025의 남은 실제 삭제를 위해 로컬 PowerShell에서 cleanup-pynvvideocodec-obsolete.ps1을 실행하고, 고정 대상 10개가 사라지고 정상 v141 산출물이 유지됐는지 확인한다. 자동 실행 정책의 blocked by policy로 현재 세션에서는 실행하지 못했다. 부분 완료 항목이다.

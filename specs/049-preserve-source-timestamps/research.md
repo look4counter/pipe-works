@@ -6,3 +6,11 @@
 - 소스 확인: 2.2.2의 Python GetLockedFrame 바인딩은 C++ 호출의 pTimestamp에 NULL을 전달한다. 내부 GetLockedFrame은 포인터와 PTS를 동일 잠금 구간에서 반환한다. 따라서 새 Python 메서드만 추가하면 된다. GetFrame의 설명은 잠금을 언급하지만 구현은 비잠금 API를 호출하여 사용하지 않는다.
 - 빌드 결정: 원본 ZIP을 고정 해시로 검증하고 최소 패치와 별도 로컬 버전 wheel을 생성한다. 기존 공식 설치를 자동으로 교체하지 않는다. 빌드 시 네트워크가 없는 환경에서는 개발 의존성을 미리 준비하고 CMake 외부 의존성 경로를 전달할 수 있어야 한다.
 - 근거: [NVIDIA 공식 API](https://docs.nvidia.com/video-technologies/pynvvideocodec/pynvc-api-reference/decoder.html)는 DecodedFrame의 timestamp·getPTS를 설명하지만 GetLockedFrame은 포인터를 반환한다고 명시한다. 이번 변경은 버퍼 수명 계약을 유지한다.
+
+## 2026-11-02 비교 결과와 결정
+
+공식 wheel은 링커 14.16·PTX 8.0, 이전 리빌드는 링커 14.44·PTX 8.5이다. 번들 FFmpeg DLL과 Python 로더는 동일하다. 이 차이만으로 충돌 원인을 확정하지 않는다. 직전 원본 비교 빌드와 같은 v141·CUDA 12.0.140 및 scikit-build 0.18.1을 사용한다. 공식 wheel의 scikit-build 0.19.1과 차이는 명시한다. 기존 패치 외에 새 API나 버전 변경은 추가하지 않는다. 필요한 도구와 설계는 이미 확인되어 추가 조사 미정 사항은 없다.
+
+## 영구 빌드 진입점 결정
+
+대상 서버에서 v141·CUDA 12.0 패치 wheel 정상 동작이 사용자에 의해 확인됐다. 기존 일반 래퍼는 도구 버전을 선택하지 않아 잘못된 조건으로 재빌드할 수 있으므로 이름과 검증을 명확히 한 진입점으로 교체한다. 공식 원본은 NGC 2.2.2 파일 API 주소와 기존 고정 해시를 사용하며, 다운로드와 해시 검증은 Python 표준 라이브러리로 수행한다. 실행 환경의 네트워크 제한 때문에 실제 원격 응답 검증에는 제약이 있으며 로컬 HTTP 응답 대체 테스트와 기존 ZIP 재사용 빌드로 검증한다.

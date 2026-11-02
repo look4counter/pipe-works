@@ -11,11 +11,16 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
+from urllib.error import URLError
+from urllib.request import urlopen
 import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE_SHA256 = "0ecb47da0bd40dc70e1e684fa95073fd6f3debc607fd4a5056b99b42af5cbeb1"
+ARCHIVE_URL = ("https://api.ngc.nvidia.com/v2/resources/nvidia/pynvvideocodec/"
+               "versions/2.2.2/files/PyNvVideoCodec_2.2.2.zip")
 VERSION = "2.2.2+pipeworks.1"
 PATCH = ROOT / "tools/patches/pynvvideocodec-2.2.2-locked-frame-pts.patch"
 SOURCE_NAME = "PyNvVideoCodec_2.2.2"
@@ -26,6 +31,32 @@ TRACKED = ("src/PyNvVideoCodec/src/PyNvDecoder.cpp", "pyproject.toml",
 def sha256(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def ensure_archive(archive):
+    """원본 캐시를 검증하고, 없으면 공식 파일을 검증 후 저장한다."""
+    archive = archive.resolve()
+    if archive.exists():
+        if sha256(archive) != ARCHIVE_SHA256:
+            raise ValueError("공식 2.2.2 ZIP의 SHA-256이 다릅니다. 파일을 확인하세요.")
+        return archive
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=archive.parent, suffix=".download", delete=False) as output:
+            temporary = Path(output.name)
+            print(f"공식 소스 다운로드: {ARCHIVE_URL}", flush=True)
+            with urlopen(ARCHIVE_URL, timeout=120) as response:
+                shutil.copyfileobj(response, output)
+        if sha256(temporary) != ARCHIVE_SHA256:
+            raise ValueError("다운로드한 공식 2.2.2 ZIP의 SHA-256이 다릅니다.")
+        temporary.replace(archive)
+        return archive
+    except (OSError, URLError) as error:
+        raise RuntimeError(f"공식 소스 다운로드 실패: {error}. --source-archive로 원본 ZIP을 지정할 수 있습니다.") from error
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def prepare(archive, work_dir):
@@ -83,8 +114,8 @@ def prepare(archive, work_dir):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-archive", type=Path, default=ROOT / "PyNvVideoCodec_2.2.2.zip")
-    parser.add_argument("--work-dir", type=Path, default=ROOT / "build/pynvvideocodec")
-    parser.add_argument("--wheel-dir", type=Path, default=ROOT / "dist")
+    parser.add_argument("--work-dir", type=Path, default=ROOT / "build/pynvvideocodec-patched-v141-cuda120")
+    parser.add_argument("--wheel-dir", type=Path, default=ROOT / "dist/pynvvideocodec-patched-v141-cuda120")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--cmake-arg", action="append", default=[])
     parser.add_argument("--pybind11-source-dir", type=Path)
@@ -120,7 +151,7 @@ def build_environment(args, environ=None):
 def main(argv=None):
     args = parse_args(argv)
     try:
-        source = prepare(args.source_archive, args.work_dir)
+        source = prepare(ensure_archive(args.source_archive), args.work_dir)
         print(f"패치 준비 완료: {source}", flush=True)
         if args.prepare_only:
             return 0

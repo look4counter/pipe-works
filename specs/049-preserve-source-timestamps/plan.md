@@ -34,3 +34,19 @@ NvidiaDecode의 _DecoderBuffers.acquire가 새 API를 우선 사용하여 버퍼
 수정 wheel은 기본 프로젝트 설치를 강제 변경하지 않고 requirements-pynvvideocodec.txt의 정확한 로컬 버전과 wheelhouse 설치 명령으로 선택한다. requirements-pynvvideocodec-build.txt에 빌드 도구를 고정하고 docs/pynvvideocodec-build.md에 배포 절차를 기록한다. docs/reference/NvidiaDecode.html과 NvidiaEncode.html에도 수정 wheel 조건을 표시한다. 테스트는 패치 재현성·부호 있는 PTS·잠금 수명·지연과 재정렬·시간 기준 환산·인코더 통합 및 기존 회귀를 다룬다.
 
 실제 빌드에서 scikit-build의 CMAKE_ARGS 중복 파싱과 Visual Studio 2026 미인식을 확인했다. tools/build_pynvvideocodec.py는 CMake 옵션을 SKBUILD_CONFIGURE_OPTIONS로 한 번만 전달하고 Windows 개발자 환경에서 Ninja Multi-Config를 기본 선택한다. 빌드 Python의 Scripts 경로를 하위 프로세스 PATH에 넣어 CMake·Ninja를 찾도록 한다. 이 동작은 tests/test_pynvvideocodec_build.py에서 공백 경로가 포함된 환경 변수 구성으로 검증한다.
+
+## 2026-11-02 v141·CUDA 12.0 비교 빌드
+
+FR-015~016에 따라 기존 패치와 빌드 도구를 그대로 사용한다. 새 작업 경로는 build/pynvvideocodec-patched-v141-cuda120, 출력은 dist/pynvvideocodec-patched-v141-cuda120이다. 원본 비교 빌드와 동일하게 MSVC 14.16.27023(컴파일러 19.16.27054), CUDA 12.0.140, Python 3.11.9, scikit-build 0.18.1, Ninja Multi-Config와 Release를 사용한다. 로컬 pybind11 2.10.0과 DLPack 0.8을 지정한다. 공식 wheel의 scikit-build 0.19.1과 차이가 남는다.
+
+기존 준비 함수로 원본 해시·패치·로컬 버전을 검증하고 원본 비교 빌드 명령의 경로만 변경한다. 두 모듈을 별도 프로세스로 로드하여 GetLockedFrameWithPTS, 링커 14.16·PTX 8.0을 확인한다. 별도 설치 디렉터리를 사용해 기존 GPU 통합 검사를 수행하고, 산출물 해시·환경·대상 서버 미검증 상태를 validation.md와 docs/pynvvideocodec-build.md에 기록한다. 영상 처리 코드와 공개 계약은 변경하지 않는다. 헌장은 미작성 템플릿이며 추가 위반은 없다.
+
+## 영구 v141·CUDA 12.0 진입점과 자동 다운로드
+
+루트 build-pynvvideocodec.ps1을 build-pynvvideocodec-v141-cuda120.ps1로 교체한다. VsDevCmd를 자식 cmd에서 -vcvars_ver=14.16으로 실행한 환경을 가져오고 cl·link·nvcc 버전을 확인한다. CUDA 12.0·Ninja Multi-Config·Release·UTF-8을 명시하며 기존 외부 CMake 환경의 개입을 제거한다. 실행 후 호출자의 환경은 복원한다. 빌드 전용 Python 3.11 x64와 로컬 의존성을 기본 사용하고 -PrepareOnly와 사용자 경로를 지원한다.
+
+Python 빌드 도구는 캐시를 먼저 검사하며 없는 ZIP만 NGC의 버전 고정 HTTPS 주소에서 임시 파일로 다운로드한다. 고정 해시가 일치해야 목적 경로로 교체하고 실패 시 임시 파일을 제거한다. 다운로드의 통신 오류를 명확한 빌드 오류로 변환한다. 기본 작업·출력은 검증된 patched-v141-cuda120 경로를 유지한다. 테스트는 통신을 대체하여 정상·손상·중단·캐시 재사용을 검증하고 새 PowerShell 진입점으로 실제 빌드한다.
+
+삭제는 명시적인 실패 산출물 목록에만 적용한다. 모든 삭제 대상을 저장소 내부 절대 경로로 확인한 다음 PowerShell의 LiteralPath로 처리한다. 성공한 산출물과 참고용 원본은 유지한다. 문서는 새 방식 하나로 재작성하고 해시·로그·검증 결과를 남긴다.
+
+삭제 실행이 자동 정책에 의해 거절된 경우를 위해 cleanup-pynvvideocodec-obsolete.ps1을 제공한다. 고정된 저장소 내부 대상만 선택하며 -WhatIf를 지원하고 연결 경로를 거부한다. 현재 실제 구형 산출물 삭제는 로컬 실행이 남아 있으며 이를 완료로 표시하지 않는다.

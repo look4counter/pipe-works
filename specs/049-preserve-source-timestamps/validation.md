@@ -64,3 +64,26 @@ T013을 완료했다. 현재 명세 범위에서 남은 구현·검증 작업은
 - 같은 연결에서 중복·역행을 건너뛴 후 정상 패킷의 간격이 유지되며, 건너뛴 패킷은 송신 성공·실패 지표나 재연결을 만들지 않음을 검증했다.
 - RTSP 송출 22개를 포함하여 송출·보고·내장 복구·핫스왑·인코더 검사 111개가 통과했다. 실제 RTSP 서버 송출은 실행하지 않았다.
 - 이 변경은 PipeWorks의 Python 송출 코드에만 적용되며 수정 PyNvVideoCodec wheel의 재빌드는 필요 없다.
+
+## 2026-11-02 v141·CUDA 12.0 패치 재빌드
+
+- 요구사항: FR-015~016. 기존 명세 갱신 → 명확화(질문 0개, 미정 사항 없음) → 계획 → 작업 → 일관성 분석 → 구현 순서로 진행했다. 명세 품질 확인 5/5 통과, 새 요구사항 2개 모두 T018~T021에 대응하며 차단할 일관성 문제는 없었다. 헌장은 미작성 템플릿이며 확장 훅은 없다.
+- 환경: MSVC 19.16.27054·링커 14.16.27054, CUDA 12.0.140, Python 3.11.9, scikit-build 0.18.1, CMake 3.31.6, Ninja Multi-Config, Release. 직전 패치 없는 비교 빌드와 동일하다. 공식 wheel의 scikit-build 0.19.1과는 차이가 남는다.
+- 산출물: dist/pynvvideocodec-patched-v141-cuda120/pynvvideocodec-2.2.2+pipeworks.1-cp311-cp311-win_amd64.whl. 20,538,280바이트. SHA-256: f9c33114318b14a3fb5b13602e75931ac90345a13b30293f7a8fb7ac88baaab0.
+- 원본 ZIP 해시와 패치 적용 검증 완료. 원본 대비 변경 파일은 기존 설계의 PyNvDecoder.cpp 및 버전 메타데이터 3개뿐이다. 저장소의 패치·빌드 도구·영상 처리 소스는 변경하지 않았다.
+- 바이너리: 두 모듈 PTX 8.0. 링커 14.16 확인. _121 크기 2,045,952바이트, _130 크기 2,051,072바이트. 버전과 GetLockedFrameWithPTS 존재 확인.
+- 검증: test_pynvvideocodec_build 4개 통과. 별도 설치 디렉터리와 별도 프로세스에서 API 판별값 193·208로 각 모듈을 선택하고 test_native_patched_locked_pts_survive_decode_and_reach_encoder를 실행했다. _121 1개 통과(0.495초), _130 1개 통과(0.234초), 건너뜀 없음. 실제 GPU에서 잠금 버퍼 포인터와 원본 PTS가 인코더까지 전달됨을 검증했다.
+- 기록: build/pynvvideocodec-patched-v141-cuda120의 run-build.cmd, build.log, pipeworks-patch.json, verify-native.py, verify-121.log, verify-130.log. 기본 .venv의 PyNvVideoCodec 설치는 교체하지 않았다.
+- 한계: 대상 Windows 10·L40-8Q·드라이버 538.15 서버에서 실행한 결과가 아니다. 공식 빌드 전체 옵션과 동일함이나 대상 충돌 해결을 주장하지 않는다. 기존 배포 라이선스 조건을 유지한다.
+
+## 영구 빌드 진입점·다운로드·정리 검증
+
+- FR-017~020을 추가하고 명확화·계획·작업 생성·일관성 분석을 마쳤다. 새 요구사항 4개가 T022~T027에 대응하며 명세 품질 5/5, 구현 전 차단 사항은 없었다.
+- 새 진입점 build-pynvvideocodec-v141-cuda120.ps1은 일반 PowerShell에서 VsDevCmd로 v141을 선택하고 CUDA 12.0을 검증하며 환경을 복원한다. build-pynvvideocodec.ps1은 제거했다. 기본 작업·출력을 검증된 전용 경로로 통일했다.
+- tools/build_pynvvideocodec.py는 없는 원본 ZIP을 NVIDIA NGC에서 자동 다운로드하고 임시 파일의 고정 해시 검증 후 저장한다. 기존 캐시를 검증·재사용하며 손상된 캐시는 덮어쓰지 않는다.
+- 다운로드 정상·재사용·손상 응답·통신 실패·부분 수신 중단·손상 캐시 및 기존 패치·경로 안전성 테스트 총 9개 통과. 실제 NVIDIA 원격 응답은 네트워크 제한으로 확인하지 못했으며 다운로드는 대체 응답으로 검증했다.
+- 새 진입점의 PrepareOnly, 기존 작업 재빌드, 새 build/pynvvideocodec-v141-cuda120-check의 완전 빌드 모두 성공했다. 새 CMake 캐시에서 MSVC 14.16과 CUDA 12.0 경로를 확인했다. 로그는 build/pynvvideocodec-patched-v141-cuda120/build-entrypoint.log와 build-clean-entrypoint.log이다.
+- 최신 wheel: dist/pynvvideocodec-patched-v141-cuda120/pynvvideocodec-2.2.2+pipeworks.1-cp311-cp311-win_amd64.whl. 크기 20,538,284바이트. SHA-256 d7f73126aab98134b6dd5a70548cff11e544f3dde1877ba1491422b43a607dd6. 패키징 시각 때문에 이전 wheel과 해시는 다를 수 있다. 두 .pyd는 각각 2,045,952·2,051,072바이트, PTX 8.0이며 링커 14.16이다.
+- 최신 wheel을 별도 경로에 추출하여 _121과 _130을 각각 선택한 GPU PTS 보존 통합 테스트가 각각 1개 통과했고 건너뜀은 없었다. 실행 시간은 0.243초와 0.198초이다. 기본 앱의 설치 환경은 교체하지 않았다.
+- 삭제 대상 절대 경로를 확인했지만 자동 실행 정책이 Remove-Item 실행을 blocked by policy로 거절했다. 실제 구형 바이너리·폴더는 삭제하지 못했다. cleanup-pynvvideocodec-obsolete.ps1에 고정 목록·작업 공간 검사·연결 경로 거부를 구현했고 -WhatIf로 대상 10개만 선택됨을 확인했다. 정상 산출물·원본·환경·의존성·라이선스는 대상에 없다. 실제 삭제 T025는 미완료다.
+- 빌드·설치 문서는 새 진입점으로 재작성했다. 대상 Windows 10·L40-8Q·538.15에서 이전 v141 패치본이 정상이라는 사용자 확인을 기록하되 최신 재패키징 파일의 대상 서버 재실행 결과와 구분한다.

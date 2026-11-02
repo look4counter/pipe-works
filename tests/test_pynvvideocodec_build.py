@@ -1,4 +1,5 @@
 import hashlib
+import io
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -6,6 +7,7 @@ import shlex
 import unittest
 import zipfile
 from unittest.mock import patch
+from urllib.error import URLError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +20,59 @@ class BindingBuildTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("binding_build", SCRIPT)
         cls.builder = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.builder)
+
+    def test_download_is_verified_and_cached(self):
+        content = b"official archive"
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "cache" / "source.zip"
+            with (
+                patch.object(self.builder, "ARCHIVE_SHA256", hashlib.sha256(content).hexdigest()),
+                patch.object(self.builder, "urlopen", return_value=io.BytesIO(content)) as request,
+            ):
+                self.builder.ensure_archive(archive)
+                self.builder.ensure_archive(archive)
+                self.assertEqual(archive.read_bytes(), content)
+                request.assert_called_once_with(self.builder.ARCHIVE_URL, timeout=120)
+
+    def test_invalid_download_is_not_published(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "source.zip"
+            with patch.object(self.builder, "urlopen", return_value=io.BytesIO(b"bad")):
+                with self.assertRaisesRegex(ValueError, "SHA-256"):
+                    self.builder.ensure_archive(archive)
+            self.assertEqual(list(Path(temp).iterdir()), [])
+
+    def test_download_failure_removes_partial_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "source.zip"
+            with patch.object(self.builder, "urlopen", side_effect=URLError("offline")):
+                with self.assertRaisesRegex(RuntimeError, "다운로드"):
+                    self.builder.ensure_archive(archive)
+            self.assertEqual(list(Path(temp).iterdir()), [])
+
+    def test_interrupted_download_removes_partial_file(self):
+        class InterruptedResponse(io.BytesIO):
+            def read(self, size=-1):
+                if self.tell():
+                    raise OSError("connection reset")
+                return super().read(3)
+
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "source.zip"
+            with patch.object(self.builder, "urlopen", return_value=InterruptedResponse(b"partial")):
+                with self.assertRaisesRegex(RuntimeError, "다운로드"):
+                    self.builder.ensure_archive(archive)
+            self.assertEqual(list(Path(temp).iterdir()), [])
+
+    def test_invalid_cache_is_preserved_without_network(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "source.zip"
+            archive.write_bytes(b"local content")
+            with patch.object(self.builder, "urlopen") as request:
+                with self.assertRaisesRegex(ValueError, "SHA-256"):
+                    self.builder.ensure_archive(archive)
+                request.assert_not_called()
+            self.assertEqual(archive.read_bytes(), b"local content")
 
     def test_cmake_paths_with_spaces_are_passed_only_once(self):
         args = self.builder.parse_args([
