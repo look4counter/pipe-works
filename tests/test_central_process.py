@@ -73,14 +73,6 @@ class LoggingSource(Step):
         yield PipelineContext()
 
 
-class CentralTestPipeline(Pipeline):
-
-    def run(self):
-        from pipeworks.main import run_remote
-
-        return run_remote(self)
-
-
 class RecordingSource(Step):
     def __init__(self, path: Path, *, continuous: bool = False):
         self.path = path
@@ -250,7 +242,7 @@ def _run_forever(directory_name: str) -> None:
     directory = Path(directory_name)
     config = directory / "child.yml"
     config.write_text("{}", encoding="utf-8")
-    CentralTestPipeline("child", config=config).step(
+    Pipeline("child", config=config).step(
         RecordingSource(directory / "child.pid", continuous=True)
     ).run()
 
@@ -261,7 +253,7 @@ def _run_print(directory_name: str, message: str, result) -> None:
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
     with capture_logs(output):
-        CentralTestPipeline(message, config=config).step(PrintingSource(message)).run()
+        Pipeline(message, config=config).step(PrintingSource(message)).run()
     result.put(output.getvalue())
 
 
@@ -271,7 +263,7 @@ def _run_tap_print(directory_name: str, message: str, result) -> None:
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
     with capture_logs(output):
-        CentralTestPipeline(message, config=config).step(PrintingSource("report output")).step(
+        Pipeline(message, config=config).step(PrintingSource("report output")).step(
             TapSkipIfBusy(PrintingStep(message))
         ).run()
     result.put(output.getvalue())
@@ -282,7 +274,7 @@ def _run_status_report(directory_name: str, healthy: bool, result) -> None:
     config.write_text("{}", encoding="utf-8")
     output = StringIO()
     with capture_logs(output):
-        CentralTestPipeline(f"status-{healthy}", config=config).step(StatusSource(healthy)).step(
+        Pipeline(f"status-{healthy}", config=config).step(StatusSource(healthy)).step(
             StreamReport()
         ).run()
     result.put((healthy, output.getvalue()))
@@ -295,7 +287,7 @@ def _run_logging_policy(directory_name, level, result):
     records = []
     with capture_logs(StringIO(), level) as handler:
         handler.emit = records.append
-        CentralTestPipeline(f"policy-{level}", config=config).step(
+        Pipeline(f"policy-{level}", config=config).step(
             LoggingSource(message=f"policy-{level}")
         ).run()
     result.put((level, [(record.levelno, record.getMessage(), record.pipeworks_execution_id)
@@ -327,28 +319,28 @@ class AsyncLoggingFailure(Step):
 
 
 class CentralProcessTests(unittest.TestCase):
-    def test_batch_process_constructor_contract(self):
+    def test_batch_server_constructor_contract(self):
         with TemporaryDirectory() as temporary:
             config = Path(temporary) / "config.yml"
             config.write_text("{}", encoding="utf-8")
             with patch("pipeworks.main._connect") as connect:
                 for value in (None, False, True, 0, 1, [], {}):
-                    with self.subTest(value=value), self.assertRaisesRegex(TypeError, "batch_process"):
-                        Pipeline("invalid", config=config, batch_process=value)
+                    with self.subTest(value=value), self.assertRaisesRegex(TypeError, "batch_server"):
+                        Pipeline("invalid", config=config, batch_server=value)
                 for value in ("", " ", "a b", "a/b", "a.b", "x" * 65):
-                    with self.subTest(value=value), self.assertRaisesRegex(ValueError, "batch_process"):
-                        Pipeline("invalid", config=config, batch_process=value)
+                    with self.subTest(value=value), self.assertRaisesRegex(ValueError, "batch_server"):
+                        Pipeline("invalid", config=config, batch_server=value)
                 pipeline = Pipeline("default", config=config)
-                self.assertEqual(pipeline.batch_process, "production")
+                self.assertEqual(pipeline.batch_server, "production")
                 with self.assertRaises(TypeError):
                     Pipeline("old", config=config, development=True)
                 with self.assertRaises(TypeError):
                     pipeline.run(server_group="camera-a")
                 connect.assert_not_called()
             for alias in ("production", "camera-a", "Camera_A", "0", "x" * 64):
-                pipeline = Pipeline("alias", config=config, batch_process=alias)
+                pipeline = Pipeline("alias", config=config, batch_server=alias)
                 restored = cloudpickle.loads(cloudpickle.dumps(pipeline))
-                self.assertEqual(restored.batch_process, alias)
+                self.assertEqual(restored.batch_server, alias)
                 from pipeworks.embedded import YoloInference
 
                 pipeline.step(YoloInference(Path("model.pt"), backend="torchscript", batch=True))
@@ -371,7 +363,7 @@ class CentralProcessTests(unittest.TestCase):
                         directory,
                         f"{group}-{index}",
                         RecordingSource(directory / f"{group}-{index}.pid"),
-                        batch_process=group,
+                        batch_server=group,
                     ).run()
                 except Exception as error:
                     failures.append(error)
@@ -492,7 +484,7 @@ class CentralProcessTests(unittest.TestCase):
                     directory,
                     "replacement",
                     RecordingSource(replacement_path),
-                    batch_process=development,
+                    batch_server=development,
                 )
                 # 생성자 기반 라우팅을 검증할 때 격리된 테스트 서버를 사용한다.
                 with patch(
@@ -547,7 +539,7 @@ class CentralProcessTests(unittest.TestCase):
             config = Path(temporary) / "report.yml"
             config.write_text("{}", encoding="utf-8")
             pipeline = (
-                CentralTestPipeline("terminal-report", config=config)
+                Pipeline("terminal-report", config=config)
                 .step(PrintingSource("source active", delay=1.3))
                 .step(StreamReport())
             )
@@ -569,7 +561,7 @@ class CentralProcessTests(unittest.TestCase):
             result_path = root / "result.txt"
             release_path = root / "release"
             pipeline = (
-                CentralTestPipeline("central-config", config=config_path)
+                Pipeline("central-config", config=config_path)
                 .step(PausedSource(release_path))
                 .step(ConfigurableOffset())
                 .step(ValueRecorder(result_path))
@@ -649,7 +641,7 @@ class CentralProcessTests(unittest.TestCase):
                 sys.modules.pop(helper_name, None)
 
             pipeline = (
-                CentralTestPipeline("central-hotswap", config=config_path)
+                Pipeline("central-hotswap", config=config_path)
                 .step(PausedSource(release_path))
                 .step(user_step)
                 .step(ValueRecorder(result_path))
@@ -824,7 +816,7 @@ class CentralProcessTests(unittest.TestCase):
             config = Path(temporary) / "sink.yml"
             config.write_text("{}", encoding="utf-8")
             pipeline = (
-                CentralTestPipeline("sink", config=config)
+                Pipeline("sink", config=config)
                 .step(PrintingSource("report output"))
                 .step(TapSkipIfBusy(PrintingStep("post output")))
             )
@@ -938,11 +930,11 @@ class CentralProcessTests(unittest.TestCase):
                     _start_server()
 
     def _pipeline(
-        self, directory: Path, name: str, source: Step, *, batch_process="production"
+        self, directory: Path, name: str, source: Step, *, batch_server="production"
     ) -> Pipeline:
         config = directory / f"{name}.yml"
         config.write_text("{}", encoding="utf-8")
-        return CentralTestPipeline(name, config=config, batch_process=batch_process).step(source)
+        return Pipeline(name, config=config, batch_server=batch_server).step(source)
 
     def test_run_executes_in_shared_process(self):
         with TemporaryDirectory() as temporary:

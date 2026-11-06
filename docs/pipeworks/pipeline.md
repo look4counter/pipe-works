@@ -11,7 +11,7 @@
 Pipeline 클래스는:
 - Step들을 순차 연결하는 **빌더 패턴** 제공
 - YAML 설정 파일 로드 및 적용
-- Batch 추론 여부에 따라 호출자 또는 별칭으로 선택한 중앙 프로세스에서 실행
+- Batch 추론 여부와 관계없이 별칭으로 선택한 중앙 프로세스에서 실행
 - 실행 중 설정 변경 감지 (Hotswap)
 
 ---
@@ -32,7 +32,7 @@ pipeline = Pipeline(name="my-pipeline", config=Path("config.yaml"))
 
 - **name** (str): 파이프라인 이름 (로그, 식별용)
 - **config** (Path): YAML 설정 파일 경로
-- **batch_process** (str, 기본 `"production"`): Batch 실행의 중앙 프로세스 별칭입니다. 같은 별칭끼리 공유하며 다른 별칭은 분리합니다. 영문자·숫자·밑줄·하이픈 1~64자로 대소문자를 구분합니다. Batch 추론이 없으면 별칭과 관계없이 호출자 프로세스에서 실행합니다.
+- **batch_server** (str, 기본 `"production"`): 전체 파이프라인을 실행할 중앙 프로세스 별칭입니다. 같은 별칭끼리 공유하며 다른 별칭은 분리합니다. 영문자·숫자·밑줄·하이픈 1~64자로 대소문자를 구분합니다. 추론 단계가 없거나 `batch=False`여도 적용합니다.
 
 ### Step 등록
 
@@ -99,14 +99,14 @@ pipeline.step(RTSPSource(...))  # X: Source가 먼저 와야 함
 # 파이프라인 실행 (블로킹)
 pipeline.run()
 
-# Batch 추론을 등록한 경우 개발용 중앙 프로세스에서 실행
+# 개발용 중앙 프로세스에서 실행
 development_pipeline = Pipeline(
-    "development", config=Path("config.yaml"), batch_process="development"
+    "development", config=Path("config.yaml"), batch_server="development"
 )
 development_pipeline.run()
 ```
 
-`run()`은 `YoloInference(batch=True)`가 하나라도 있으면 생성자의 `batch_process` 별칭에 해당하는 중앙 프로세스에서 전체 파이프라인을 실행합니다. `Hotswap`, `CudaAsync`, `EveryNFrames`, `TapSkipIfBusy` 내부도 검사합니다. Batch 추론이 없으면 호출자 프로세스에서 실행하며 직렬화와 중앙 연결을 생략합니다. 두 경로는 동일한 단계 실행·설정 감시 로직을 사용합니다. 기본 별칭은 `"production"`입니다. 같은 별칭은 프로세스와 모델 작업자를 공유하고 다른 별칭은 별도 프로세스를 사용합니다. 각 프로세스에서 모델을 별도로 로드하며 같은 GPU의 자원과 장치 전체 장애는 공유합니다. 기존 `development=True`는 `batch_process="development"`로 바꿉니다. 자세한 동작은 [중앙 프로세스](main.md)를 참고하세요.
+`run()`은 생성자의 `batch_server` 별칭에 해당하는 중앙 프로세스에서 전체 파이프라인을 실행합니다. 추론 단계 유무, `batch` 값, 래퍼 구성은 실행 위치에 영향을 주지 않습니다. `batch=False`는 개별 추론을 사용하고 `batch=True`인 단계만 공유 배치 추론을 사용합니다. 기본 별칭은 `"production"`입니다. 같은 별칭은 프로세스를 공유하고 다른 별칭은 별도 프로세스를 사용합니다. 공유 배치 모델 작업자는 기존 공유 규칙을 따릅니다. 각 프로세스에서 모델을 별도로 로드하며 같은 GPU의 자원과 장치 전체 장애는 공유합니다. 기존 `development=True`는 `batch_server="development"`로 바꿉니다. 자세한 동작은 [중앙 프로세스](main.md)를 참고하세요.
 
 **동작:**
 - 모든 Step을 순차 연결
@@ -549,6 +549,6 @@ except Exception as e:
 
 step(step)는 같은 Pipeline을 반환해 연결 등록을 이어갈 수 있습니다. run()은 블로킹 실행이며 프레임 목록이나 추론 결과를 반환하지 않고 정상 종료 시 None입니다. 결과는 사용자 Step에서 소비·저장합니다. 앱 진입점은 if __name__ == "__main__"으로 보호하고 설정·모델 경로는 앱 파일 기준 절대경로로 만듭니다.
 
-생성자는 설정 파일을 즉시 읽으므로 파일을 먼저 준비해야 합니다. 일반 사용자 Step은 자동 Hotswap, 내장 Step은 코드 교체 없이 설정 감시를 적용합니다. config의 batch_process 키로 실행 그룹을 바꾸지 않으며 생성자 batch_process만 사용합니다. 로컬 실행의 오류는 원래 예외로, 중앙 실행의 오류는 전달된 메시지를 포함한 RuntimeError 등으로 보일 수 있습니다. 사용자 Step의 기본 오류 복구 범위는 [Hotswap](hotswap.md)을 참고하세요.
+생성자는 설정 파일을 즉시 읽으므로 파일을 먼저 준비해야 합니다. 일반 사용자 Step은 자동 Hotswap, 내장 Step은 코드 교체 없이 설정 감시를 적용합니다. config의 batch_server 키로 실행 그룹을 바꾸지 않으며 생성자 batch_server만 사용합니다. 중앙 실행의 오류는 전달된 메시지를 포함한 RuntimeError 등으로 보일 수 있습니다. 사용자 Step의 기본 오류 복구 범위는 [Hotswap](hotswap.md)을 참고하세요.
 
 [별도 앱 만들기](getting_started.md), [설정 파일](configuration.md), [전체 모듈](README.md)을 함께 참고하세요.

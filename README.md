@@ -48,9 +48,9 @@ pipeline.step(RTSPPublish(url="rtsp://mediamtx:8554/output"))
 pipeline.run()
 ```
 
-Batch 추론이 없는 파이프라인은 호출자 프로세스에서 실행합니다. 래퍼 내부를 포함해 `YoloInference(batch=True)`가 하나라도 있으면 전체 파이프라인을 중앙 프로세스에서 실행합니다. 두 경로는 같은 단계 실행기를 사용합니다.
+`Pipeline.run()`은 추론 단계의 유무나 `batch` 값에 관계없이 전체 파이프라인을 `batch_server`로 지정한 중앙 프로세스에서 실행합니다. `batch=False`는 개별 추론을 사용하고, `batch=True`인 단계만 공유 배치 추론을 사용합니다.
 
-Batch 실행의 중앙 프로세스를 분리하려면 `Pipeline("camera", config=Path("stream.yml"), batch_process="camera-a")`로 생성하고 `pipeline.run()`으로 실행합니다. `batch_process` 기본값은 `"production"`입니다. 같은 별칭끼리 프로세스와 모델 작업자를 공유하며, 다른 별칭에서는 모델을 따로 로드하고 같은 GPU의 자원은 공유합니다. 별칭은 대소문자를 구분하는 영문자·숫자·밑줄·하이픈 1~64자입니다. 기존 `development` 인자는 `batch_process="development"` 등으로 바꿉니다. [중앙 프로세스 그룹 안내](docs/pipeworks/main.md)를 참고하세요.
+중앙 프로세스를 분리하려면 `Pipeline("camera", config=Path("stream.yml"), batch_server="camera-a")`로 생성하고 `pipeline.run()`으로 실행합니다. `batch_server` 기본값은 `"production"`입니다. 같은 별칭끼리 프로세스를 공유하고 공유 배치 모델 작업자는 기존 공유 규칙을 따릅니다. 다른 별칭에서는 모델을 따로 로드하고 같은 GPU의 자원은 공유합니다. 별칭은 대소문자를 구분하는 영문자·숫자·밑줄·하이픈 1~64자입니다. 기존 `development` 인자는 `batch_server="development"` 등으로 바꿉니다. [중앙 프로세스 그룹 안내](docs/pipeworks/main.md)를 참고하세요.
 
 ### config.yaml (YAML 설정)
 

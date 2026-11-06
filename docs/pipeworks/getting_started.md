@@ -115,7 +115,7 @@ YoloInference의 backend는 반드시 지정합니다. 모델 경로는 BASE / "
 
 ## 배치와 사용자 모듈
 
-batch=True인 YoloInference가 래퍼 내부에 하나라도 있으면 **전체** 파이프라인이 중앙 프로세스로 전달됩니다. 생성자에는 열린 연결·GPU 모델·직렬화할 수 없는 잠금 대신 설정을 보관하고 실제 자원은 process에서 지연 생성합니다. backend="my_backends:MyBackend"처럼 문자열로 참조하는 모듈은 중앙 프로세스에서도 import 가능해야 합니다.
+`Pipeline.run()`은 추론 단계 유무와 `batch` 값에 관계없이 **전체** 파이프라인을 `batch_server`로 지정한 중앙 프로세스에 전달합니다. `batch=False`는 개별 추론을 사용하고 `batch=True`인 단계만 공유 배치 추론을 사용합니다. 생성자에는 열린 연결·GPU 모델·직렬화할 수 없는 잠금 대신 설정을 보관하고 실제 자원은 process에서 지연 생성합니다. backend="my_backends:MyBackend"처럼 문자열로 참조하는 모듈은 중앙 프로세스에서도 import 가능해야 합니다.
 
 중앙 프로세스는 사용자 Step을 cloudpickle로 전달하지만 임의 패키지·동적 import 경로·모델 파일을 모두 배포해 주지는 않습니다. 앱을 설치 가능한 패키지로 같은 Python 환경에 설치하거나, 중앙 프로세스를 처음 시작하기 전에 앱 경로를 PYTHONPATH에 설정합니다. 이미 실행 중인 중앙 프로세스는 새 PYTHONPATH를 상속하지 않습니다. 연결이 모두 끝나 자동 종료된 뒤 다시 실행하거나 개발 모드를 사용합니다.
 

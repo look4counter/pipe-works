@@ -1,6 +1,6 @@
 # Main: 중앙 스트림 프로세싱
 
-Batch 추론이 포함된 파이프라인을 별도의 중앙 프로세스에서 실행합니다 (내부용).
+파이프라인을 배치 추론 여부와 관계없이 별도의 중앙 프로세스에서 실행합니다 (내부용).
 
 **파일 위치:** `src/pipeworks/main.py`  
 **용도**: 내부 구현 (사용자는 직접 사용 안 함)
@@ -10,25 +10,25 @@ Batch 추론이 포함된 파이프라인을 별도의 중앙 프로세스에서
 ## 📚 개요
 
 - 파이프라인을 중앙 프로세스에서 관리
-- `pipeline.run()` 호출 시 Batch 추론이 있으면 자동으로 사용됨
+- `pipeline.run()` 호출 시 자동으로 사용됨
 - Named pipe를 통한 프로세스 간 통신
 
 ## 별칭으로 중앙 프로세스 분리
 
 ```python
-first_pipeline = Pipeline("first", config=Path("stream.yml"), batch_process="camera-a")
+first_pipeline = Pipeline("first", config=Path("stream.yml"), batch_server="camera-a")
 second_pipeline = Pipeline(
-    "second", config=Path("stream.yml"), batch_process="camera-b"
+    "second", config=Path("stream.yml"), batch_server="camera-b"
 )
 first_pipeline.run()
 second_pipeline.run()
 ```
 
-같은 설치·Windows 사용자·별칭의 Batch 파이프라인은 하나의 중앙 프로세스를 공유합니다. 별칭이 다르면 별도 프로세스와 연결 주소·시작 잠금을 사용합니다. Pipeline 생성자의 `batch_process` 기본값은 `"production"`입니다. 별칭은 대소문자를 구분하는 영문자·숫자·밑줄·하이픈 1~64자입니다. 비문자열은 TypeError, 잘못된 문자열은 ValueError로 거부합니다. 기존 `development` 인자는 제거되었습니다.
+같은 설치·Windows 사용자·별칭의 파이프라인은 하나의 중앙 프로세스를 공유합니다. 별칭이 다르면 별도 프로세스와 연결 주소·시작 잠금을 사용합니다. Pipeline 생성자의 `batch_server` 기본값은 `"production"`입니다. 별칭은 대소문자를 구분하는 영문자·숫자·밑줄·하이픈 1~64자입니다. 비문자열은 TypeError, 잘못된 문자열은 ValueError로 거부합니다. 기존 `development` 인자는 제거되었습니다.
 
-선택 그룹은 필요할 때 자동 시작하고 마지막 연결 종료 후 유휴 상태가 되면 자동 종료합니다. 한 그룹의 종료는 다른 그룹의 연결과 작업자를 종료하지 않습니다. `batch_process`는 생성자 옵션이며 YAML 실시간 변경 대상이 아닙니다. `run()`에는 선택 인자를 전달하지 않습니다. 파이프라인의 name은 프로세스 별칭과 별개입니다.
+선택 그룹은 필요할 때 자동 시작하고 마지막 연결 종료 후 유휴 상태가 되면 자동 종료합니다. 한 그룹의 종료는 다른 그룹의 연결과 작업자를 종료하지 않습니다. `batch_server`는 생성자 옵션이며 YAML 실시간 변경 대상이 아닙니다. `run()`에는 선택 인자를 전달하지 않습니다. 파이프라인의 name은 프로세스 별칭과 별개입니다.
 
-`YoloInference(batch=True)`가 하나라도 있으면 영상의 Step과 GPU 추론을 모두 선택한 중앙 프로세스에서 실행합니다. 래퍼 내부도 검사하며 일반 추론과 Batch 추론이 섞여 있어도 전체 파이프라인을 중앙에서 실행합니다. Batch 추론이 없는 파이프라인은 호출자 프로세스에서 실행합니다. 서로 다른 그룹은 모델 배치·엔진 세션을 공유하지 않으므로 같은 모델도 그룹마다 로드하여 GPU 메모리를 추가로 사용합니다. 같은 GPU의 연산·메모리 자원과 드라이버 리셋·장치 전체 장애는 공유합니다.
+`Pipeline.run()`은 추론 단계 유무나 `batch` 값과 관계없이 영상의 Step과 GPU 추론을 모두 선택한 중앙 프로세스에서 실행합니다. 래퍼 내부도 동일합니다. `batch=False`는 개별 추론을 사용하고 `batch=True`인 단계만 공유 배치 추론을 사용합니다. 중앙 실행을 위해 배치 옵션을 켤 필요는 없습니다. 서로 다른 그룹은 모델 배치·엔진 세션을 공유하지 않으므로 같은 모델도 그룹마다 로드하여 GPU 메모리를 추가로 사용합니다. 같은 GPU의 연산·메모리 자원과 드라이버 리셋·장치 전체 장애는 공유합니다.
 
 내부 서버를 직접 실행할 때도 그룹을 지정할 수 있습니다.
 
@@ -43,15 +43,13 @@ python -m pipeworks.main --server-group camera-a
 ```
 pipeline.run()
     ↓
-Batch 추론 존재 여부 검사
-    ├─ 없음 → 호출자에서 _run_local() 실행
-    └─ 있음 → run_remote() 호출
+run_remote() 호출 (batch_server로 서버 선택)
     ↓
 cloudpickle로 Pipeline 직렬화
     ↓
 named pipe를 통해 중앙 프로세스로 전송
     ↓
-main.py가 수신 후 실행
+main.py가 수신 후 _run_local(stop)으로 단계 실행
     ↓
 결과 반환
 ```
@@ -80,7 +78,7 @@ main.py가 수신 후 실행
 
 클라이언트는 약 0.25초마다 heartbeat를 보내고 서버는 약 2초 동안 확인하지 못하거나 연결이 끊기면 중단 신호를 설정합니다. 연결이 끊겨도 해당 파이프라인 실행 스레드가 리소스·로그 정리를 마치고 실제로 종료할 때까지 활성 요청으로 유지합니다. 정리 대기에는 고정 시간 제한이 없으며, 정리 중에도 다른 요청을 처리합니다. 마지막 실행의 정리가 끝난 뒤 약 1초 유휴 상태이면 서버가 종료되어 모델 작업자도 사라집니다. 블로킹 호출이나 정리가 끝나지 않으면 자동 유휴 종료도 계속 대기합니다. 결과는 완료 상태와 구조화 로그이며 프레임 반환 API가 아닙니다.
 
-서버 그룹과 Pipeline의 batch_process는 동일한 별칭 규칙을 사용합니다. 내부 연결 주소는 설치 경로와 Windows 사용자 SID의 해시를 기반으로 하며, production 이외의 별칭은 별칭의 SHA-256 해시를 주소와 잠금 파일에 덧붙여 구분합니다. 예제의 두 run() 호출은 각각 블로킹이므로 연속 호출하면 첫 실행이 끝난 뒤 다음 실행을 시작합니다.
+서버 그룹과 Pipeline의 batch_server는 동일한 별칭 규칙을 사용합니다. 내부 연결 주소는 설치 경로와 Windows 사용자 SID의 해시를 기반으로 하며, production 이외의 별칭은 별칭의 SHA-256 해시를 주소와 잠금 파일에 덧붙여 구분합니다. 예제의 두 run() 호출은 각각 블로킹이므로 연속 호출하면 첫 실행이 끝난 뒤 다음 실행을 시작합니다.
 
 [앱 실행 절차](getting_started.md), [설정과 경로](configuration.md), [공유 모델 작업자](local_yolo_inference.md)를 참고하세요.
 
@@ -108,6 +106,6 @@ pipeline.run()
 
 CudaAsync·TapSkipIfBusy·NvidiaDecode 및 보고 작업자는 기존 실행 문맥을 따라 로그를 전달합니다. 사용자가 별도로 만든 스레드는 copy_context 등으로 실행 문맥을 전달해야 하며 문맥 없는 기록을 다른 실행으로 보내지 않습니다. 연결 종료나 실행 완료 이후 늦은 작업자 기록은 폐기합니다.
 
-정책은 요청 시작의 스냅샷이므로 실행 중 호출자 수준을 더 낮춰도 서버에서 이미 필터된 기록을 복원할 수는 없습니다. 중앙에서 실행 도중 명시적으로 로그 수준이나 핸들러를 재설정하기보다는 호출자에서 설정합니다. 네이티브 TensorRT·FFmpeg 등 Python logging을 거치지 않는 출력은 별도 설정 대상입니다. 로컬 실행은 기존 logging 및 print 동작을 유지합니다.
+정책은 요청 시작의 스냅샷이므로 실행 중 호출자 수준을 더 낮춰도 서버에서 이미 필터된 기록을 복원할 수는 없습니다. 중앙에서 실행 도중 명시적으로 로그 수준이나 핸들러를 재설정하기보다는 호출자에서 설정합니다. 네이티브 TensorRT·FFmpeg 등 Python logging을 거치지 않는 출력은 별도 설정 대상입니다.
 
 내부 통신은 central-v20을 사용합니다. 이전 버전의 중앙 프로세스와 주소를 분리하여 구형 문자열 출력 메시지가 새 로그 메시지와 섞이지 않게 합니다.

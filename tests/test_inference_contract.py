@@ -115,8 +115,10 @@ class CudaContractTests(unittest.TestCase):
                 )
             self.assertIs(item.model_input["images"], tensor)
             if batch:
+                session.assert_not_called()
                 self.assertIs(shared.call_args.args[1]["images"], tensor)
             else:
+                shared.assert_not_called()
                 self.assertIs(
                     session.return_value.infer.call_args.args[0]["images"], tensor
                 )

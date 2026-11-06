@@ -44,15 +44,6 @@ def _has_stream_report(steps):
     return any(isinstance(step, StreamReport) for step in _iter_steps(steps))
 
 
-def _has_batch_inference(steps):
-    from pipeworks.embedded.yolo_inference import YoloInference
-
-    return any(
-        isinstance(step, YoloInference) and step.batch
-        for step in _iter_steps(steps)
-    )
-
-
 def _configure_async_children(step, sections):
     from pipeworks.embedded.cuda_async import CudaAsync
     from pipeworks.embedded.every_n_frames import EveryNFrames
@@ -172,9 +163,6 @@ class Pipeline:
         return self
 
     def run(self):
-        if not _has_batch_inference(self.steps):
-            return self._run_local()
-
         from pipeworks.main import run_remote
 
         return run_remote(self)
